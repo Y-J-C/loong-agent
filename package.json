@@ -1,0 +1,26 @@
+{
+  "name": "loong-agent",
+  "version": "0.1.0",
+  "description": "Lightweight Pi-style coding agent optimized for LoongArch developer boards.",
+  "private": true,
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "diagnose": "node src/index.js diagnose",
+    "compat": "node src/index.js compat",
+    "log": "node src/index.js log",
+    "doctor": "node src/index.js doctor"
+  },
+  "engines": {
+    "node": ">=14.16.0"
+  },
+  "keywords": [
+    "agent",
+    "loongarch",
+    "loongson",
+    "deepseek",
+    "openai-compatible"
+  ],
+  "license": "ISC"
+}

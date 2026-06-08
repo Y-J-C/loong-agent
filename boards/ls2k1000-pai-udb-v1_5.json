@@ -1,0 +1,31 @@
+{
+  "id": "ls2k1000-pai-udb-v1_5",
+  "model": "loongson,LS2K1000_PAI_UDB_V1_5",
+  "arch": "loongarch64",
+  "system": "Loongnix-Embedded GNU/Linux 20 (DaoXiangHu)",
+  "kernel": "4.19.0-18-loongson-2k",
+  "node": "v14.16.1",
+  "interfaces": {
+    "i2c": ["/dev/i2c-0", "/dev/i2c-1"],
+    "spi": ["/dev/spidev0.1", "/dev/spidev0.4"],
+    "gpio": "/sys/class/gpio"
+  },
+  "storage": {
+    "rootAvailable": "about 1.9 GiB",
+    "dataAvailable": "about 4.5 GiB",
+    "preferredWorkspace": "/data or /home/loongson/loong-agent"
+  },
+  "knownLimitations": [
+    "npm is not currently installed",
+    "g++ is not currently installed",
+    "npm/node-gyp dependency chain is blocked by libnode-dev and libssl-dev",
+    "g++ dependency chain is blocked by lne/lnd gcc package line mismatch",
+    "do not run real apt full-upgrade without a recoverable system image"
+  ],
+  "recommendedDefaults": [
+    "Use Node 14 CommonJS runtime for loong-agent",
+    "Keep command execution read-only unless explicitly confirmed",
+    "Use DeepSeek or another OpenAI-compatible remote model",
+    "Avoid direct upstream pi build on this board until Node/npm/g++ are resolved"
+  ]
+}
