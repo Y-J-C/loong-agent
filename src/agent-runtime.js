@@ -3,7 +3,7 @@
 const { createAgentState, finishRun } = require('./agent-state');
 const { runAgentLoop } = require('./agent-loop');
 const { createEventBus } = require('./event-bus');
-const { chatCompletion } = require('./llm');
+const { chatCompletionWithEvents } = require('./llm');
 const { createDefaultToolRegistry } = require('./tool-registry');
 
 function createQueue(mode) {
@@ -55,7 +55,7 @@ function createAgent(config, options) {
       userPrompt,
       state,
       registry,
-      chatCompletion,
+      chatCompletion: chatCompletionWithEvents,
       emit,
       isAborted: () => aborted,
       getSteeringMessages: () => steeringQueue.drain(),

@@ -50,7 +50,7 @@ test('status bar renders board status and plain theme avoids ANSI colors', () =>
     npmStatus: 'missing',
     gppStatus: 'missing',
   };
-  const output = renderTui(state, { columns: 140, rows: 20 });
+  const output = renderTui(state, { columns: 220, rows: 20 });
   assert(output.indexOf('board LS2K1000') >= 0, 'board missing from status');
   assert(output.indexOf('loongarch64') >= 0, 'arch missing from status');
   assert(output.indexOf('npm missing') >= 0, 'npm status missing');

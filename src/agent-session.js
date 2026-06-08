@@ -34,8 +34,65 @@ function createAgentSession(config, options) {
     prepareNextTurn,
   });
 
+  function createSessionAppender(targetSession) {
+    let pendingUpdate = null;
+    let lastWrittenAt = 0;
+    let lastWrittenLength = 0;
+    const minIntervalMs = 250;
+    const minChars = 256;
+
+    function appendNow(event) {
+      if (targetSession) targetSession.append(event);
+      if (event && event.type === 'message_update' && event.streaming) {
+        lastWrittenAt = Date.now();
+        lastWrittenLength = String(event.content || '').length;
+      }
+    }
+
+    function flushPending() {
+      if (!pendingUpdate) return;
+      appendNow(Object.assign({}, pendingUpdate, { coalesced: true }));
+      pendingUpdate = null;
+    }
+
+    return async (event) => {
+      if (!targetSession) return;
+      if (event && event.type === 'message_update' && event.role === 'assistant' && event.streaming) {
+        const now = Date.now();
+        const length = String(event.content || '').length;
+        const shouldWrite =
+          !lastWrittenAt ||
+          now - lastWrittenAt >= minIntervalMs ||
+          length - lastWrittenLength >= minChars ||
+          event.isFinal;
+        if (shouldWrite) {
+          pendingUpdate = null;
+          appendNow(event);
+        } else {
+          pendingUpdate = event;
+        }
+        return;
+      }
+      if (event && event.type === 'message_end' && event.role === 'assistant') {
+        if (
+          pendingUpdate &&
+          String(pendingUpdate.content || '') !== String(event.content || '')
+        ) {
+          flushPending();
+        } else {
+          pendingUpdate = null;
+        }
+      } else if (pendingUpdate && event && event.type !== 'message_update') {
+        flushPending();
+      }
+      appendNow(event);
+    };
+  }
+
+  const appendSessionEvent = createSessionAppender(session);
+
   agent.subscribe(async (event) => {
-    if (session) session.append(event);
+    await appendSessionEvent(event);
     await bus.emit(event);
   });
 

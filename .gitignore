@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 runs/
+dist/
 upstream/
 node_modules/
 npm-debug.log*

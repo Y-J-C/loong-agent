@@ -52,6 +52,7 @@ function loadConfig() {
     maxLoops: intEnv('LOONG_AGENT_MAX_LOOPS', 6),
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
+    streaming: boolEnv('LOONG_AGENT_STREAMING', true),
   };
 }
 

@@ -2,317 +2,276 @@
 
 ## 1. 当前任务目标
 
-把 `loong-agent` 从“可运行原型”持续推进到更接近上线质量的 Pi-style Agent Runtime。
+把 `loong-agent` 从开发机原型推进到可在真实龙芯板端解压即运行、可现场演示、可离线复盘的 Pi-style Agent Runtime 子集。
 
-当前已完成三个阶段：
+当前已完成到阶段七：
 
 - 阶段一：Agent Loop Hardening
 - 阶段二：Tool System 工程化
 - 阶段三：Session Audit Trail
-
-下一步建议进入：阶段四，优先补齐“可演示、可复盘、可交付”的 demo/replay/export 闭环，或进入知识层/RAG 前的 Evidence System 标准化。
+- 阶段四：TUI 可用性收口
+- 阶段五：Knowledge Layer Minimal Landing
+- 阶段六：真实 Streaming
+- 阶段七：板端上线验收
 
 ## 2. 已完成内容
 
-### Agent Loop Hardening
+### Agent Loop / Tool / Session
 
-- 固定核心事件流：
-  - `agent_start`
-  - `turn_start`
-  - `message_start/update/end`
-  - `tool_execution_start/end`
-  - `turn_end`
-  - `agent_end`
-- 支持并稳定接入：
-  - `beforeToolCall`
-  - `afterToolCall`
-  - `prepareNextTurn`
-- 失败路径已事件化：
-  - 模型失败
-  - abort
-  - invalid JSON
-  - 工具失败
-  - max loop
-  - 安全拒绝
-- `createAgentSession()` 默认接入工具安全策略和结果脱敏。
-- 安全拒绝可在 JSONL、TUI、HTML 中追踪。
+- Agent Loop 事件名稳定：`agent_start`、`turn_start`、`message_start/update/end`、`tool_execution_start/end`、`turn_end`、`agent_end`。
+- 默认接入工具安全策略、工具结果脱敏、`prepareNextTurn` hook chain。
+- 工具结果统一 envelope，并保留 `finish.finished`、`summary`、`board_profile.profile` 兼容字段。
+- Session 支持 JSONL v2、audit、recover、trace、Markdown/HTML export、offline replay。
+- Session audit 状态固定：`ok`、`warning`、`corrupt`、`incomplete`、`legacy`。
 
-### Tool System 工程化
+### TUI
 
-- 工具结果统一为 envelope：
+- TUI 已完成小终端、中文、长文本、长工具输出、错误/安全拒绝展示收口。
+- 支持核心命令：`/session`、`/audit`、`/export`、`/resume`、`/stats`、`/branch`、`/demo`、`/sessions`、`/tree`。
+- `selected/current/latest/demo/id` target 语义已固定。
+- TUI 永远不应渲染 API key、token、authorization、secret、credential、password、`.env` 明文。
 
-```js
-{
-  ok: true,
-  data: {},
-  summary: "",
-  evidence: [],
-  warnings: [],
-  error: ""
-}
+### Knowledge Layer
+
+- 已新增 `kb/` 框架：
+  - `board_profile.md`
+  - `environment_report.md`
+  - `software_stack.md`
+  - `compatibility_matrix.md`
+  - `risk_list.md`
+  - `command_reference.md`
+  - `source_index.md`
+  - `unknowns.md`
+  - `raw/README.md`
+- 已新增只读知识工具：
+  - `kb_topic`
+  - `kb_search`
+  - `risk_lookup`
+  - `command_reference`
+- 知识摘要已通过 `knowledgeContextHook` 接入默认 `prepareNextTurn`。
+- 知识库当前主要是框架和模板，具体内容后续慢慢填；`draft/unknown/待确认` 不能当确定事实。
+
+### Streaming
+
+- 默认开启 streaming，可用 `LOONG_AGENT_STREAMING=0` 关闭。
+- OpenAI-compatible provider 已支持 `/chat/completions` SSE streaming。
+- `message_update.content` 是完整快照，兼容字段包括 `streaming`、`delta`、`sequence`、`isFinal`。
+- provider 无 streaming 能力时自动 fallback 到非 streaming。
+- streaming abort 已接入现有 abort 语义。
+- Session 对高频 streaming `message_update` 做 coalescing，避免 JSONL 被 token 级事件撑爆。
+
+### Board Release / Acceptance
+
+- 新增 `.env.example`。
+- 新增 `scripts/create-offline-demo.js`，生成：
+  - `runs/sample-offline-demo.jsonl`
+  - `runs/sample-offline-demo.html`
+  - `runs/sample-offline-demo.md`
+- 新增 `scripts/board-smoke.js`，支持：
+  - `--quick`
+  - `--full`
+  - `--with-model`
+  - `--json`
+- 新增 `scripts/pack-release.js`，纯 Node 打包，不依赖 npm 或外部 tar。
+- `scripts/pack-release.ps1` 已改为转调 Node 打包脚本。
+- 新增 `docs/board-acceptance.md`。
+- 本地已生成 release：
+
+```text
+dist/loong-agent/
+dist/loong-agent.tar.gz
 ```
 
-- 兼容旧字段：
-  - `finish.finished`
-  - `finish.summary`
-  - `board_profile.profile`
-- 默认工具已补齐：
-  - `category`
-  - `safety`
-  - `evidencePolicy`
-  - `resultSchema`
-- 只读命令白名单已结构化：
-  - `READONLY_COMMAND_METADATA`
-  - `READONLY_COMMANDS`
-- Session/HTML/TUI 已优先读取 `summary/evidence/warnings`。
+- 板端 release 验收已通过：
 
-### Session Audit Trail
-
-- 新增 Session 审计能力：
-  - `auditSession(session)`
-  - `recoverSession(session)`
-  - `renderSessionAudit(session, options)`
-  - `renderSessionReplay(session, options)`
-- JSONL 读取继续容忍损坏行，并保留为：
-
-```js
-{
-  type: "invalid_json",
-  line: 12,
-  content: "...",
-  truncated: false
-}
+```text
+Host: 10.18.52.130
+User: loongson
+Port: 52101
+Release test path: /home/loongson/loong-pi-agent-release-test/loong-agent
+Node: v14.16.1
+board-smoke --full: passed=19 failed=0 skipped=0
 ```
-
-- 审计状态已固定：
-  - `ok`
-  - `warning`
-  - `corrupt`
-  - `incomplete`
-  - `legacy`
-- CLI 已新增：
-  - `node src/index.js session audit <id|latest> [--json]`
-  - `node src/index.js session replay <id|latest> [--trace|--markdown]`
-- TUI 已新增：
-  - `/audit [latest|id]`
-- Markdown/HTML/trace 导出已包含：
-  - Audit Summary
-  - Replay
-  - invalid JSON 标记
-  - tool error / policy blocked
-  - evidence / warnings 数量和展示
-- Replay 是纯离线复盘，不调用模型、不执行工具、不写回 session。
 
 ## 3. 关键文件和位置
 
-### Agent Loop
+### Runtime
 
 - `src/agent-loop.js`
   - Agent Loop 主体
-  - 工具调用生命周期
-  - `turn_end.status`
-  - `agent_end.status`
+  - streaming assistant message lifecycle
+  - tool lifecycle / turn status / abort
 - `src/agent-runtime.js`
   - `createAgent()`
-  - 避免重复 `agent_end`
+  - 使用 streaming-aware LLM helper
 - `src/agent-session.js`
-  - 默认安全 hook、脱敏 hook、session 写入入口
+  - session 事件写入
+  - streaming `message_update` coalescing
+- `src/llm.js`
+  - `chatCompletion()`
+  - `chatCompletionWithEvents()`
+- `src/provider-registry.js`
+  - OpenAI-compatible provider
+  - SSE parser / streaming request helper
 
-### Hook
-
-- `src/hooks/index.js`
-  - hook chain 组合
-- `src/hooks/tool-safety-policy.js`
-  - 默认工具安全策略
-- `src/hooks/tool-result-redaction.js`
-  - 工具结果脱敏
-
-### Tool System
+### Tools / Knowledge
 
 - `src/tool-registry.js`
-  - `createTool`
-  - `createToolRegistry`
-  - 工具元数据默认值
-  - 结果 envelope normalize
-- `src/tool-utils.js`
-  - `normalizeToolResult`
-- `src/tool-definition-wrapper.js`
-  - 工具定义包装
-- `src/tools.js`
-  - `READONLY_COMMAND_METADATA`
-  - `READONLY_COMMANDS`
-- `src/tools/*.js`
-  - 默认工具定义
+  - 工具 metadata 默认值
+  - result envelope normalize
+- `src/tools/index.js`
+  - 默认工具注册入口
+- `src/tools/kb-tools.js`
+  - `kb_topic` / `kb_search` / `risk_lookup` / `command_reference`
+- `src/kb.js`
+  - `kb/` topic 映射、metadata 解析、轻量搜索
+- `src/hooks/knowledge-context.js`
+  - 知识摘要注入 hook
+- `src/hooks/tool-safety-policy.js`
+  - 默认工具安全策略
 
-### Session / Audit / Export
+### Session / Export / TUI
 
 - `src/session.js`
-  - JSONL 读写
-  - Markdown/HTML/trace 导出
-  - Audit Summary / Replay 展示接入
+  - JSONL 读写、HTML/Markdown/trace export
 - `src/session-audit.js`
-  - session schema 校验
-  - recovery 只读语义
-  - audit/replay 渲染
-- `src/session-manager.js`
-  - list/read/latest/fork/lineage/tree/resume context
-- `src/session-repo.js`
-  - JSONL repo 子集
-  - prefix fork
-- `src/session-entry.js`
-  - entryId / parentEntryId 归一化
+  - audit/recover/replay
+- `src/tui/*.js`
+  - TUI 状态、渲染、命令、事件适配
 
-### CLI / TUI
+### Release / Tests
 
-- `src/index.js`
-  - `session audit`
-  - `session replay`
-  - `session --html/--markdown/--json`
-- `src/tui/commands.js`
-  - `/audit`
-  - `/session`
-  - `/export`
-  - `/resume`
-  - `/fork`
-
-### 文档
-
-- `docs/agent-loop-contract.md`
-- `docs/tool-system-contract.md`
-- `docs/session-system-contract.md`
-- `docs/Handoff：loong-agent 当前状态与下一步.md`
-
-### 测试
-
+- `scripts/board-smoke.js`
+- `scripts/create-offline-demo.js`
+- `scripts/pack-release.js`
+- `scripts/pack-release.ps1`
+- `scripts/test-streaming.js`
+- `scripts/test-knowledge-layer.js`
 - `scripts/test-runtime.js`
 - `scripts/test-session-tree.js`
 - `scripts/test-session-audit.js`
 - `scripts/test-cli-smoke.js`
 - `scripts/test-tui-*.js`
 
+### Docs
+
+- `docs/agent-loop-contract.md`
+- `docs/tool-system-contract.md`
+- `docs/session-system-contract.md`
+- `docs/tui-usage-contract.md`
+- `docs/knowledge-layer-contract.md`
+- `docs/provider-streaming-contract.md`
+- `docs/board-acceptance.md`
+- `docs/Handoff：loong-agent 当前状态与下一步.md`
+
 ## 4. 重要规则和限制
 
-- 必须保持：
-  - Node 14 兼容
-  - CommonJS
-  - 无 npm runtime 依赖
-  - 不引入外部 schema 库
-  - 不改 TypeScript
-- 不复制完整 upstream pi-agent，只做适配到龙芯派环境的等价子集。
-- Agent Loop 不依赖具体工具内部结构，只依赖：
-
-```text
-result.finished
-result.summary
-```
-
-- 工具 envelope 是向前标准，旧字段是兼容桥。
-- 安全策略必须在工具执行前硬拦，不依赖 prompt。
-- `.env`、API key、token、secret、authorization、credential 等敏感信息不得进入 TUI/HTML/export。
-- `run_readonly_command` 只能使用结构化白名单。
-- Session audit/replay/export 都必须是只读能力，不能改写原 JSONL。
-- 旧 session 必须继续可读、可导出、可 fork/resume。
+- 必须保持 Node 14 / CommonJS / 无 npm runtime 依赖。
+- 不引入 TypeScript、npm 包、外部 schema 库、外部 SSE parser、native build。
+- 不运行 `npm install`。
+- 不安装 npm/g++。
+- 不运行 `apt install`、`apt full-upgrade` 或系统修改命令。
+- 默认不开放写文件工具、不开放任意 shell、不开放系统升级/安装能力。
+- `run_readonly_command` 只能使用 `READONLY_COMMAND_METADATA` 派生的白名单。
+- `.env`、API key、token、authorization、secret、credential、password 不得进入 TUI/HTML/export/release。
+- `command_reference` 不能成为第二套命令白名单，权威来源仍是 `READONLY_COMMAND_METADATA`。
+- Agent Loop 只依赖工具结果的 `result.finished` / `result.summary` 兼容字段。
+- Replay/audit/recovery/export 都是只读能力，不得改写原 JSONL。
+- Streaming partial JSON 不进入 tool parser；只在完整 assistant content 后解析工具调用。
 
 ## 5. 已确认结论
 
-- 本机阶段三回归已通过：
-  - `node scripts/test-session-audit.js`
+- 本机完整回归已通过：
   - `node scripts/test-runtime.js`
   - `node scripts/test-session-tree.js`
+  - `node scripts/test-session-audit.js`
   - `node scripts/test-cli-smoke.js`
+  - `node scripts/test-knowledge-layer.js`
+  - `node scripts/test-streaming.js`
   - 全部 `node scripts/test-tui-*.js`
-  - `node --check src/session-audit.js`
-  - `node --check src/session.js`
-  - `node --check src/index.js`
-  - `node --check src/tui/commands.js`
-- 板端已同步并通过 Node 14 回归：
+  - `node --check src/*.js src/tools/*.js src/hooks/*.js scripts/*.js`
+- 本机 release 验证已通过：
+  - `node scripts/create-offline-demo.js`
+  - `node scripts/board-smoke.js --quick`
+  - `node scripts/pack-release.js --out dist/loong-agent`
+  - 解压 `dist/loong-agent.tar.gz` 后可运行 quick smoke 和 HTML export
+- 本机 sandbox 中 `board-smoke` 子进程步骤会因宿主限制标记为 `skipped`；这是本机沙箱限制，不代表板端失败。
+- 板端 release 验收已通过：
 
 ```text
-Host: 10.18.52.130
-User: loongson
-Port: 52101
-Path: /home/loongson/loong-pi-agent
-Node: v14.16.1
+cd /home/loongson/loong-pi-agent-release-test/loong-agent
+node -v
+node src/index.js compat
+node src/index.js diagnose
+node scripts/board-smoke.js --full
+node src/index.js session latest --html --out runs/board-release-latest.html
 ```
 
-- 板端已通过：
-  - `node scripts/test-session-audit.js`
-  - `node scripts/test-runtime.js`
-  - `node scripts/test-session-tree.js`
-  - `node scripts/test-cli-smoke.js`
-  - 全部 TUI/export 核心测试
-- 板端 HTML 审计导出已成功：
+- 板端产物已确认存在：
 
 ```text
-/home/loongson/loong-pi-agent/runs/session-audit-trail-board.html
+runs/board-smoke-report.json
+runs/board-smoke-report.md
+runs/board-smoke-latest.html
+runs/board-release-latest.html
+runs/sample-offline-demo.html
 ```
 
-- CLI smoke 已确认：
-  - `node src/index.js session audit latest`
-  - `node src/index.js session replay latest`
-  - `node src/index.js session latest --html --out runs/session-audit-trail-board.html`
+- `dist/loong-agent.tar.gz` 当前已生成。
+- `dist/loong-agent/RELEASE_MANIFEST.json` 当前记录：
+
+```text
+version: 0.1.0
+gitCommit: 05988818fb0a
+nodeBaseline: >=14.16.0
+boardProfileId: ls2k1000-pai-udb-v1_5
+smokeCommand: node scripts/board-smoke.js --full
+```
 
 ## 6. 待确认事项
 
-- 「待确认」当前本地目录没有 `.git`，是否需要重新初始化或恢复 git 工作树。
-- 「待确认」是否清理远端项目根目录中早前误传的同名文件副本。
-- 「待确认」是否把本地或板端 HTML 检查产物纳入 release/demo 包。
-- 「待确认」阶段四优先做：
-  - demo/replay/export 演示闭环
-  - Evidence System 标准化
-  - Knowledge/RAG 前置准备
-  - 受控写操作工具
-- 「待确认」是否同步更新 `docs/pi-agent-analysis` 下的长期路线文档。
+- 「待确认」阶段六和阶段七当前工作区变更尚未提交；是否作为一个提交，或拆分为 streaming 与 release acceptance 两个提交。
+- 「待确认」是否把 `dist/` release 产物纳入 Git；当前 `dist/` 是未跟踪目录。
+- 「待确认」真实 OpenAI-compatible API key / 网络是否可用；`board-smoke --with-model` 尚未作为硬验收。
+- 「待确认」是否清理板端 `/home/loongson/loong-pi-agent` 根目录早前误传的源码副本；本阶段未清理。
+- 「待确认」是否更新 `docs/pi-agent-analysis/` 下长期路线文档；本阶段未更新。
+- 「待确认」release 版本号是否从 `0.1.0` 提升到新的验收版本。
 
 ## 7. 不要重复做的事情
 
-- 不要重复实现 Agent Loop 生命周期 hook。
-- 不要重复实现默认安全 hook。
-- 不要重复实现工具结果 envelope normalize。
-- 不要再手写第二份只读命令白名单，使用 `READONLY_COMMAND_METADATA`。
-- 不要破坏旧字段兼容：
-  - `summary`
-  - `finished`
-  - `profile`
-- 不要让 Agent Loop 依赖 audit/replay/export。
+- 不要重复实现 Agent Loop 生命周期、tool lifecycle、安全 hook、result envelope、session audit、TUI 收口、知识层框架或 streaming adapter。
+- 不要再写第二套只读命令白名单。
+- 不要把知识库 `draft/unknown/待确认` 当确定事实。
+- 不要让 Agent Loop 依赖 session audit/export/replay。
 - 不要让 replay 调模型或执行工具。
-- 不要让 audit/recovery 修改原 JSONL。
-- 不要引入 npm 包、TypeScript、复杂 schema 库或真实 streaming。
-- 不要默认开放 bash、写文件、apt、npm install、chmod、rm、mv 等能力。
+- 不要让 session 保存每个 streaming token。
+- 不要把 release 验收绑定到真实 API key。
+- 不要把 `.env` 或历史大量 `runs/` 全量打进 release。
+- 不要默认清理远端旧文件，除非用户明确要求。
 
 ## 8. 建议下一步
 
-建议进入阶段四：Demo / Evidence / Delivery Hardening。
+建议下一步先做收口，而不是继续扩架构：
 
-优先目标：
+1. 提交当前阶段六/七变更。
+   - 建议拆成两个提交：
+     - `实现真实 Streaming Provider`
+     - `增加板端上线验收与 Release Pack`
+   - 如果希望历史简单，也可合并为一个提交。
+2. 决定 `dist/` 是否纳入 Git。
+   - 推荐：不提交 `dist/`，只提交脚本和文档；release artifact 通过脚本生成。
+   - 如果比赛/交付要求“一拉仓库就有离线 HTML”，可只提交 `runs/sample-offline-demo.*`，不提交完整 `dist/`。
+3. 如有 API key，在板端补跑：
 
-- 固定一条可离线演示链路：
-  - seed session
-  - audit
-  - replay
-  - HTML export
-  - board verification
-- 增强 evidence 语义：
-  - evidence id
-  - source type
-  - source path / command / session id
-  - citation-friendly summary
-  - HTML 可展开证据卡
-- 增加 demo fixture：
-  - 可复现 JSONL
-  - 可复现 HTML
-  - 可在无模型网络时展示
-- 增加 export QA：
-  - 敏感信息扫描
-  - HTML 包含 Audit Summary
-  - HTML 包含 Replay
-  - HTML 包含工具 evidence/warnings
-- 继续板端 Node 14 验证。
+```bash
+cd /home/loongson/loong-pi-agent-release-test/loong-agent
+node scripts/board-smoke.js --with-model
+```
 
-建议验收标准：
-
-- 任意 demo 可以离线复盘。
-- 任意失败 session 可以导出可读报告。
-- evidence 能解释工具结论来源。
-- HTML 可作为答辩/交付产物直接打开。
-- 本机和板端测试继续通过。
+4. 可选清理板端开发目录早前误传文件副本，但需单独确认范围。
+5. 后续阶段建议进入 Release/Docs polish：
+   - 固定版本号
+   - 生成 release notes
+   - 明确 dist 是否入库
+   - 更新 README 中所有过时阶段描述
+   - 准备最终现场演示脚本

@@ -131,6 +131,85 @@ async function emitAssistantMessage(context, content, options) {
   });
 }
 
+async function startAssistantMessage(context, options) {
+  const emit = context.emit;
+  const isError = Boolean(options && options.isError);
+  const errorCode = options && options.errorCode ? options.errorCode : undefined;
+  await emit({
+    type: 'message_start',
+    role: 'assistant',
+    loop: context.turn,
+    content: '',
+    isError,
+    errorCode,
+    streaming: Boolean(options && options.streaming),
+  });
+}
+
+async function updateAssistantMessage(context, content, options) {
+  const emit = context.emit;
+  await emit({
+    type: 'message_update',
+    role: 'assistant',
+    loop: context.turn,
+    content,
+    delta: options && options.delta ? options.delta : undefined,
+    sequence: options && options.sequence ? options.sequence : undefined,
+    streaming: Boolean(options && options.streaming),
+    isFinal: Boolean(options && options.isFinal),
+  });
+}
+
+async function endAssistantMessage(context, content, options) {
+  const state = context.state;
+  const emit = context.emit;
+  const isError = Boolean(options && options.isError);
+  const errorCode = options && options.errorCode ? options.errorCode : undefined;
+  recordAssistantMessage(state, content);
+  await emit({
+    type: 'message_end',
+    role: 'assistant',
+    loop: context.turn,
+    content,
+    isError,
+    errorCode,
+    streaming: Boolean(options && options.streaming),
+    isFinal: true,
+  });
+}
+
+async function emitStreamingAssistantMessage(context, messages, chatCompletion) {
+  let content = '';
+  let sequence = 0;
+  let emittedUpdate = false;
+  content = await chatCompletion(context.config, messages, {
+    isAborted: context.isAborted,
+    onDelta: async (delta) => {
+      content += delta;
+      sequence += 1;
+      if (!emittedUpdate) {
+        await startAssistantMessage(context, { streaming: true });
+        context.assistantMessageOpen = true;
+      }
+      emittedUpdate = true;
+      context.assistantStreamingContent = content;
+      await updateAssistantMessage(context, content, {
+        delta,
+        sequence,
+        streaming: true,
+        isFinal: false,
+      });
+    },
+  });
+  if (!emittedUpdate) {
+    await emitAssistantMessage(context, content);
+    return content;
+  }
+  await endAssistantMessage(context, content, { streaming: emittedUpdate });
+  context.assistantMessageOpen = false;
+  return content;
+}
+
 function validateAction(action) {
   if (!action || typeof action !== 'object') {
     throw createLoopError('Model JSON must be an object', 'invalid_tool_action');
@@ -344,10 +423,24 @@ async function failRun(context, error, options) {
   const code = error && error.code ? error.code : (options && options.code) || 'agent_loop_error';
   if (context.turn && !context.errorMessageEmitted) {
     context.errorMessageEmitted = true;
-    await emitAssistantMessage(context, `Agent error: ${message}`, {
-      isError: true,
-      errorCode: code,
-    });
+    if (context.assistantMessageOpen) {
+      const content = `${context.assistantStreamingContent || ''}\nAgent error: ${message}`.trim();
+      await updateAssistantMessage(context, content, {
+        streaming: true,
+        isFinal: true,
+      });
+      await endAssistantMessage(context, content, {
+        streaming: true,
+        isError: true,
+        errorCode: code,
+      });
+      context.assistantMessageOpen = false;
+    } else {
+      await emitAssistantMessage(context, `Agent error: ${message}`, {
+        isError: true,
+        errorCode: code,
+      });
+    }
     await emitTurnEnd(context, {
       isError: true,
       status: 'error',
@@ -431,6 +524,7 @@ async function runAgentLoop(options) {
       turn,
       turnEnded: false,
       turnStartedAt: Date.now(),
+      isAborted,
     };
     await emit({
       type: 'turn_start',
@@ -452,18 +546,21 @@ async function runAgentLoop(options) {
 
     let content;
     try {
-      content = await chatCompletion(
-        config,
-        buildMessages(currentUserPrompt || state.userPrompt, state.observations, state.tools, state.messages)
-      );
+      const messages = buildMessages(currentUserPrompt || state.userPrompt, state.observations, state.tools, state.messages);
+      if (config.streaming === false) {
+        content = await chatCompletion(config, messages);
+      } else {
+        content = await emitStreamingAssistantMessage(turnContext, messages, chatCompletion);
+      }
     } catch (error) {
       return failRun(turnContext, error, { code: 'model_request_error' });
     }
     if (isAborted()) {
       return failRun(turnContext, createLoopError('Agent run aborted', 'aborted'));
     }
-
-    await emitAssistantMessage(turnContext, content);
+    if (config.streaming === false) {
+      await emitAssistantMessage(turnContext, content);
+    }
 
     let action;
     try {

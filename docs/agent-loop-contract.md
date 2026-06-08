@@ -19,6 +19,31 @@ agent_end
 
 Event names are stable. New fields are compatible extensions.
 
+## Streaming Assistant Messages
+
+Providers may stream assistant content. Streaming keeps the same event names:
+
+```text
+message_start
+message_update*
+message_end
+```
+
+For streaming runs, `message_update.content` is the full assistant content snapshot so far, not a token delta. Compatible fields may be present:
+
+```js
+{
+  streaming: true,
+  delta: "new text fragment",
+  sequence: 1,
+  isFinal: false
+}
+```
+
+`message_end.content` is always the complete assistant message. Agent Loop parses tool JSON only after `message_end`; partial JSON must not trigger tool parsing or invalid JSON retry.
+
+If a provider does not support streaming, the same loop falls back to the non-streaming path and still emits a single `message_update`.
+
 ## Stable Status Values
 
 `agent_end.status`:
@@ -116,6 +141,7 @@ All failures must enter the event stream:
 
 - Model failure: assistant error message, failed `turn_end`, one `agent_end.status = "error"`.
 - Abort: `errorCode = "aborted"`.
+- Streaming abort: the active streaming request is interrupted, then the existing abort failure semantics apply.
 - Tool failure: `tool_execution_end.isError = true`; the agent may continue.
 - Safety block: `errorType = "policy_blocked"` and `turn_end.status = "policy_blocked"`.
 - Max loops: `agent_end.status = "max_loops"`.

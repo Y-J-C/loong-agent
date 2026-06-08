@@ -84,6 +84,20 @@ Unreadable lines are preserved as events:
 
 Readers, Markdown export, HTML export, trace, and replay must continue with the recoverable events.
 
+## Streaming Updates
+
+Streaming assistant output uses the same `message_update` event type. Session writers may coalesce high-frequency streaming updates so JSONL is not written once per token.
+
+Coalescing rules:
+
+- non-streaming events are appended normally;
+- streaming `message_update` may be written at interval/size thresholds;
+- `message_end.content` must always contain the complete assistant message;
+- consumers must treat `message_end` as the final source of assistant content;
+- optional fields such as `streaming`, `delta`, `sequence`, and `coalesced` are compatible extensions.
+
+Coalescing must not apply to `message_start`, `message_end`, tool events, turn events, or agent terminal events.
+
 ## Recovery
 
 `recoverSession(session)` is read-only. It returns the recoverable event list and audit summary. It never writes back to the original JSONL file.
