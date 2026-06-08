@@ -52,6 +52,8 @@ async function main() {
   const latest = manager.latest();
   const html = renderSessionHtml(latest);
   assert(html.indexOf('smoke-branch') >= 0, 'html render missing branch name');
+  assert(html.indexOf('Capability Coverage') >= 0, 'html render missing capability coverage');
+  assert(html.indexOf('Tools called') >= 0, 'html render missing tools called coverage');
   const written = writeSessionExport(config, latest, { out: 'runs/latest.html', format: 'html' });
   assert(fs.existsSync(written), 'html export output missing');
   assert(first.session && first.session.id, 'base session missing');

@@ -377,6 +377,8 @@ function renderSessionMarkdown(session) {
   lines.push('');
   lines.push(renderSessionAudit(session));
   lines.push('');
+  lines.push(renderCapabilityCoverageMarkdown(collectCapabilityCoverage(session)));
+  lines.push('');
   lines.push('## Replay');
   lines.push('');
   lines.push(renderSessionReplay(session));
@@ -486,11 +488,196 @@ function findBoardProfileSummary(session) {
   return null;
 }
 
+function sortedCounts(map) {
+  return Object.keys(map)
+    .sort()
+    .map((name) => Object.assign({ name }, map[name]));
+}
+
+function sortedSourceCounts(map) {
+  return Object.keys(map)
+    .sort()
+    .map((source) => ({
+      source,
+      count: map[source].count,
+    }));
+}
+
+function addCount(map, key) {
+  const name = key || 'unknown';
+  if (!map[name]) map[name] = { count: 0 };
+  map[name].count += 1;
+  return map[name];
+}
+
+function addUnique(list, value) {
+  if (!value) return;
+  if (list.indexOf(value) < 0) list.push(value);
+}
+
+function policyFromResult(result) {
+  if (!result || typeof result !== 'object') return '';
+  if (result.policy) return result.policy;
+  if (result.data && result.data.policy) return result.data.policy;
+  return '';
+}
+
+function knowledgeKey(item) {
+  return [
+    item.topic || '',
+    item.path || item.file || '',
+    item.status || '',
+    item.confidence || '',
+  ].join('|');
+}
+
+function collectCapabilityCoverage(session) {
+  const events = session.events || [];
+  const toolsCalled = {};
+  const toolsFailed = {};
+  const policyBlocked = {};
+  const evidenceSources = {};
+  const knowledgeSources = {};
+
+  for (const event of events) {
+    if (event.type === 'tool_execution_start') {
+      addCount(toolsCalled, event.toolName);
+    }
+    if (event.type !== 'tool_execution_end') continue;
+
+    const toolName = event.toolName || 'unknown';
+    const result = event.result || {};
+    const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+
+    if (event.isError || event.status === 'error' || event.status === 'tool_error') {
+      const failed = addCount(toolsFailed, toolName);
+      if (!failed.errorTypes) failed.errorTypes = [];
+      addUnique(failed.errorTypes, event.errorType || event.status || 'error');
+    }
+
+    if (event.errorType === 'policy_blocked' || event.status === 'policy_blocked') {
+      const blocked = addCount(policyBlocked, toolName);
+      if (!blocked.policies) blocked.policies = [];
+      addUnique(blocked.policies, policyFromResult(result) || 'policy_blocked');
+    }
+
+    for (const item of evidence) {
+      if (!item || typeof item !== 'object') continue;
+      const source = item.source || 'unknown';
+      addCount(evidenceSources, source);
+      if (source === 'kb') {
+        const key = knowledgeKey(item);
+        if (!knowledgeSources[key]) {
+          knowledgeSources[key] = {
+            topic: item.topic || '',
+            path: item.path || item.file || '',
+            status: item.status || '',
+            confidence: item.confidence || '',
+            count: 0,
+          };
+        }
+        knowledgeSources[key].count += 1;
+      }
+    }
+  }
+
+  return {
+    toolsCalled: sortedCounts(toolsCalled).map((item) => ({
+      name: item.name,
+      count: item.count,
+    })),
+    toolsFailed: sortedCounts(toolsFailed).map((item) => ({
+      name: item.name,
+      count: item.count,
+      errorTypes: (item.errorTypes || []).sort(),
+    })),
+    policyBlocked: sortedCounts(policyBlocked).map((item) => ({
+      name: item.name,
+      count: item.count,
+      policies: (item.policies || []).sort(),
+    })),
+    evidenceSources: sortedSourceCounts(evidenceSources),
+    knowledgeSources: Object.keys(knowledgeSources)
+      .sort()
+      .map((key) => knowledgeSources[key]),
+  };
+}
+
+function renderCoverageMarkdownList(items, renderItem) {
+  if (!items.length) return ['- None'];
+  return items.map((item) => `- ${renderItem(item)}`);
+}
+
+function renderCapabilityCoverageMarkdown(coverage) {
+  const lines = [];
+  lines.push('## Capability Coverage');
+  lines.push('');
+  lines.push('Tools called:');
+  lines.push(...renderCoverageMarkdownList(coverage.toolsCalled, (item) => `${item.name}: ${item.count}`));
+  lines.push('');
+  lines.push('Tools failed:');
+  lines.push(...renderCoverageMarkdownList(coverage.toolsFailed, (item) => `${item.name}: ${item.count}${item.errorTypes.length ? ` (${item.errorTypes.join(', ')})` : ''}`));
+  lines.push('');
+  lines.push('Policy blocked:');
+  lines.push(...renderCoverageMarkdownList(coverage.policyBlocked, (item) => `${item.name}: ${item.count}${item.policies.length ? ` (${item.policies.join(', ')})` : ''}`));
+  lines.push('');
+  lines.push('Evidence sources:');
+  lines.push(...renderCoverageMarkdownList(coverage.evidenceSources, (item) => `${item.source}: ${item.count}`));
+  lines.push('');
+  lines.push('Knowledge evidence:');
+  lines.push(...renderCoverageMarkdownList(coverage.knowledgeSources, (item) => {
+    const parts = [
+      item.topic || 'unknown',
+      item.path ? `path=${item.path}` : '',
+      item.status ? `status=${item.status}` : '',
+      item.confidence ? `confidence=${item.confidence}` : '',
+      `count=${item.count}`,
+    ].filter(Boolean);
+    return parts.join(' ');
+  }));
+  return lines.join('\n');
+}
+
+function renderCoverageLine(items, empty, renderItem) {
+  if (!items.length) return `<div class="meta">${escapeHtml(empty)}</div>`;
+  return items
+    .slice(0, 8)
+    .map((item) => `<div class="meta">${escapeHtml(renderItem(item))}</div>`)
+    .join('\n');
+}
+
+function renderCapabilityCoverageHtml(coverage) {
+  return [
+    '<section class="card"><h2>Capability Coverage</h2>',
+    '<div class="meta"><strong>Tools called</strong></div>',
+    renderCoverageLine(coverage.toolsCalled, 'No tool calls.', (item) => `${item.name}: ${item.count}`),
+    '<div class="meta"><strong>Tools failed</strong></div>',
+    renderCoverageLine(coverage.toolsFailed, 'No tool failures.', (item) => `${item.name}: ${item.count}${item.errorTypes.length ? ` (${item.errorTypes.join(', ')})` : ''}`),
+    '<div class="meta"><strong>Policy blocked</strong></div>',
+    renderCoverageLine(coverage.policyBlocked, 'No policy blocks.', (item) => `${item.name}: ${item.count}${item.policies.length ? ` (${item.policies.join(', ')})` : ''}`),
+    '<div class="meta"><strong>Evidence sources</strong></div>',
+    renderCoverageLine(coverage.evidenceSources, 'No evidence sources.', (item) => `${item.source}: ${item.count}`),
+    '<div class="meta"><strong>Knowledge evidence</strong></div>',
+    renderCoverageLine(coverage.knowledgeSources, 'No knowledge evidence.', (item) => {
+      const parts = [
+        item.topic || 'unknown',
+        item.path ? `path=${item.path}` : '',
+        item.status ? `status=${item.status}` : '',
+        item.confidence ? `confidence=${item.confidence}` : '',
+        `count=${item.count}`,
+      ].filter(Boolean);
+      return parts.join(' ');
+    }),
+    '</section>',
+  ].join('\n');
+}
+
 function renderSessionHtml(session) {
   const meta = sessionMeta(session);
   const stats = collectSessionStats(session);
   const audit = auditSession(session);
   const board = findBoardProfileSummary(session);
+  const coverage = collectCapabilityCoverage(session);
   const timeline = collectTimeline(session)
     .map((item) => {
       const classes = ['event'];
@@ -572,6 +759,7 @@ function renderSessionHtml(session) {
       ? `<pre>${escapeHtml(audit.issues.slice(0, 8).map((item) => `${item.level} ${item.code}: ${item.message}`).join('\n'))}</pre>`
       : '<div class="meta">No audit issues.</div>',
     '</section>',
+    renderCapabilityCoverageHtml(coverage),
     '<section class="card"><h2>Board Profile</h2>',
     board ? `<div class="meta">Model: <code>${escapeHtml(board.model)}</code></div>` : '<div class="meta">No board_profile event found.</div>',
     board && board.arch ? `<div class="meta">Arch: <code>${escapeHtml(board.arch)}</code></div>` : '',
@@ -674,6 +862,7 @@ function renderSessionTrace(session) {
 }
 
 module.exports = {
+  collectCapabilityCoverage,
   createJsonlSession,
   listSessions,
   openJsonlSession,

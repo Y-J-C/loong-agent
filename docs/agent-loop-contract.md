@@ -19,6 +19,216 @@ agent_end
 
 Event names are stable. New fields are compatible extensions.
 
+## Core Event Schemas
+
+All events are JSON objects. Session writers add entry metadata documented in
+`docs/session-system-contract.md`; Agent Loop consumers must treat those fields as
+compatible metadata, not as part of the loop decision logic.
+
+### `agent_start`
+
+Required fields:
+
+```js
+{
+  type: "agent_start",
+  prompt: "original user prompt"
+}
+```
+
+Compatible fields:
+
+- `timestamp`, `entryId`, `parentEntryId`, `leaf`.
+
+Consumer notes:
+
+- Marks the start of one agent run inside a session.
+- The prompt is display/audit data. It must not be mutated by export or replay consumers.
+
+### `turn_start`
+
+Required fields:
+
+```js
+{
+  type: "turn_start",
+  loop: 1
+}
+```
+
+Consumer notes:
+
+- `loop` is the one-based Agent Loop turn number.
+- A run can contain multiple turns before `finish`, `max_loops`, or failure.
+
+### `message_start`
+
+Required fields:
+
+```js
+{
+  type: "message_start",
+  role: "user|assistant",
+  loop: 1,
+  content: ""
+}
+```
+
+Compatible fields:
+
+- `internal`: true when the user-role message is steering or retry context.
+- `streaming`: true for assistant streaming lifecycle.
+- `isError`, `errorCode` for assistant error messages.
+
+Consumer notes:
+
+- `message_start` opens the visible message lifecycle. Consumers should not parse tool JSON here.
+
+### `message_update`
+
+Required fields:
+
+```js
+{
+  type: "message_update",
+  role: "assistant",
+  loop: 1,
+  content: "complete snapshot so far"
+}
+```
+
+Compatible fields:
+
+- `streaming`, `delta`, `sequence`, `isFinal`, `coalesced`.
+- `isError`, `errorCode`.
+
+Consumer notes:
+
+- `content` is a snapshot, not only a delta.
+- Partial JSON must not trigger tool parsing.
+- Session writers may coalesce high-frequency streaming updates.
+
+### `message_end`
+
+Required fields:
+
+```js
+{
+  type: "message_end",
+  role: "user|assistant",
+  loop: 1,
+  content: "complete message"
+}
+```
+
+Compatible fields:
+
+- `internal`, `streaming`, `isFinal`, `isError`, `errorCode`.
+
+Consumer notes:
+
+- For assistant messages, this is the only event where Agent Loop parses tool JSON.
+- Export and replay consumers should treat this as the final assistant content.
+
+### `tool_execution_start`
+
+Required fields:
+
+```js
+{
+  type: "tool_execution_start",
+  loop: 1,
+  toolCallId: "turn-1-tool-abcdef",
+  toolName: "runtime_health",
+  args: {},
+  executionMode: "sequential"
+}
+```
+
+Compatible fields:
+
+- `reason`, `callSummary`, `startedAt`.
+
+Consumer notes:
+
+- Current runtime emits `executionMode: "sequential"`.
+- A policy-blocked tool call still has a start event.
+
+### `tool_execution_end`
+
+Required fields:
+
+```js
+{
+  type: "tool_execution_end",
+  loop: 1,
+  toolCallId: "turn-1-tool-abcdef",
+  toolName: "runtime_health",
+  status: "ok|error",
+  isError: false,
+  result: {},
+  resultSummary: "",
+  durationMs: 0
+}
+```
+
+Compatible fields:
+
+- `errorType`, usually `policy_blocked`, `tool_execution_error`,
+  `before_tool_call_error`, or an implementation-specific stable code.
+
+Consumer notes:
+
+- `toolCallId` matches the corresponding start event when available.
+- Export and TUI consumers should prefer `result.summary`, `result.evidence`,
+  and `result.warnings`.
+- Policy blocks use `isError: true`, `status: "error"`, and
+  `errorType: "policy_blocked"`.
+
+### `turn_end`
+
+Required fields:
+
+```js
+{
+  type: "turn_end",
+  loop: 1,
+  status: "ok|tool_error|policy_blocked|retry|error"
+}
+```
+
+Compatible fields:
+
+- `isError`, `reason`, `toolName`.
+
+Consumer notes:
+
+- Summarizes one loop turn after model parsing and optional tool execution.
+- `retry` means invalid model JSON was handled without ending the run.
+
+### `agent_end`
+
+Required fields:
+
+```js
+{
+  type: "agent_end",
+  status: "ok|error|max_loops",
+  turns: 1,
+  durationMs: 0
+}
+```
+
+Compatible fields:
+
+- `summary` for normal completion.
+- `error`, `errorCode` for terminal failures.
+
+Consumer notes:
+
+- A runtime must emit only one terminal `agent_end` for a run.
+- `max_loops` is a stable terminal status, not an unhandled exception.
+
 ## Streaming Assistant Messages
 
 Providers may stream assistant content. Streaming keeps the same event names:
@@ -147,3 +357,19 @@ All failures must enter the event stream:
 - Max loops: `agent_end.status = "max_loops"`.
 
 Runtime must not emit duplicate `agent_end` after Agent Loop already emitted a terminal failure event.
+
+## Test Mapping
+
+The current contract is proved by these local checks:
+
+| Contract area | Evidence |
+| --- | --- |
+| Normal event order and `turn_end` emission | `node scripts/test-runtime.js`, test `finish event order includes turn_end` |
+| Tool error lifecycle and `turn_end.status = "tool_error"` | `node scripts/test-runtime.js`, test `tool events include stable metadata and turn status` |
+| Safety block lifecycle and `policy_blocked` status | `node scripts/test-runtime.js`, tests `beforeToolCall can block a tool call without crashing the loop` and `agent session default safety blocks dangerous readonly command` |
+| Model failure and abort terminal events | `node scripts/test-runtime.js`, tests `model failure is recorded as assistant error lifecycle` and `abort after model response records failed turn and agent end` |
+| Max loop terminal status | `node scripts/test-runtime.js`, test `max loop completion records max_loops status` |
+| Streaming snapshots, final `message_end`, fallback, and abort | `node scripts/test-streaming.js` |
+| Session audit and export visibility | `node scripts/test-session-audit.js` |
+| CLI session tree, fork, lineage, and HTML export | `node scripts/test-cli-smoke.js` |
+| Board-facing smoke path and latest HTML export | `node scripts/board-smoke.js --quick` |

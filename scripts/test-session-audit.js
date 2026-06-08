@@ -8,6 +8,7 @@ const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
 const {
   auditSession,
+  collectCapabilityCoverage,
   readSessionFromPath,
   renderSessionHtml,
   renderSessionMarkdown,
@@ -155,6 +156,58 @@ test('policy blocks, tool errors, evidence, and warnings are counted', () => {
   assert(audit.stats.policyBlocked === 1, 'policy blocked count mismatch');
   assert(audit.stats.evidence === 1, 'evidence count mismatch');
   assert(audit.stats.warnings === 1, 'warnings count mismatch');
+});
+
+test('exports include capability coverage and knowledge evidence', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'coverage', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'coverage', rootSessionId: 'coverage', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'coverage' }),
+    JSON.stringify({ type: 'message_end', role: 'user', content: 'show coverage' }),
+    JSON.stringify({ type: 'message_end', role: 'assistant', content: '{"tool":"run_readonly_command","input":{"command":"node -v"},"reason":"check"}' }),
+    JSON.stringify({ type: 'tool_execution_start', loop: 1, toolName: 'run_readonly_command', toolCallId: 'a' }),
+    JSON.stringify({
+      type: 'tool_execution_end',
+      loop: 1,
+      toolName: 'run_readonly_command',
+      toolCallId: 'a',
+      isError: true,
+      status: 'error',
+      errorType: 'policy_blocked',
+      result: {
+        ok: false,
+        policy: 'readonly_allowlist',
+        summary: 'blocked',
+        evidence: [
+          { source: 'command' },
+          { source: 'kb', topic: 'risk_list', path: 'kb/risk_list.md', status: 'draft', confidence: 'unknown' },
+        ],
+        warnings: ['blocked'],
+      },
+    }),
+    JSON.stringify({ type: 'turn_end', loop: 1, status: 'policy_blocked' }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const coverage = collectCapabilityCoverage(session);
+  const html = renderSessionHtml(session);
+  const markdown = renderSessionMarkdown(session);
+
+  assert(coverage.toolsCalled[0].name === 'run_readonly_command', 'coverage missing called tool');
+  assert(coverage.toolsFailed[0].errorTypes[0] === 'policy_blocked', 'coverage missing failed error type');
+  assert(coverage.policyBlocked[0].policies[0] === 'readonly_allowlist', 'coverage missing blocked policy');
+  assert(coverage.evidenceSources.some((item) => item.source === 'command'), 'coverage missing command evidence source');
+  assert(coverage.knowledgeSources.some((item) => item.topic === 'risk_list'), 'coverage missing kb knowledge source');
+  assert(html.indexOf('Capability Coverage') >= 0, 'html missing capability coverage');
+  assert(html.indexOf('Tools called') >= 0, 'html missing tools called section');
+  assert(html.indexOf('policy_blocked') >= 0, 'html missing policy_blocked');
+  assert(html.indexOf('Knowledge evidence') >= 0, 'html missing knowledge evidence');
+  assert(html.indexOf('risk_list') >= 0, 'html missing kb topic');
+  assert(html.indexOf('kb/risk_list.md') >= 0, 'html missing kb path');
+  assert(html.indexOf('draft') >= 0, 'html missing kb status');
+  assert(html.indexOf('unknown') >= 0, 'html missing kb confidence');
+  assert(markdown.indexOf('## Capability Coverage') >= 0, 'markdown missing capability coverage');
+  assert(markdown.indexOf('Evidence sources') >= 0, 'markdown missing evidence sources');
 });
 
 test('replay and markdown are offline renderers', () => {

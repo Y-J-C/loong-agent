@@ -14,7 +14,7 @@ Loong-Agent 是一个面向龙芯 LoongArch 开发板的轻量级 Pi-style Agent
 
 ## 当前状态
 
-Loong-Agent 当前已完成七个阶段的工程收口：
+Loong-Agent 当前已有七个阶段的工程收口，并通过测试、源码和契约文档形成可追溯证据：
 
 | 阶段 | 状态 | 说明 |
 | --- | --- | --- |
@@ -25,6 +25,18 @@ Loong-Agent 当前已完成七个阶段的工程收口：
 | 5. Knowledge Layer Minimal Landing | 已完成 | `kb/` 框架、知识工具和 `prepareNextTurn` 知识摘要注入。 |
 | 6. 真实 Streaming | 已完成 | OpenAI-compatible SSE streaming、fallback、abort、session update coalescing。 |
 | 7. 板端上线验收 | 已完成 | board smoke、offline demo、release pack、板端验收文档。 |
+
+能力证据映射：
+
+| 能力项 | 证明测试 | 源码 / 契约位置 | 验证命令 |
+| --- | --- | --- | --- |
+| Agent Loop 生命周期、事件顺序、失败语义 | `finish event order includes turn_end`、`tool events include stable metadata and turn status`、`max loop completion records max_loops status` | `src/agent-loop.js`、`docs/agent-loop-contract.md` | `node scripts/test-runtime.js` |
+| Tool System definition-first、envelope、只读命令白名单 | `default tools expose metadata contract`、`tool registry wraps legacy tool results in envelope`、`readonly command allowlist is derived from metadata` | `src/tool-registry.js`、`src/tools.js`、`docs/tool-system-contract.md` | `node scripts/test-runtime.js` |
+| Session Audit Trail、recover、replay、Markdown/HTML export | `normal v2 session audits ok`、`corrupt JSONL line is preserved and export still works`、`exports include capability coverage and knowledge evidence` | `src/session.js`、`src/session-audit.js`、`docs/session-system-contract.md` | `node scripts/test-session-audit.js` |
+| TUI 小终端、中文、长文本、工具错误、安全拒绝、导出 | TUI renderer/input/commands/session selector/events/theme/stats/export demo 测试 | `src/tui/`、`docs/tui-usage-contract.md` | `node scripts/test-tui-renderer.js`、`node scripts/test-tui-input.js`、`node scripts/test-tui-commands.js`、`node scripts/test-tui-session-selector.js`、`node scripts/test-tui-events.js`、`node scripts/test-tui-theme.js`、`node scripts/test-tui-stats.js`、`node scripts/test-tui-export-demo.js` |
+| Knowledge Layer `kb/` topic、metadata、只读知识工具和摘要注入 | knowledge layer topic/search/risk/command/reference/prepareNextTurn 相关测试 | `src/kb.js`、`src/tools.js`、`docs/knowledge-layer-contract.md` | `node scripts/test-knowledge-layer.js` |
+| OpenAI-compatible Streaming、fallback、abort、coalescing | streaming provider、fallback、abort、coalescing、TUI partial JSON 测试 | `src/provider-registry.js`、`src/llm.js`、`src/agent-session.js`、`docs/provider-streaming-contract.md` | `node scripts/test-streaming.js` |
+| 板端 smoke、offline demo、release pack、HTML 复盘 | board smoke quick/full 路径、release pack 脚本、offline demo 生成 | `scripts/board-smoke.js`、`scripts/create-offline-demo.js`、`scripts/pack-release.js`、`docs/board-acceptance.md` | `node scripts/board-smoke.js --quick` |
 
 仍不在当前范围内：
 
