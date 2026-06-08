@@ -273,6 +273,18 @@ function collectTimeline(session) {
           result: event.result,
         },
       });
+    } else if (event.type === 'context_update') {
+      timeline.push({
+        type: 'context_update',
+        title: `Context update after ${event.toolName || 'tool'}`,
+        timestamp: event.timestamp,
+        detail: {
+          contextAdditions: event.contextAdditions || [],
+          knowledgeEvidence: event.knowledgeEvidence || [],
+          warnings: event.warnings || [],
+          budget: event.budget || {},
+        },
+      });
     } else if (event.type === 'invalid_json') {
       timeline.push({
         type: 'invalid_json',
@@ -528,6 +540,8 @@ function knowledgeKey(item) {
     item.path || item.file || '',
     item.status || '',
     item.confidence || '',
+    item.last_updated || '',
+    item.sources || '',
   ].join('|');
 }
 
@@ -542,6 +556,30 @@ function collectCapabilityCoverage(session) {
   for (const event of events) {
     if (event.type === 'tool_execution_start') {
       addCount(toolsCalled, event.toolName);
+    }
+    if (event.type === 'context_update') {
+      const contextEvidence = Array.isArray(event.knowledgeEvidence) ? event.knowledgeEvidence : [];
+      for (const item of contextEvidence) {
+        if (!item || typeof item !== 'object') continue;
+        const source = item.source || 'kb';
+        addCount(evidenceSources, source);
+        if (source === 'kb') {
+          const key = knowledgeKey(item);
+          if (!knowledgeSources[key]) {
+            knowledgeSources[key] = {
+              topic: item.topic || '',
+              path: item.path || item.file || '',
+              status: item.status || '',
+              confidence: item.confidence || '',
+              last_updated: item.last_updated || '',
+              sources: item.sources || '',
+              count: 0,
+            };
+          }
+          knowledgeSources[key].count += 1;
+        }
+      }
+      continue;
     }
     if (event.type !== 'tool_execution_end') continue;
 
@@ -573,6 +611,8 @@ function collectCapabilityCoverage(session) {
             path: item.path || item.file || '',
             status: item.status || '',
             confidence: item.confidence || '',
+            last_updated: item.last_updated || '',
+            sources: item.sources || '',
             count: 0,
           };
         }
@@ -631,6 +671,8 @@ function renderCapabilityCoverageMarkdown(coverage) {
       item.path ? `path=${item.path}` : '',
       item.status ? `status=${item.status}` : '',
       item.confidence ? `confidence=${item.confidence}` : '',
+      item.last_updated ? `last_updated=${item.last_updated}` : '',
+      item.sources ? `sources=${item.sources}` : '',
       `count=${item.count}`,
     ].filter(Boolean);
     return parts.join(' ');
@@ -664,6 +706,8 @@ function renderCapabilityCoverageHtml(coverage) {
         item.path ? `path=${item.path}` : '',
         item.status ? `status=${item.status}` : '',
         item.confidence ? `confidence=${item.confidence}` : '',
+        item.last_updated ? `last_updated=${item.last_updated}` : '',
+        item.sources ? `sources=${item.sources}` : '',
         `count=${item.count}`,
       ].filter(Boolean);
       return parts.join(' ');
@@ -844,6 +888,10 @@ function renderSessionTrace(session) {
       lines.push(`tool_execution_end: ${event.toolName} [${status}${reason}${duration}${evidence}${warnings}]`);
     } else if (event.type === 'turn_end') {
       lines.push(`turn_end #${event.loop}${event.status ? ` [${event.status}]` : ''}`);
+    } else if (event.type === 'context_update') {
+      const evidence = Array.isArray(event.knowledgeEvidence) ? event.knowledgeEvidence.length : 0;
+      const warnings = Array.isArray(event.warnings) ? event.warnings.length : 0;
+      lines.push(`context_update #${event.loop || ''} evidence=${evidence} warnings=${warnings}`);
     } else if (event.type === 'agent_start') {
       lines.push('agent_start');
     } else if (event.type === 'agent_end') {

@@ -83,14 +83,26 @@ function extractSection(text, heading) {
 }
 
 function knowledgeWarning(record) {
-  if (!record) return '';
+  const warnings = knowledgeWarnings(record);
+  return warnings.length ? warnings[0] : '';
+}
+
+function knowledgeWarnings(record) {
+  const warnings = [];
+  if (!record) return warnings;
   if (DRAFT_STATUSES.has(String(record.status || '').toLowerCase())) {
-    return 'Knowledge topic exists but content is still draft/unknown.';
+    warnings.push('Knowledge topic exists but content is still draft/unknown.');
   }
-  if (/待确认|unknown/i.test(`${record.sources || ''} ${record.confidence || ''}`)) {
-    return 'Knowledge topic has unresolved source or confidence fields.';
+  if (!record.last_updated || /待确认|unknown/i.test(String(record.last_updated || ''))) {
+    warnings.push('Knowledge topic freshness is unresolved.');
   }
-  return '';
+  if (!record.sources || /待确认|unknown/i.test(String(record.sources || ''))) {
+    warnings.push('Knowledge topic source is unresolved.');
+  }
+  if (/^(low|unknown)$/i.test(String(record.confidence || ''))) {
+    warnings.push('Knowledge topic confidence is low or unknown.');
+  }
+  return warnings;
 }
 
 function evidenceFor(config, topic, record) {
@@ -100,6 +112,8 @@ function evidenceFor(config, topic, record) {
     topic,
     status: record.status,
     confidence: record.confidence,
+    last_updated: record.last_updated,
+    sources: record.sources,
   };
 }
 
@@ -132,11 +146,12 @@ function readTopic(config, topic) {
     unknowns,
     text,
   });
-  const warning = knowledgeWarning(record);
+  const warnings = knowledgeWarnings(record);
   return {
     ok: true,
     record,
-    warning,
+    warning: warnings.length ? warnings[0] : '',
+    warnings,
   };
 }
 
@@ -177,6 +192,7 @@ function searchKnowledge(config, query, options) {
       unknowns: summarize(record.unknowns || '', 300),
       evidence: evidenceFor(config, topic, record),
       warning: loaded.warning,
+      warnings: loaded.warnings || (loaded.warning ? [loaded.warning] : []),
     });
   }
   return matches.sort((a, b) => b.score - a.score || a.topic.localeCompare(b.topic)).slice(0, limit);
@@ -198,7 +214,7 @@ function buildTopicEnvelope(config, topic) {
     };
   }
   const record = loaded.record;
-  const warnings = loaded.warning ? [loaded.warning] : [];
+  const warnings = loaded.warnings || (loaded.warning ? [loaded.warning] : []);
   return {
     ok: true,
     data: {
@@ -227,6 +243,7 @@ module.exports = {
   buildTopicEnvelope,
   evidenceFor,
   kbRoot,
+  knowledgeWarnings,
   listTopics,
   readTopic,
   searchKnowledge,

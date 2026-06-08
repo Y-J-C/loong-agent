@@ -50,6 +50,7 @@ function loadConfig() {
     model: process.env.LOONG_AGENT_MODEL || 'deepseek-chat',
     provider: process.env.LOONG_AGENT_PROVIDER || 'openai-compatible',
     maxLoops: intEnv('LOONG_AGENT_MAX_LOOPS', 6),
+    contextBudgetChars: intEnv('LOONG_AGENT_CONTEXT_BUDGET', 1800),
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),

@@ -7,33 +7,47 @@ const { toolResultRedactionHook } = require('./tool-result-redaction');
 const { toolErrorRecoveryHook } = require('./tool-error-recovery');
 const { toolSafetyPolicyHook } = require('./tool-safety-policy');
 
-function appendHookWarning(context, error) {
-  if (!context || !context.state || !Array.isArray(context.state.observations)) return;
-  context.state.observations.push({
-    loop: context.state.turn || context.loop || 0,
-    tool: 'hook_warning',
-    reason: 'prepareNextTurn hook failed',
-    input: {},
-    result: {
-      error: error && error.message ? error.message : String(error),
-    },
-  });
+function emptyContextResult() {
+  return {
+    contextAdditions: [],
+    knowledgeEvidence: [],
+    warnings: [],
+  };
+}
+
+function appendItems(target, key, values) {
+  if (!Array.isArray(values) || !values.length) return;
+  target[key].push.apply(target[key], values);
+}
+
+function mergeContextResult(target, result) {
+  if (!result) return target;
+  appendItems(target, 'contextAdditions', result.contextAdditions);
+  appendItems(target, 'knowledgeEvidence', result.knowledgeEvidence);
+  appendItems(target, 'warnings', result.warnings);
+  return target;
+}
+
+function hookWarning(error) {
+  return `prepareNextTurn hook failed: ${error && error.message ? error.message : String(error)}`;
 }
 
 function createHookRunner(hooks) {
   const chain = (hooks || []).filter((hook) => typeof hook === 'function');
   return {
     prepareNextTurn: async (context) => {
+      const aggregate = emptyContextResult();
       for (const hook of chain) {
         try {
-          await hook(context);
+          mergeContextResult(aggregate, await hook(context));
         } catch (error) {
-          appendHookWarning(context, error);
+          aggregate.warnings.push(hookWarning(error));
           if (context && context.config && context.config.debugHooks) {
             console.warn(`prepareNextTurn hook failed: ${error.message}`);
           }
         }
       }
+      return aggregate;
     },
   };
 }
@@ -85,6 +99,7 @@ module.exports = {
   createBeforeToolCallChain,
   createDefaultPrepareNextTurn,
   createHookRunner,
+  emptyContextResult,
   finalTurnSummaryHook,
   knowledgeContextHook,
   loongBoardContextHook,

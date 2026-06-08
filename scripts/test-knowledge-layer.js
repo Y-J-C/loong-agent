@@ -6,6 +6,7 @@ const path = require('path');
 const { createDefaultToolRegistry } = require('../src/tool-registry');
 const { createHookRunner, knowledgeContextHook } = require('../src/hooks');
 const { listTopics, readTopic } = require('../src/kb');
+const { buildMessagesFromTurnContext, buildTurnContext } = require('../src/prompts');
 const { READONLY_COMMAND_METADATA } = require('../src/tools');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -113,7 +114,7 @@ testAsync('command_reference uses READONLY_COMMAND_METADATA as authoritative sou
   });
 });
 
-test('knowledgeContextHook injects cautious knowledge observations', () => {
+test('knowledgeContextHook returns cautious structured knowledge context', () => {
   const state = {
     turn: 2,
     observations: [],
@@ -121,17 +122,16 @@ test('knowledgeContextHook injects cautious knowledge observations', () => {
       { role: 'user', content: 'Check LoongArch command risk and unknowns.' },
     ],
   };
-  knowledgeContextHook({
+  const result = knowledgeContextHook({
     config: config(),
     state,
     action: { tool: 'run_readonly_command', input: { command: 'node -v' } },
     result: { summary: 'command ok' },
   });
-  assert(state.observations.length === 1, 'missing knowledge observation');
-  const observation = state.observations[0];
-  assert(observation.tool === 'knowledge_context', 'wrong observation tool');
-  assert(observation.result.evidence.length > 0, 'missing observation evidence');
-  assert(/uncertain/.test(observation.result.caution), 'missing uncertainty caution');
+  assert(state.observations.length === 0, 'knowledge hook should not mutate observations');
+  assert(result.contextAdditions.length > 0, 'missing knowledge context additions');
+  assert(result.knowledgeEvidence.length > 0, 'missing knowledge evidence');
+  assert(result.warnings.some((item) => /uncertain|draft|confidence|source/i.test(item)), 'missing uncertainty warning');
 });
 
 testAsync('hook runner captures knowledge hook failures as warnings', async () => {
@@ -141,7 +141,40 @@ testAsync('hook runner captures knowledge hook failures as warnings', async () =
       throw new Error('knowledge failed');
     },
   ]);
-  await runner.prepareNextTurn({ state });
-  assert(state.observations.length === 1, 'missing hook warning');
-  assert(state.observations[0].tool === 'hook_warning', 'wrong warning tool');
+  const result = await runner.prepareNextTurn({ state });
+  assert(state.observations.length === 0, 'hook warning should not mutate observations');
+  assert(result.warnings.length === 1, 'missing hook warning');
+  assert(/knowledge failed/.test(result.warnings[0]), 'wrong warning text');
+});
+
+test('turn context applies knowledge budget and keeps metadata', () => {
+  const state = {
+    tools: [],
+    messages: [{ role: 'user', content: 'check risk' }],
+    observations: [],
+    contextAdditions: [{
+      title: 'Long knowledge',
+      content: 'x'.repeat(1000),
+    }],
+    knowledgeEvidence: [{
+      source: 'kb',
+      topic: 'risk_list',
+      path: 'kb/risk_list.md',
+      status: 'draft',
+      confidence: 'unknown',
+      last_updated: '待确认',
+      sources: '待确认',
+    }],
+    contextWarnings: ['Knowledge topic source is unresolved.'],
+  };
+  const turnContext = buildTurnContext({
+    config: Object.assign(config(), { contextBudgetChars: 240 }),
+    state,
+    userPrompt: 'check risk',
+  });
+  const messages = buildMessagesFromTurnContext(turnContext);
+  assert(turnContext.kbSummary.length <= 240, 'kb summary exceeded budget');
+  assert(turnContext.kbSummary.indexOf('risk_list') >= 0, 'kb summary missing evidence topic');
+  assert(messages[1].content.indexOf('Controlled context / knowledge additions') >= 0, 'prompt missing controlled context');
+  assert(messages[1].content.indexOf('待确认') >= 0, 'prompt missing pending confirmation warning');
 });

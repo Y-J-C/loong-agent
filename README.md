@@ -83,6 +83,7 @@ LOONG_AGENT_API_KEY=your_api_key
 LOONG_AGENT_MODEL=deepseek-chat
 LOONG_AGENT_PROVIDER=openai-compatible
 LOONG_AGENT_MAX_LOOPS=6
+LOONG_AGENT_CONTEXT_BUDGET=1800
 LOONG_AGENT_STREAMING=1
 LOONG_AGENT_ALLOW_WRITE=0
 LOONG_AGENT_ALLOW_COMMANDS=0
@@ -91,6 +92,7 @@ LOONG_AGENT_ALLOW_COMMANDS=0
 说明：
 
 - `LOONG_AGENT_STREAMING=1` 为默认值；设为 `0` 可强制走非 streaming 路径。
+- `LOONG_AGENT_CONTEXT_BUDGET=1800` 限制每轮注入 prompt 的知识上下文长度。
 - 没有 API key 时，mock/provider-free smoke、session、TUI、导出、知识工具和 release 验收仍可运行。
 - 不要把 `.env`、API key、token、authorization、secret、credential、password 放进 session、TUI 截图、HTML 导出或 release 包。
 
@@ -348,6 +350,8 @@ confidence: high | medium | low | unknown
 ```
 
 当前知识层重点是框架和引用机制，不把空模板或 `draft/unknown/待确认` 当成确定事实。
+
+Agent Loop 每轮使用显式 turn context 组织 prompt 输入。默认 `prepareNextTurn` 返回结构化 `contextAdditions`、`knowledgeEvidence` 和 `warnings`，并写入 `context_update` session 事件；知识内容按 `LOONG_AGENT_CONTEXT_BUDGET` 控制长度，draft、unknown、low-confidence 和 `待确认` 内容只作为不确定证据注入。
 
 ## Session Audit 与离线复盘
 

@@ -2,6 +2,9 @@
 
 function createAgentState(options) {
   return {
+    contextAdditions: [],
+    contextWarnings: [],
+    knowledgeEvidence: [],
     messages: [],
     observations: [],
     tools: (options && options.tools) || [],

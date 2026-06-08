@@ -20,6 +20,8 @@ function countResultItems(events, key) {
   for (const event of events) {
     const result = event.result || {};
     if (Array.isArray(result[key])) count += result[key].length;
+    if (key === 'evidence' && Array.isArray(event.knowledgeEvidence)) count += event.knowledgeEvidence.length;
+    if (key === 'warnings' && Array.isArray(event.warnings)) count += event.warnings.length;
   }
   return count;
 }
@@ -113,8 +115,8 @@ function auditSession(session) {
     toolsEnded: toolEndEvents.length,
     toolErrors: toolEndEvents.filter((event) => event.isError).length,
     policyBlocked: toolEndEvents.filter((event) => event.errorType === 'policy_blocked').length,
-    evidence: countResultItems(toolEndEvents, 'evidence'),
-    warnings: countResultItems(toolEndEvents, 'warnings'),
+    evidence: countResultItems(toolEndEvents.concat(events.filter((event) => event.type === 'context_update')), 'evidence'),
+    warnings: countResultItems(toolEndEvents.concat(events.filter((event) => event.type === 'context_update')), 'warnings'),
   };
   const status = deriveStatus(issues, header);
   return {

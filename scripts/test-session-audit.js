@@ -210,6 +210,42 @@ test('exports include capability coverage and knowledge evidence', () => {
   assert(markdown.indexOf('Evidence sources') >= 0, 'markdown missing evidence sources');
 });
 
+test('exports include context update knowledge metadata', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'context-update', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'context-update', rootSessionId: 'context-update', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'context' }),
+    JSON.stringify({
+      type: 'context_update',
+      loop: 1,
+      toolName: 'loong_env_check',
+      contextAdditions: [{ title: 'Knowledge topic: risk_list', content: 'risk summary' }],
+      knowledgeEvidence: [{
+        source: 'kb',
+        topic: 'risk_list',
+        path: 'kb/risk_list.md',
+        status: 'draft',
+        confidence: 'unknown',
+        last_updated: '待确认',
+        sources: '待确认',
+      }],
+      warnings: ['Knowledge topic source is unresolved.'],
+      budget: { contextBudgetChars: 1800 },
+    }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const coverage = collectCapabilityCoverage(session);
+  const html = renderSessionHtml(session);
+  const markdown = renderSessionMarkdown(session);
+  assert(coverage.knowledgeSources.some((item) => item.topic === 'risk_list'), 'coverage missing context update knowledge evidence');
+  assert(html.indexOf('Context update after loong_env_check') >= 0, 'html missing context update');
+  assert(html.indexOf('risk_list') >= 0, 'html missing risk topic');
+  assert(html.indexOf('confidence') >= 0, 'html missing confidence');
+  assert(html.indexOf('待确认') >= 0, 'html missing pending confirmation');
+  assert(markdown.indexOf('contextAdditions') >= 0, 'markdown missing context additions');
+});
+
 test('replay and markdown are offline renderers', () => {
   const workspace = tempWorkspace();
   const file = writeSession(workspace, 'replay', [

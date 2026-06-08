@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildMessages } = require('./prompts');
+const { buildMessagesFromTurnContext, buildTurnContext } = require('./prompts');
 const {
   finishRun,
   recordAssistantMessage,
@@ -392,7 +392,7 @@ async function runAfterToolCall(context, action, tool, toolCallId, execution) {
 
 async function prepareForNextTurn(context, action, result, isError) {
   if (!context.prepareNextTurn) return;
-  await context.prepareNextTurn({
+  const update = await context.prepareNextTurn({
     config: context.config,
     state: context.state,
     action,
@@ -402,6 +402,35 @@ async function prepareForNextTurn(context, action, result, isError) {
     turn: context.turn,
     maxLoops: context.config.maxLoops,
   });
+  const normalized = {
+    contextAdditions: update && Array.isArray(update.contextAdditions) ? update.contextAdditions : [],
+    knowledgeEvidence: update && Array.isArray(update.knowledgeEvidence) ? update.knowledgeEvidence : [],
+    warnings: update && Array.isArray(update.warnings) ? update.warnings : [],
+  };
+  if (!context.state.contextAdditions) context.state.contextAdditions = [];
+  if (!context.state.knowledgeEvidence) context.state.knowledgeEvidence = [];
+  if (!context.state.contextWarnings) context.state.contextWarnings = [];
+  context.state.contextAdditions = context.state.contextAdditions.concat(normalized.contextAdditions);
+  context.state.knowledgeEvidence = context.state.knowledgeEvidence.concat(normalized.knowledgeEvidence);
+  context.state.contextWarnings = context.state.contextWarnings.concat(normalized.warnings);
+  if (
+    normalized.contextAdditions.length ||
+    normalized.knowledgeEvidence.length ||
+    normalized.warnings.length
+  ) {
+    await context.emit({
+      type: 'context_update',
+      loop: context.turn,
+      toolName: action && action.tool ? action.tool : '',
+      contextAdditions: normalized.contextAdditions,
+      knowledgeEvidence: normalized.knowledgeEvidence,
+      warnings: normalized.warnings,
+      budget: {
+        contextBudgetChars: context.config.contextBudgetChars || 1800,
+      },
+    });
+  }
+  return normalized;
 }
 
 async function emitTurnEnd(context, options) {
@@ -546,7 +575,13 @@ async function runAgentLoop(options) {
 
     let content;
     try {
-      const messages = buildMessages(currentUserPrompt || state.userPrompt, state.observations, state.tools, state.messages);
+      const modelTurnContext = buildTurnContext({
+        config,
+        state,
+        tools: state.tools,
+        userPrompt: currentUserPrompt || state.userPrompt,
+      });
+      const messages = buildMessagesFromTurnContext(modelTurnContext);
       if (config.streaming === false) {
         content = await chatCompletion(config, messages);
       } else {

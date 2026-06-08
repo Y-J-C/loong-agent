@@ -7,7 +7,7 @@ const path = require('path');
 const { createAgent } = require('../src/agent-runtime');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
-const { createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
+const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
 const { registerProvider } = require('../src/llm');
 const { createSessionManager } = require('../src/session-manager');
 const { renderSessionTrace } = require('../src/session');
@@ -765,30 +765,71 @@ test('hook runner executes hooks in order', async () => {
   assert(order.join(',') === 'a,b', `unexpected hook order: ${order.join(',')}`);
 });
 
-test('hook runner records warning observation when a hook throws', async () => {
+test('hook runner returns structured warning when a hook throws', async () => {
   const state = { observations: [], turn: 1 };
   const runner = createHookRunner([
     async () => {
       throw new Error('hook failed');
     },
   ]);
-  await runner.prepareNextTurn({ state });
-  assert(state.observations.length === 1, 'missing hook warning observation');
-  assert(state.observations[0].tool === 'hook_warning', 'warning observation has wrong tool');
-  assert(/hook failed/.test(state.observations[0].result.error), 'warning did not include hook error');
+  const result = await runner.prepareNextTurn({ state });
+  assert(state.observations.length === 0, 'hook warning should not mutate observations');
+  assert(result.warnings.length === 1, 'missing hook warning');
+  assert(/hook failed/.test(result.warnings[0]), 'warning did not include hook error');
 });
 
-test('tool error recovery hook appends runtime context', async () => {
+test('tool error recovery hook returns structured runtime context', async () => {
   const state = { observations: [], turn: 1 };
-  toolErrorRecoveryHook({
+  const result = toolErrorRecoveryHook({
     state,
     isError: true,
     action: { tool: 'read_file' },
     result: { error: 'outside workspace' },
   });
-  assert(state.observations.length === 1, 'missing tool error recovery observation');
-  assert(state.observations[0].tool === 'runtime_context', 'unexpected recovery observation tool');
-  assert(/outside workspace/.test(state.observations[0].result.lastToolError), 'missing tool error text');
+  assert(state.observations.length === 0, 'tool error recovery should not mutate observations');
+  assert(result.contextAdditions.length === 1, 'missing tool error recovery context');
+  assert(result.contextAdditions[0].source === 'runtime_context', 'unexpected recovery context source');
+  assert(/outside workspace/.test(result.contextAdditions[0].content), 'missing tool error text');
+});
+
+test('loong_env_check injects controlled knowledge context on next turn', async () => {
+  let calls = 0;
+  let secondPrompt = '';
+  const events = [];
+  registerProvider({
+    name: 'test-loong-env-context',
+    chatCompletion: async (cfg, messages) => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          tool: 'loong_env_check',
+          input: {},
+          reason: 'inspect environment',
+        });
+      }
+      secondPrompt = messages[1] && messages[1].content ? messages[1].content : '';
+      return JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'context injected' },
+        reason: 'done',
+      });
+    },
+  });
+  const agent = createAgent(Object.assign(config('test-loong-env-context', path.resolve(__dirname, '..')), {
+    contextBudgetChars: 1800,
+    streaming: false,
+  }), {
+    prepareNextTurn: createDefaultPrepareNextTurn(),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('检查当前环境兼容性和风险');
+  const update = events.find((event) => event.type === 'context_update');
+  assert(result.summary === 'context injected', 'agent did not finish after context injection');
+  assert(update, 'missing context_update event');
+  assert(update.knowledgeEvidence.some((item) => item.topic === 'compatibility_matrix' || item.topic === 'risk_list'), 'missing expected knowledge evidence');
+  assert(secondPrompt.indexOf('Controlled context / knowledge additions') >= 0, 'second prompt missing controlled context section');
+  assert(/compatibility_matrix|risk_list/.test(secondPrompt), 'second prompt missing expected knowledge topic');
+  assert(/uncertain|待确认/.test(secondPrompt), 'second prompt missing uncertainty warning');
 });
 
 test('session manager fork creates child session with parentSession and fork_start', async () => {

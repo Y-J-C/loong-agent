@@ -98,6 +98,28 @@ Coalescing rules:
 
 Coalescing must not apply to `message_start`, `message_end`, tool events, turn events, or agent terminal events.
 
+## Context Updates
+
+Agent Loop may append `context_update` after `prepareNextTurn`:
+
+```js
+{
+  type: "context_update",
+  loop: 1,
+  toolName: "loong_env_check",
+  contextAdditions: [],
+  knowledgeEvidence: [],
+  warnings: [],
+  budget: {
+    contextBudgetChars: 1800
+  }
+}
+```
+
+`context_update` is a read-only audit/export event. It records context prepared for the next model turn and must not be replayed as a tool result.
+
+`knowledgeEvidence` entries should include `source`, `path`, `topic`, `status`, `confidence`, `last_updated`, and `sources` when available.
+
 ## Recovery
 
 `recoverSession(session)` is read-only. It returns the recoverable event list and audit summary. It never writes back to the original JSONL file.
@@ -123,6 +145,7 @@ Trace, Markdown, and HTML exports should include:
 - invalid JSON count;
 - tool errors and policy blocks;
 - evidence and warning counts;
+- context updates and knowledge evidence;
 - visible `policy_blocked`, `tool_error`, and `invalid_json` markers.
 
 Tool result display should prefer the stage 2 envelope fields:

@@ -75,19 +75,47 @@ Evidence entries must include:
 
 ## Prepare Next Turn
 
-The default `prepareNextTurn` chain includes a `knowledge_context` observation hook.
+The default `prepareNextTurn` chain returns structured context updates instead of mutating
+`state.observations`.
 
-The hook:
+The return shape is:
+
+```js
+{
+  contextAdditions: [],
+  knowledgeEvidence: [],
+  warnings: []
+}
+```
+
+The knowledge hook:
 
 - uses lightweight keyword matching only
 - reads local `kb/` topics
-- injects compact summaries into `state.observations`
-- includes evidence, warnings, and unknowns
+- returns compact summaries as `contextAdditions`
+- returns source metadata as `knowledgeEvidence`
+- returns freshness, source, confidence, draft, unknown, and 待确认 warnings
 - never calls a model
 - never executes tools
 - never reads outside the workspace
 
-Knowledge observations must include a caution that draft, unknown, and `待确认` entries are uncertain.
+Agent Loop records structured updates as `context_update` session events and injects the accumulated context into the next turn prompt through an explicit turn context object.
+
+`loong_env_check` results should trigger `compatibility_matrix`, `risk_list`, and relevant environment knowledge for the next turn.
+
+Knowledge prompt injection must include a caution that draft, unknown, low-confidence, and `待确认` entries are uncertain.
+
+## Context Budget
+
+Knowledge context injection is bounded by `LOONG_AGENT_CONTEXT_BUDGET`.
+
+Default:
+
+```text
+LOONG_AGENT_CONTEXT_BUDGET=1800
+```
+
+The prompt builder must preserve evidence metadata and warnings before long topic summaries when applying the budget.
 
 ## Command Reference
 

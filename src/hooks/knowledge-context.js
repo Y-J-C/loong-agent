@@ -31,8 +31,11 @@ function contextText(context) {
   ].filter(Boolean).join('\n');
 }
 
-function chooseTopics(text) {
+function chooseTopics(text, action) {
   const selected = [];
+  if (action && action.tool === 'loong_env_check') {
+    selected.push('compatibility_matrix', 'risk_list', 'environment_report');
+  }
   for (const hint of TOPIC_HINTS) {
     if (hint.pattern.test(text) && selected.indexOf(hint.topic) < 0) selected.push(hint.topic);
   }
@@ -43,11 +46,12 @@ function chooseTopics(text) {
 }
 
 function knowledgeContextHook(context) {
-  if (!context || !context.state || !Array.isArray(context.state.observations)) return;
+  if (!context || !context.state) return null;
   const text = contextText(context);
   if (!text) return;
   const config = context.config || {};
-  const topics = chooseTopics(text);
+  const action = context.action || {};
+  const topics = chooseTopics(text, action);
   const topicResults = [];
   for (const topic of topics) {
     const envelope = buildTopicEnvelope(config, topic);
@@ -58,10 +62,21 @@ function knowledgeContextHook(context) {
   const unknowns = [];
   const warnings = [];
   const summaries = [];
+  const contextAdditions = [];
   for (const item of topicResults) {
     summaries.push(item.summary);
     evidence.push.apply(evidence, item.evidence || []);
     warnings.push.apply(warnings, item.warnings || []);
+    contextAdditions.push({
+      source: 'knowledge_context',
+      title: `Knowledge topic: ${item.topic}`,
+      topic: item.topic,
+      content: [
+        item.summary,
+        item.unknowns ? `Unknowns: ${summarize(item.unknowns, 240)}` : '',
+        item.warnings && item.warnings.length ? `Warnings: ${item.warnings.join('; ')}` : '',
+      ].filter(Boolean).join('\n'),
+    });
     if (item.unknowns) unknowns.push({
       topic: item.topic,
       text: summarize(item.unknowns, 300),
@@ -72,23 +87,20 @@ function knowledgeContextHook(context) {
   for (const match of searchResults) {
     if (!match || !match.evidence) continue;
     if (!evidence.some((item) => item.topic === match.evidence.topic)) evidence.push(match.evidence);
+    if (match.warnings && match.warnings.length) warnings.push.apply(warnings, match.warnings);
   }
   if (!summaries.length && !evidence.length) return;
-  context.state.observations.push({
-    loop: context.state.turn || context.loop || 0,
-    tool: 'knowledge_context',
-    reason: 'related knowledge summary',
-    input: {
+  warnings.push('Knowledge context is supporting evidence only. Treat draft, unknown, and 待确认 entries as uncertain.');
+  return {
+    contextAdditions,
+    knowledgeEvidence: evidence,
+    warnings,
+    data: {
       topics,
-    },
-    result: {
       summary: summarize(summaries.join('\n'), 900),
-      evidence,
       unknowns,
-      warnings,
-      caution: 'Knowledge context is supporting evidence only. Treat draft, unknown, and 待确认 entries as uncertain.',
     },
-  });
+  };
 }
 
 module.exports = {
