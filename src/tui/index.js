@@ -194,6 +194,13 @@ function runTui(config, options) {
       state.mode = 'idle';
       return;
     }
+    function filteredSelectorItems() {
+      const query = selector.query ? selector.query.toLowerCase() : '';
+      return (selector.items || []).filter((item) => {
+        const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
+        return !query || haystack.indexOf(query) >= 0;
+      });
+    }
     if (key.type === 'escape') {
       state.mode = 'idle';
       state.selector = null;
@@ -204,7 +211,8 @@ function runTui(config, options) {
       return;
     }
     if (key.type === 'down' || key.type === 'ctrl_n') {
-      selector.selectedIndex = Math.min(Math.max(0, selector.items.length - 1), (selector.selectedIndex || 0) + 1);
+      const items = filteredSelectorItems();
+      selector.selectedIndex = Math.min(Math.max(0, items.length - 1), (selector.selectedIndex || 0) + 1);
       return;
     }
     if (key.type === 'text' && key.text === '\t') {
@@ -225,7 +233,7 @@ function runTui(config, options) {
       return;
     }
     if (key.type === 'text' && key.text === 'r') {
-      const selected = selector.items[selector.selectedIndex || 0];
+      const selected = filteredSelectorItems()[selector.selectedIndex || 0];
       if (selected) {
         const name = `renamed-${Date.now().toString().slice(-6)}`;
         const manager = require('../session-manager').createSessionManager(activeConfig);
@@ -238,7 +246,7 @@ function runTui(config, options) {
       return;
     }
     if (key.type === 'enter') {
-      const selected = selector.items[selector.selectedIndex || 0];
+      const selected = filteredSelectorItems()[selector.selectedIndex || 0];
       if (selected) {
         state.selectedSessionId = selected.id;
         addMessage(state, { type: 'system', text: `Selected session: ${selected.id}` });
@@ -249,10 +257,12 @@ function runTui(config, options) {
     }
     if (key.type === 'backspace') {
       selector.query = String(selector.query || '').slice(0, -1);
+      selector.selectedIndex = 0;
       return;
     }
     if (key.type === 'text') {
       selector.query = `${selector.query || ''}${key.text}`;
+      selector.selectedIndex = 0;
     }
   }
 

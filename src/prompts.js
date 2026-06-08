@@ -18,6 +18,7 @@ Rules:
 - Use read-only commands unless the user explicitly asks for a change and the runtime allows it.
 - Never reveal secrets or API keys.
 - For LoongArch advice, be concrete about architecture, kernel, compiler, ABI, and package constraints.
+- Use kb_topic, kb_search, risk_lookup, or command_reference for local knowledge. Treat draft, unknown, and 待确认 knowledge as uncertain, not as fact.
 - When enough evidence has been gathered, call finish.`;
 
 function buildSystemPrompt(tools) {

@@ -80,19 +80,31 @@ test('slash commands render help health project and sessions', async () => {
 test('tree lineage fork export and session commands work', async () => {
   const workspace = tempWorkspace();
   await runAgent(config(workspace), 'base');
+  const manager = require('../src/session-manager').createSessionManager(config(workspace));
+  const latest = manager.latest();
   const context = await makeContext(workspace);
+  context.state.selectedSessionId = latest.id;
+  context.state.currentSession = { id: latest.id, path: latest.path };
   await handleCommand(context, '/fork demo');
   await handleCommand(context, '/lineage latest');
-  await handleCommand(context, '/lineage latest');
+  await handleCommand(context, '/lineage selected');
   await handleCommand(context, '/session latest');
+  await handleCommand(context, '/session selected');
   await handleCommand(context, '/audit latest');
+  await handleCommand(context, '/audit selected');
   await handleCommand(context, '/export latest runs/tui-test.html');
+  await handleCommand(context, '/export current runs/tui-current.html');
+  await handleCommand(context, '/export selected runs/tui-selected.html');
+  await handleCommand(context, `/export ${latest.id} runs/tui-id.html`);
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf('Forked session') >= 0, 'missing fork');
   assert(text.indexOf('demo') >= 0, 'missing branch name');
   assert(text.indexOf('fork_start') >= 0, 'missing session trace');
   assert(text.indexOf('Audit status') >= 0, 'missing audit output');
   assert(fs.existsSync(path.join(workspace, 'runs', 'tui-test.html')), 'missing export');
+  assert(fs.existsSync(path.join(workspace, 'runs', 'tui-current.html')), 'missing current export');
+  assert(fs.existsSync(path.join(workspace, 'runs', 'tui-selected.html')), 'missing selected export');
+  assert(fs.existsSync(path.join(workspace, 'runs', 'tui-id.html')), 'missing id export');
 });
 
 test('new name clone more debug copy compact reload and unsupported commands work', async () => {
@@ -121,9 +133,20 @@ test('resume command replaces session and starts prompt', async () => {
   const workspace = tempWorkspace();
   await runAgent(config(workspace), 'base');
   const context = await makeContext(workspace);
-  await handleCommand(context, '/resume latest 继续分析');
+  const latest = require('../src/session-manager').createSessionManager(config(workspace)).latest();
+  context.state.selectedSessionId = latest.id;
+  await handleCommand(context, '/resume selected 继续分析');
   assert(context.replaced, 'resume did not replace session');
   assert(context.prompted.indexOf('继续分析') >= 0, 'resume did not start prompt');
+});
+
+test('selected target reports clear error when no session is selected', async () => {
+  const workspace = tempWorkspace();
+  await runAgent(config(workspace), 'base');
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/session selected');
+  const text = context.state.messages.map((message) => message.text).join('\n');
+  assert(text.indexOf('No selected session') >= 0, 'missing selected target error');
 });
 
 test('bang command only accepts readonly allowlist', async () => {

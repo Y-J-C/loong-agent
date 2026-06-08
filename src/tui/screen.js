@@ -23,6 +23,23 @@ function stripAnsi(text) {
   return String(text || '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
 }
 
+function redactSensitive(text) {
+  return String(text || '')
+    .replace(/\.env(?:\.[A-Za-z0-9_-]+)?/g, '[redacted-env]')
+    .replace(/\b(sk-[A-Za-z0-9_-]{8,}|sk-proj-[A-Za-z0-9_-]+)/g, '[redacted-key]')
+    .replace(/(authorization)["']?\s*[:=]\s*["']?Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, '$1=[redacted]')
+    .replace(/(api[_-]?key|token|secret|authorization|credential|password)["']?\s*[:=]\s*["']?[^"',\s}]+/gi, '$1=[redacted]')
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[redacted]');
+}
+
+function redactJson(key, value) {
+  if (key && /api[_-]?key|token|secret|authorization|credential|password/i.test(key)) {
+    return value ? '[redacted]' : value;
+  }
+  if (typeof value === 'string') return redactSensitive(value);
+  return value;
+}
+
 function visibleWidth(text) {
   let width = 0;
   for (const char of Array.from(stripAnsi(text))) {
@@ -94,7 +111,7 @@ function moveTo(row, column) {
 }
 
 function sanitize(text) {
-  return String(text || '').replace(/\r/g, '').replace(/\x1b/g, '');
+  return redactSensitive(stripAnsi(String(text || '').replace(/\r/g, '')));
 }
 
 module.exports = {
@@ -102,6 +119,8 @@ module.exports = {
   color,
   moveTo,
   padRight,
+  redactJson,
+  redactSensitive,
   sanitize,
   stripAnsi,
   terminalSize,

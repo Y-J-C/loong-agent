@@ -22,6 +22,23 @@ function parseAssistantTool(content) {
   }
 }
 
+function arrayCount(value) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function toolResultSummary(event) {
+  const result = event.result || {};
+  return event.resultSummary || result.summary || result.error || '';
+}
+
+function toolErrorType(event) {
+  const result = event.result || {};
+  if (event.errorType) return event.errorType;
+  if (result.blocked) return 'policy_blocked';
+  if (event.isError) return 'tool_error';
+  return '';
+}
+
 function handleAgentEvent(state, event) {
   if (!event || !event.type) return;
   if (event.type === 'agent_start') {
@@ -59,29 +76,47 @@ function handleAgentEvent(state, event) {
       toolName: event.toolName,
       summary: event.callSummary || event.reason || '',
       args: event.args || {},
+      status: 'running',
       done: false,
+      durationMs: event.durationMs,
+      errorType: event.errorType || '',
+      evidenceCount: 0,
+      warningCount: 0,
       detail: event.args || {},
     });
     state.currentToolEventIdByKey[key] = item.id;
   } else if (event.type === 'tool_execution_end') {
     const key = `${event.loop || 0}:${event.toolName || 'unknown'}`;
     const id = state.currentToolEventIdByKey[key];
+    const result = event.result || {};
+    const errorType = toolErrorType(event);
     const patch = {
       type: 'tool',
       toolName: event.toolName,
-      summary: event.resultSummary || '',
+      summary: toolResultSummary(event),
       done: true,
       isError: Boolean(event.isError),
-      resultSummary: event.resultSummary || '',
+      status: errorType || (event.isError ? 'tool_error' : 'ok'),
+      errorType,
+      durationMs: event.durationMs,
+      resultSummary: toolResultSummary(event),
+      evidenceCount: arrayCount(result.evidence),
+      warningCount: arrayCount(result.warnings),
       detail: event.result,
     };
     if (id && updateMessage(state, id, patch)) return;
     addMessage(state, patch);
+  } else if (event.type === 'turn_end') {
+    if (event.status) state.status = `turn ${event.status}`;
   } else if (event.type === 'agent_end') {
     state.mode = 'idle';
     state.queuedFollowUps = [];
-    state.status = event.error ? `error: ${event.error}` : 'idle';
-    addMessage(state, { type: event.error ? 'error' : 'assistant', text: event.summary || event.error || 'done' });
+    const status = event.status || (event.error ? 'error' : 'ok');
+    state.status = status === 'ok' ? 'idle' : status;
+    addMessage(state, {
+      type: event.error || status !== 'ok' ? 'error' : 'assistant',
+      text: `agent_end status=${status}\n${event.summary || event.error || 'done'}`,
+    });
   } else if (event.type === 'fork_start') {
     addMessage(state, { type: 'system', text: `fork_start: ${event.sourceSessionId || 'unknown'}` });
   } else if (event.type === 'log_start') {

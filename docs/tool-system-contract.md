@@ -57,6 +57,7 @@ Recommended shapes:
 { source: "board", boardId: "ls2k1000-pai-udb-v1_5", fallback: false }
 { source: "session", sessionId: "latest", recentToolEvents: 3 }
 { source: "runtime", node: "v14.16.1", provider: "openai-compatible" }
+{ source: "kb", path: "kb/risk_list.md", topic: "risk_list", status: "draft", confidence: "unknown" }
 ```
 
 Evidence must stay small. Large stdout, file content, or raw session bodies belong in `data`, not `evidence`.

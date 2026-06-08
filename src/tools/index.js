@@ -17,6 +17,9 @@ const {
   createLoongEnvCheckTool,
   createLoongEnvCheckToolDefinition,
 } = require('./loong-env-check');
+const {
+  createKnowledgeToolDefinitions,
+} = require('./kb-tools');
 const { createReadFileTool, createReadFileToolDefinition } = require('./read-file');
 const {
   createProjectMapToolDefinition,
@@ -47,6 +50,7 @@ function createDefaultToolDefinitions() {
     createRuntimeHealthToolDefinition(),
     createProjectMapToolDefinition(),
     createSessionSummaryToolDefinition(),
+    ...createKnowledgeToolDefinitions(),
     createFinishToolDefinition(),
   ];
 }
@@ -62,6 +66,7 @@ function createReadOnlyToolDefinitions() {
     createRuntimeHealthToolDefinition(),
     createProjectMapToolDefinition(),
     createSessionSummaryToolDefinition(),
+    ...createKnowledgeToolDefinitions(),
   ];
 }
 

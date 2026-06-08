@@ -128,9 +128,9 @@ function helpText() {
   return [
     'Commands:',
     '/help /hotkeys /exit /clear /new /name /theme /health /project /sessions /tree',
-    '/lineage [latest|id] /fork [name] /resume [latest|id] <text>',
-    '/clone [name] /branch /stats /demo /export [latest|current|demo|id] [out]',
-    '/session [latest|id] /audit [latest|id] /copy /reload /debug /compact [text] /goto <entry-id> /more',
+    '/lineage [latest|selected|id] /fork [name] /resume [latest|selected|id] <text>',
+    '/clone [name] /branch /stats /demo /export [latest|current|demo|selected|id] [out]',
+    '/session [latest|selected|id] /audit [latest|selected|id] /copy /reload /debug /compact [text] /goto <entry-id> /more',
     '! <readonly command>',
     '',
     'Keys: Enter send - Esc abort/clear - Ctrl+C/Ctrl+D exit - Ctrl+O expand tools',
@@ -141,8 +141,15 @@ function selectedOrCurrentSession(manager, state, target) {
   if (target === 'current') {
     return state.currentSession && state.currentSession.id ? manager.read(state.currentSession.id) : manager.latest();
   }
+  if (target === 'selected') {
+    return state.selectedSessionId ? manager.read(state.selectedSessionId) : null;
+  }
   if (target === 'latest') return manager.latest();
   return manager.read(target);
+}
+
+function selectedSessionRequired(state) {
+  addMessage(state, { type: 'error', text: 'No selected session. Run /sessions or /tree, choose a session, then retry with selected.' });
 }
 
 async function runSlashCommand(context, text) {
@@ -269,7 +276,12 @@ async function runSlashCommand(context, text) {
 
   if (name === '/lineage') {
     const target = parts[1] || 'latest';
-    addMessage(state, { type: 'system', text: formatLineage(manager.lineage(target)).join('\n') || 'No lineage.' });
+    if (target === 'selected' && !state.selectedSessionId) {
+      selectedSessionRequired(state);
+      return;
+    }
+    const resolvedTarget = target === 'selected' ? state.selectedSessionId : target;
+    addMessage(state, { type: 'system', text: formatLineage(manager.lineage(resolvedTarget)).join('\n') || 'No lineage.' });
     return;
   }
 
@@ -335,6 +347,10 @@ async function runSlashCommand(context, text) {
   if (name === '/session') {
     const target = parts[1] || 'latest';
     const session = selectedOrCurrentSession(manager, state, target);
+    if (!session) {
+      selectedSessionRequired(state);
+      return;
+    }
     addMessage(state, { type: 'system', text: renderSessionTrace(session) || 'Empty session.' });
     return;
   }
@@ -342,6 +358,10 @@ async function runSlashCommand(context, text) {
   if (name === '/audit') {
     const target = parts[1] || 'latest';
     const session = selectedOrCurrentSession(manager, state, target);
+    if (!session) {
+      selectedSessionRequired(state);
+      return;
+    }
     addMessage(state, { type: 'system', text: renderSessionAudit(session) });
     return;
   }
@@ -356,8 +376,15 @@ async function runSlashCommand(context, text) {
     } else if (target === 'current') {
       out = parts[2] || 'runs/tui-current.html';
       session = selectedOrCurrentSession(manager, state, 'current');
+    } else if (target === 'selected') {
+      out = parts[2] || 'runs/tui-selected.html';
+      session = selectedOrCurrentSession(manager, state, 'selected');
     } else {
       session = selectedOrCurrentSession(manager, state, target);
+    }
+    if (!session) {
+      selectedSessionRequired(state);
+      return;
     }
     const written = writeSessionExport(config, session, { out, format: 'html' });
     state.lastExportPath = written;
@@ -413,7 +440,11 @@ async function runSlashCommand(context, text) {
       addMessage(state, { type: 'system', text: 'Select a session, then run /resume <id> <text>.' });
       return;
     }
-    const parent = target === 'latest' ? manager.latest() : manager.read(target);
+    const parent = selectedOrCurrentSession(manager, state, target);
+    if (!parent) {
+      selectedSessionRequired(state);
+      return;
+    }
     const resumeContext = manager.extractResumeContext(parent);
     const child = manager.createChildSession(parent, { command: 'resume' });
     const session = createAgentSession(config, {

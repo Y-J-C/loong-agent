@@ -4,7 +4,11 @@ const path = require('path');
 const { READONLY_COMMANDS } = require('../tools.js');
 
 const PATH_TOOLS = {
+  kb_search: null,
+  kb_topic: null,
   list_directory: 'relative_path',
+  risk_lookup: null,
+  command_reference: null,
   read_file: 'file_path',
   search_files: 'relative_path',
 };

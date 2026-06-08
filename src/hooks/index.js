@@ -1,6 +1,7 @@
 'use strict';
 
 const { finalTurnSummaryHook } = require('./final-turn-summary');
+const { knowledgeContextHook } = require('./knowledge-context');
 const { loongBoardContextHook } = require('./loong-board-context');
 const { toolResultRedactionHook } = require('./tool-result-redaction');
 const { toolErrorRecoveryHook } = require('./tool-error-recovery');
@@ -38,7 +39,7 @@ function createHookRunner(hooks) {
 }
 
 function createDefaultPrepareNextTurn(extraHook) {
-  const hooks = [loongBoardContextHook, toolErrorRecoveryHook, finalTurnSummaryHook];
+  const hooks = [loongBoardContextHook, knowledgeContextHook, toolErrorRecoveryHook, finalTurnSummaryHook];
   if (extraHook) hooks.push(extraHook);
   return createHookRunner(hooks).prepareNextTurn;
 }
@@ -85,6 +86,7 @@ module.exports = {
   createDefaultPrepareNextTurn,
   createHookRunner,
   finalTurnSummaryHook,
+  knowledgeContextHook,
   loongBoardContextHook,
   toolResultRedactionHook,
   toolErrorRecoveryHook,

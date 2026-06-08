@@ -1,83 +1,116 @@
 'use strict';
 
 const {
-  ANSI,
-  color,
   padRight,
+  redactJson,
+  redactSensitive,
   sanitize,
+  stripAnsi,
   truncateToWidth,
+  visibleWidth,
   wrapToWidth,
 } = require('./screen');
 const { renderStatusBar } = require('./status-bar');
 const { getTheme, paint } = require('./theme');
 
-function renderHeader(width, theme) {
-  return [
+const MAX_MESSAGE_LINES = 80;
+const MAX_TOOL_DETAIL_LINES = 18;
+
+function fitLine(line, width) {
+  return truncateToWidth(String(line || ''), width);
+}
+
+function clampLines(lines, limit, width, theme) {
+  const max = Math.max(1, limit || MAX_MESSAGE_LINES);
+  if (lines.length <= max) return lines;
+  const remaining = lines.length - max;
+  return lines.slice(0, max).concat([
+    paint(theme, 'dim', fitLine(`... truncated ${remaining} line(s)`, width)),
+  ]);
+}
+
+function renderBlock(text, width, theme, token, options) {
+  const opts = options || {};
+  const maxLines = opts.maxLines || MAX_MESSAGE_LINES;
+  const prefix = opts.prefix || '';
+  const clean = redactSensitive(sanitize(text || ''));
+  const sourceLines = String(clean).split(/\n/);
+  let output = [];
+  for (const source of sourceLines) {
+    const value = prefix ? `${prefix}${source}` : source;
+    const wrapped = wrapToWidth(value, width);
+    output = output.concat(wrapped.length ? wrapped : ['']);
+  }
+  if (!output.length) output = [''];
+  output = clampLines(output.map((line) => fitLine(line, width)), maxLines, width, theme);
+  return output.map((line) => paint(theme, token, line));
+}
+
+function renderHeader(width, height, theme) {
+  const compact = width < 60 || height < 18;
+  const tiny = height < 14;
+  const lines = tiny ? [
+    paint(theme, 'header', 'loong-agent v0.x'),
+    paint(theme, 'dim', '/help - Esc abort - Ctrl+O tools'),
+  ] : compact ? [
+    paint(theme, 'header', 'loong-agent v0.x'),
+    paint(theme, 'dim', '/help - Esc abort/back - ! readonly - Ctrl+O tools'),
+    '',
+  ] : [
     paint(theme, 'header', 'loong-agent v0.x'),
     paint(theme, 'dim', 'escape interrupt - ctrl+c/ctrl+d exit - / commands - ! readonly command - ctrl+o more'),
     paint(theme, 'dim', 'Press /help to show commands.'),
     '',
     paint(theme, 'dim', 'Loong-Agent can inspect its runtime, sessions, and LoongArch board context.'),
     '',
-  ].map((line) => padRight(truncateToWidth(line, width), width));
+  ];
+  return lines.map((line) => padRight(fitLine(line, width), width));
 }
 
 function renderUser(message, width, theme) {
-  const lines = String(message.text || '').split(/\n/);
-  return lines.map((line) => paint(theme, 'user', padRight(truncateToWidth(` ${line}`, width), width)));
+  return renderBlock(message.text || '', width, theme, 'user', { prefix: 'user: ' });
 }
 
 function renderAssistant(message, width, theme) {
   const text = message.text || '';
-  const lines = String(text || '').split(/\n/).filter((line) => line.trim());
-  if (!lines.length) return [paint(theme, 'dim', 'assistant: ...')];
-  return lines.reduce((acc, line) => {
-    return acc.concat(wrapToWidth(redact(line), width).map((item) => paint(theme, 'assistant', item)));
-  }, []);
+  if (!String(text).trim()) return [paint(theme, 'dim', 'assistant: ...')];
+  return renderBlock(text, width, theme, 'assistant');
 }
 
 function renderTool(message, width, expanded, theme) {
-  const status = message.isError ? paint(theme, 'toolError', 'error') : message.done ? paint(theme, 'toolOk', 'ok') : paint(theme, 'toolRunning', 'running');
-  const first = `tool ${status}: ${message.toolName || 'unknown'} ${redact(message.summary || '')}`;
-  const lines = [truncateToWidth(first, width)];
+  const rawStatus = message.errorType || message.status || (message.isError ? 'tool_error' : message.done ? 'ok' : 'running');
+  const token = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error' ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
+  const status = paint(theme, token, rawStatus);
+  const meta = [];
+  if (message.durationMs !== undefined) meta.push(`${message.durationMs}ms`);
+  if (message.evidenceCount !== undefined) meta.push(`evidence=${message.evidenceCount}`);
+  if (message.warningCount !== undefined) meta.push(`warnings=${message.warningCount}`);
+  const suffix = meta.length ? ` [${meta.join(' ')}]` : '';
+  const first = `tool ${stripAnsi(status)}: ${message.toolName || 'unknown'} ${redactSensitive(message.summary || '')}${suffix}`;
+  const lines = [paint(theme, token, fitLine(first, width))];
   if (expanded && message.detail) {
     const detail = typeof message.detail === 'string' ? message.detail : JSON.stringify(message.detail, redactJson, 2);
     if (message.args) {
-      lines.push(paint(theme, 'dim', truncateToWidth(`  args: ${JSON.stringify(message.args, redactJson)}`, width)));
+      lines.push(...renderBlock(`args: ${JSON.stringify(message.args, redactJson)}`, width, theme, 'dim', { prefix: '  ', maxLines: 4 }));
     }
     if (message.resultSummary) {
-      lines.push(paint(theme, 'dim', truncateToWidth(`  resultSummary: ${redact(message.resultSummary)}`, width)));
+      lines.push(...renderBlock(`resultSummary: ${message.resultSummary}`, width, theme, 'dim', { prefix: '  ', maxLines: 4 }));
     }
-    lines.push(paint(theme, 'dim', truncateToWidth(`  isError: ${Boolean(message.isError)}`, width)));
-    for (const line of detail.split(/\n/).slice(0, 20)) lines.push(paint(theme, 'dim', truncateToWidth(`  ${line}`, width)));
+    if (message.errorType) lines.push(...renderBlock(`errorType: ${message.errorType}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
+    if (message.durationMs !== undefined) lines.push(...renderBlock(`durationMs: ${message.durationMs}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
+    lines.push(...renderBlock(`isError: ${Boolean(message.isError)}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
+    lines.push(...renderBlock(detail, width, theme, 'dim', { prefix: '  ', maxLines: MAX_TOOL_DETAIL_LINES }));
   }
-  return lines;
-}
-
-function redactJson(key, value) {
-  if (key && /api[_-]?key|token|secret|authorization/i.test(key)) return value ? '[redacted]' : value;
-  return value;
-}
-
-function redact(text) {
-  return String(text || '').replace(/(api[_-]?key|token|secret|authorization)["']?\s*[:=]\s*["']?[^"',\s}]+/gi, '$1=[redacted]');
+  return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : 4, width, theme);
 }
 
 function renderMessage(message, width, expandedTools, theme) {
   if (message.type === 'user') return renderUser(message, width, theme);
   if (message.type === 'assistant') return renderAssistant(message, width, theme);
   if (message.type === 'tool') return renderTool(message, width, expandedTools, theme);
-  if (message.type === 'error') {
-    return String(message.text || '').split(/\n/).reduce((acc, line) => {
-      return acc.concat(wrapToWidth(redact(line), width).map((item) => paint(theme, 'error', item)));
-    }, []);
-  }
-  if (message.type === 'system') {
-    return String(message.text || '').split(/\n/).reduce((acc, line) => {
-      return acc.concat(wrapToWidth(redact(line), width).map((item) => paint(theme, 'system', item)));
-    }, []);
-  }
-  return [truncateToWidth(redact(message.text || ''), width)];
+  if (message.type === 'error') return renderBlock(message.text || '', width, theme, 'error');
+  if (message.type === 'system') return renderBlock(message.text || '', width, theme, 'system');
+  return renderBlock(message.text || '', width, theme, 'system');
 }
 
 function renderInput(state, width, theme) {
@@ -93,24 +126,26 @@ function renderSelector(state, width, theme) {
   const selector = state.selector;
   if (!selector) return [];
   const lines = [
-    paint(theme, 'header', `Session selector (${selector.view || 'recent'})`),
-    paint(theme, 'dim', 'type filter - up/down select - enter choose - tab recent/tree - r rename - d disabled - esc back'),
+    paint(theme, 'header', fitLine(`Session selector (${selector.view || 'recent'})${selector.query ? ` filter="${selector.query}"` : ''}`, width)),
+    paint(theme, 'dim', fitLine(width < 60 ? 'filter - up/down - enter - tab - esc' : 'type filter - up/down select - enter choose - tab recent/tree - r rename - d disabled - esc back', width)),
   ];
   const query = selector.query ? selector.query.toLowerCase() : '';
   const items = (selector.items || []).filter((item) => {
     const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
     return !query || haystack.indexOf(query) >= 0;
   });
-  if (!items.length) lines.push(paint(theme, 'dim', 'No sessions.'));
+  if ((selector.selectedIndex || 0) >= items.length) selector.selectedIndex = Math.max(0, items.length - 1);
+  if (!items.length) lines.push(paint(theme, 'dim', fitLine('No sessions match the current filter.', width)));
   items.slice(0, 12).forEach((item, index) => {
     const selected = index === (selector.selectedIndex || 0);
     const prefix = selected ? '> ' : '  ';
     const branch = item.branchName ? ` (${item.branchName})` : '';
-    const depth = item.depth ? '  '.repeat(item.depth) : '';
+    const maxDepth = width < 60 ? 3 : 8;
+    const depth = item.depth ? '  '.repeat(Math.min(item.depth, maxDepth)) : '';
     const count = item.entryCount !== undefined ? ` entries=${item.entryCount}` : '';
     const fork = item.forkedFromEntryId ? ` fork=${item.forkedFromEntryId}` : '';
     const text = `${prefix}${depth}${item.id}${branch} [${item.command || 'session'}]${count}${fork}`;
-    lines.push(selected ? paint(theme, 'selector', padRight(truncateToWidth(text, width), width)) : truncateToWidth(text, width));
+    lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
   });
   return lines;
 }
@@ -119,7 +154,7 @@ function renderTui(state, size) {
   const width = Math.max(40, size.columns || 100);
   const height = Math.max(12, size.rows || 32);
   const theme = getTheme(state.theme || 'loong-dark');
-  const header = renderHeader(width, theme);
+  const header = renderHeader(width, height, theme);
   const input = renderInput(state, width, theme);
   const status = [renderStatusBar(state, width)];
   const available = Math.max(1, height - header.length - input.length - status.length);
@@ -137,7 +172,11 @@ function renderTui(state, size) {
   const end = Math.max(0, body.length - (state.scrollOffset || 0));
   const visibleBody = body.slice(Math.max(0, end - available), end);
   while (visibleBody.length < available) visibleBody.unshift('');
-  return header.concat(visibleBody, input, status).slice(0, height).join('\n');
+  const lines = header.concat(visibleBody, input, status).slice(0, height);
+  return lines.map((line) => {
+    const fitted = fitLine(line, width);
+    return visibleWidth(fitted) < width ? padRight(fitted, width) : fitted;
+  }).join('\n');
 }
 
 module.exports = {
