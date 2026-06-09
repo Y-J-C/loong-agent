@@ -119,9 +119,9 @@ function renderInput(state, width, theme) {
   const prefix = state.mode === 'running' ? 'queued> ' : 'loong> ';
   const input = sanitize(state.inputBuffer || '');
   return [
-    paint(theme, 'divider', '-'.repeat(Math.max(1, width))),
+    paint(theme, 'divider', '─'.repeat(Math.max(1, width))),
     truncateToWidth(`${prefix}${input}`, width),
-    paint(theme, 'divider', '-'.repeat(Math.max(1, width))),
+    paint(theme, 'divider', '─'.repeat(Math.max(1, width))),
   ];
 }
 
