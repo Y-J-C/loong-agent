@@ -6,6 +6,75 @@ const { URL } = require('url');
 
 const providers = {};
 
+const DEFAULT_CAPABILITIES = {
+  streaming: false,
+  thinking: false,
+  usage: false,
+  toolCalling: false,
+};
+
+function normalizeCapabilities(capabilities) {
+  capabilities = capabilities || {};
+  return {
+    streaming: Boolean(capabilities.streaming),
+    thinking: Boolean(capabilities.thinking),
+    usage: Boolean(capabilities.usage),
+    toolCalling: Boolean(capabilities.toolCalling),
+  };
+}
+
+function isDeepSeekProviderConfig(config) {
+  config = config || {};
+  return (
+    config.providerProfile === 'deepseek' ||
+    /api\.deepseek\.com/i.test(String(config.baseUrl || ''))
+  );
+}
+
+function isDeepSeekReasonerModel(model) {
+  return String(model || '') === 'deepseek-reasoner';
+}
+
+function isDeepSeekThinkingModeModel(model) {
+  return /^deepseek-v4-(pro|flash)$/i.test(String(model || ''));
+}
+
+function supportsNativeThinking(config) {
+  if (!isDeepSeekProviderConfig(config)) return false;
+  return isDeepSeekReasonerModel(config.model) || isDeepSeekThinkingModeModel(config.model);
+}
+
+function resolveProviderCapabilities(name, config) {
+  const base = getProviderCapabilities(name);
+  return Object.assign({}, base, {
+    thinking: Boolean(base.thinking || supportsNativeThinking(config || {})),
+  });
+}
+
+function normalizeReasoningEffort(level) {
+  if (level === 'off') return '';
+  return 'high';
+}
+
+function buildOpenAiPayload(config, messages, options) {
+  config = config || {};
+  const payload = {
+    model: config.model,
+    messages,
+  };
+  const thinkingLevel = config.thinkingLevel || 'off';
+  const nativeThinkingModel = isDeepSeekThinkingModeModel(config.model) && isDeepSeekProviderConfig(config);
+  const reasonerModel = isDeepSeekReasonerModel(config.model) && isDeepSeekProviderConfig(config);
+  if (nativeThinkingModel) {
+    payload.thinking = { type: thinkingLevel === 'off' ? 'disabled' : 'enabled' };
+    if (thinkingLevel !== 'off') payload.reasoning_effort = normalizeReasoningEffort(thinkingLevel);
+  }
+  if (!reasonerModel && !(nativeThinkingModel && thinkingLevel !== 'off')) {
+    payload.temperature = options && options.temperature !== undefined ? options.temperature : 0.2;
+  }
+  return payload;
+}
+
 function requestJson(urlString, apiKey, payload) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlString);
@@ -69,10 +138,37 @@ function extractOpenAiContent(parsed) {
   ) || '';
 }
 
+function extractOpenAiUsage(parsed) {
+  const usage = parsed && parsed.usage ? parsed.usage : null;
+  if (!usage || typeof usage !== 'object') return null;
+  return {
+    promptTokens: Number(usage.prompt_tokens || usage.promptTokens || 0) || 0,
+    completionTokens: Number(usage.completion_tokens || usage.completionTokens || 0) || 0,
+    totalTokens: Number(usage.total_tokens || usage.totalTokens || 0) || 0,
+  };
+}
+
+function extractOpenAiReasoning(parsed) {
+  const message = parsed &&
+    parsed.choices &&
+    parsed.choices[0] &&
+    parsed.choices[0].message
+    ? parsed.choices[0].message
+    : {};
+  return typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
+}
+
 function extractOpenAiDelta(parsed) {
   const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
   if (choice.delta && typeof choice.delta.content === 'string') return choice.delta.content;
   if (choice.message && typeof choice.message.content === 'string') return choice.message.content;
+  return '';
+}
+
+function extractOpenAiReasoningDelta(parsed) {
+  const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
+  if (choice.delta && typeof choice.delta.reasoning_content === 'string') return choice.delta.reasoning_content;
+  if (choice.message && typeof choice.message.reasoning_content === 'string') return choice.message.reasoning_content;
   return '';
 }
 
@@ -109,11 +205,13 @@ function streamJson(urlString, apiKey, payload, handlers) {
     let settled = false;
     let buffer = '';
     let deltaChain = Promise.resolve();
+    let usage = null;
+    let reasoningContent = '';
     function finish() {
       deltaChain.then(() => {
         if (!settled) {
           settled = true;
-          resolve();
+          resolve({ usage, reasoningContent });
         }
       }).catch((error) => {
         if (!settled) {
@@ -190,6 +288,9 @@ function streamJson(urlString, apiKey, payload, handlers) {
                 reject(new Error(message));
                 return;
               }
+              const parsedUsage = extractOpenAiUsage(parsed);
+              if (parsedUsage) usage = parsedUsage;
+              reasoningContent += extractOpenAiReasoningDelta(parsed);
               const delta = extractOpenAiDelta(parsed);
               pushDelta(delta);
             });
@@ -202,6 +303,9 @@ function streamJson(urlString, apiKey, payload, handlers) {
               if (data !== '[DONE]') {
                 try {
                   const parsed = JSON.parse(data);
+                  const parsedUsage = extractOpenAiUsage(parsed);
+                  if (parsedUsage) usage = parsedUsage;
+                  reasoningContent += extractOpenAiReasoningDelta(parsed);
                   const delta = extractOpenAiDelta(parsed);
                   pushDelta(delta);
                 } catch (error) {
@@ -240,7 +344,9 @@ function registerProvider(provider) {
   if (typeof provider.chatCompletion !== 'function') {
     throw new Error(`Provider ${provider.name} requires chatCompletion`);
   }
-  providers[provider.name] = provider;
+  providers[provider.name] = Object.assign({}, provider, {
+    capabilities: normalizeCapabilities(Object.assign({}, DEFAULT_CAPABILITIES, provider.capabilities || {})),
+  });
 }
 
 function getProvider(name) {
@@ -254,34 +360,52 @@ function listProviders() {
   return Object.keys(providers);
 }
 
+function getProviderCapabilities(name) {
+  return getProvider(name).capabilities || normalizeCapabilities(DEFAULT_CAPABILITIES);
+}
+
+function listProviderDetails() {
+  return listProviders().map((name) => ({
+    name,
+    capabilities: getProviderCapabilities(name),
+  }));
+}
+
 registerProvider({
   name: 'openai-compatible',
+  capabilities: {
+    streaming: true,
+    thinking: false,
+    usage: true,
+    toolCalling: false,
+  },
   chatCompletion: async (config, messages, options) => {
     if (!config.apiKey) {
       throw new Error('Missing LOONG_AGENT_API_KEY or DEEPSEEK_API_KEY');
     }
 
-    const response = await requestJson(joinUrl(config.baseUrl, '/chat/completions'), config.apiKey, {
-      model: config.model,
-      messages,
-      temperature: options && options.temperature !== undefined ? options.temperature : 0.2,
-    });
+    const response = await requestJson(
+      joinUrl(config.baseUrl, '/chat/completions'),
+      config.apiKey,
+      buildOpenAiPayload(config, messages, options)
+    );
 
     const content = extractOpenAiContent(response);
 
     if (!content) throw new Error('Model response did not contain message content');
-    return content;
+    return {
+      content,
+      usage: extractOpenAiUsage(response),
+      nativeThinking: supportsNativeThinking(config),
+      reasoningContentAvailable: supportsNativeThinking(config) && Boolean(extractOpenAiReasoning(response)),
+    };
   },
   streamChatCompletion: async (config, messages, options) => {
     if (!config.apiKey) {
       throw new Error('Missing LOONG_AGENT_API_KEY or DEEPSEEK_API_KEY');
     }
     let content = '';
-    await streamJson(joinUrl(config.baseUrl, '/chat/completions'), config.apiKey, {
-      model: config.model,
-      messages,
-      temperature: options && options.temperature !== undefined ? options.temperature : 0.2,
-    }, {
+    const metadata = await streamJson(joinUrl(config.baseUrl, '/chat/completions'), config.apiKey, buildOpenAiPayload(config, messages, options), {
       isAborted: options && options.isAborted,
       onDelta: (delta) => {
         content += delta;
@@ -290,14 +414,28 @@ registerProvider({
       onRequest: options && options.onRequest,
     });
     if (!content) throw new Error('Model response did not contain message content');
-    return content;
+    return {
+      content,
+      usage: metadata && metadata.usage ? metadata.usage : null,
+      nativeThinking: supportsNativeThinking(config),
+      reasoningContentAvailable: supportsNativeThinking(config) && Boolean(metadata && metadata.reasoningContent),
+    };
   },
 });
 
 module.exports = {
+  buildOpenAiPayload,
+  extractOpenAiUsage,
   extractOpenAiDelta,
+  extractOpenAiReasoning,
+  extractOpenAiReasoningDelta,
+  getProviderCapabilities,
   getProvider,
+  listProviderDetails,
   listProviders,
+  normalizeCapabilities,
+  resolveProviderCapabilities,
+  supportsNativeThinking,
   parseSseData,
   registerProvider,
   streamJson,

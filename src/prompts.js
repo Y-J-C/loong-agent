@@ -1,6 +1,7 @@
 'use strict';
 
 const { createDefaultTools, formatToolsForPrompt } = require('./tool-registry');
+const { resolveProviderCapabilities } = require('./provider-registry');
 
 const SYSTEM_PROMPT = `You are Loong Pi Agent, a lightweight coding and diagnostics agent for LoongArch developer boards.
 
@@ -27,15 +28,33 @@ function buildSystemPrompt(tools) {
 
 function safeConfigSummary(config) {
   config = config || {};
+  const capabilities = config.providerCapabilities || safeProviderCapabilities(config);
   return {
     provider: config.provider || '',
+    providerProfile: config.providerProfile || '',
     model: config.model || '',
+    thinkingLevel: config.thinkingLevel || 'off',
+    providerCapabilities: capabilities,
     maxLoops: config.maxLoops || 0,
     streaming: config.streaming !== false,
     contextBudgetChars: config.contextBudgetChars || 1800,
     allowWrite: Boolean(config.allowWrite),
     allowCommands: Boolean(config.allowCommands),
   };
+}
+
+function safeProviderCapabilities(config) {
+  config = config || {};
+  try {
+    return resolveProviderCapabilities(config.provider || 'openai-compatible', config);
+  } catch (error) {
+    return {
+      streaming: false,
+      thinking: false,
+      usage: false,
+      toolCalling: false,
+    };
+  }
 }
 
 function truncateText(value, maxLength) {
@@ -140,6 +159,24 @@ function buildMessagesFromTurnContext(turnContext) {
       'Controlled context / knowledge additions:',
       turnContext.kbSummary,
       'Treat draft, unknown, low-confidence, and 待确认 knowledge as uncertain supporting context, not confirmed fact.',
+    ].join('\n'));
+  }
+  const thinkingLevel = turnContext.config && turnContext.config.thinkingLevel
+    ? turnContext.config.thinkingLevel
+    : 'off';
+  const capabilities = turnContext.config && turnContext.config.providerCapabilities
+    ? turnContext.config.providerCapabilities
+    : {};
+  if (thinkingLevel !== 'off' && !capabilities.thinking) {
+    const hints = {
+      low: 'Use concise analysis and proceed with the smallest sufficient check.',
+      medium: 'Balance analysis with action; state assumptions and evidence briefly.',
+      high: 'Use a more careful analysis style: identify assumptions, risks, and verification evidence before selecting the next tool.',
+    };
+    parts.push([
+      `Analysis depth hint: ${thinkingLevel}`,
+      hints[thinkingLevel] || hints.medium,
+      'Do not reveal hidden chain-of-thought; return only the required strict JSON tool action.',
     ].join('\n'));
   }
 

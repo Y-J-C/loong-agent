@@ -32,7 +32,7 @@ function createSessionId(date) {
 
 function safeJson(value) {
   return JSON.stringify(value, (key, item) => {
-    if (key && /api[_-]?key|token|secret|authorization/i.test(key)) {
+    if (key && /api[_-]?key|^token$|access[_-]?token|refresh[_-]?token|secret|authorization|credential|password/i.test(key)) {
       return item ? '[redacted]' : item;
     }
     return item;
@@ -194,6 +194,12 @@ function sessionMeta(session) {
     forkedFromEntryId: header.forkedFromEntryId || '',
     prompt: start.prompt || '',
     summary: end.summary || '',
+    provider: start.provider || '',
+    providerProfile: start.providerProfile || '',
+    model: start.model || '',
+    providerCapabilities: start.providerCapabilities || {},
+    thinkingLevel: start.thinkingLevel || '',
+    usageSummary: end.usageSummary || null,
   };
 }
 
@@ -283,6 +289,24 @@ function collectTimeline(session) {
           knowledgeEvidence: event.knowledgeEvidence || [],
           warnings: event.warnings || [],
           budget: event.budget || {},
+        },
+      });
+    } else if (event.type === 'model_usage') {
+      timeline.push({
+        type: 'model_usage',
+        title: `Model usage: ${event.provider || 'provider'}/${event.model || 'model'}`,
+        timestamp: event.timestamp,
+        detail: {
+          provider: event.provider || '',
+          providerProfile: event.providerProfile || '',
+          model: event.model || '',
+          capabilities: event.capabilities || {},
+          thinkingLevel: event.thinkingLevel || '',
+          streaming: Boolean(event.streaming),
+          fallbackUsed: Boolean(event.fallbackUsed),
+          nativeThinking: Boolean(event.nativeThinking),
+          reasoningContentAvailable: Boolean(event.reasoningContentAvailable),
+          usage: event.usage || {},
         },
       });
     } else if (event.type === 'invalid_json') {
@@ -389,6 +413,8 @@ function renderSessionMarkdown(session) {
   lines.push('');
   lines.push(renderSessionAudit(session));
   lines.push('');
+  lines.push(renderModelUsageMarkdown(collectModelUsage(session)));
+  lines.push('');
   lines.push(renderCapabilityCoverageMarkdown(collectCapabilityCoverage(session)));
   lines.push('');
   lines.push('## Replay');
@@ -472,10 +498,50 @@ function collectSessionStats(session) {
     invalidJson: audit.stats.invalidJson,
     evidence: audit.stats.evidence,
     warnings: audit.stats.warnings,
+    modelUsage: audit.stats.modelUsage || 0,
     auditStatus: audit.status,
     auditIssues: audit.issues.length,
     assistantUpdates: events.filter((event) => event.type === 'message_update').length,
     exportedAt: new Date().toISOString(),
+  };
+}
+
+function emptyUsageSummary() {
+  return {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    calls: 0,
+    reportedCalls: 0,
+    unreportedCalls: 0,
+    status: 'unavailable',
+  };
+}
+
+function collectModelUsage(session) {
+  const events = session.events || [];
+  const start = events.find((event) => event.type === 'agent_start') || {};
+  const end = events.find((event) => event.type === 'agent_end') || {};
+  const calls = events.filter((event) => event.type === 'model_usage');
+  const summary = end.usageSummary || emptyUsageSummary();
+  return {
+    provider: start.provider || (calls[0] && calls[0].provider) || '',
+    providerProfile: start.providerProfile || (calls[0] && calls[0].providerProfile) || '',
+    model: start.model || (calls[0] && calls[0].model) || '',
+    capabilities: start.providerCapabilities || (calls[0] && calls[0].capabilities) || {},
+    thinkingLevel: start.thinkingLevel || (calls[0] && calls[0].thinkingLevel) || '',
+    summary,
+    calls: calls.map((event) => ({
+      loop: event.loop || '',
+      provider: event.provider || '',
+      providerProfile: event.providerProfile || '',
+      model: event.model || '',
+      streaming: Boolean(event.streaming),
+      fallbackUsed: Boolean(event.fallbackUsed),
+      nativeThinking: Boolean(event.nativeThinking),
+      reasoningContentAvailable: Boolean(event.reasoningContentAvailable),
+      usage: event.usage || {},
+    })),
   };
 }
 
@@ -716,12 +782,70 @@ function renderCapabilityCoverageHtml(coverage) {
   ].join('\n');
 }
 
+function capabilityText(capabilities) {
+  capabilities = capabilities || {};
+  return [
+    `streaming=${Boolean(capabilities.streaming)}`,
+    `thinking=${Boolean(capabilities.thinking)}`,
+    `usage=${Boolean(capabilities.usage)}`,
+    `toolCalling=${Boolean(capabilities.toolCalling)}`,
+  ].join(', ');
+}
+
+function renderModelUsageMarkdown(modelUsage) {
+  const summary = modelUsage.summary || emptyUsageSummary();
+  const lines = [];
+  lines.push('## Model Usage / Provider');
+  lines.push('');
+  lines.push(`- Provider: \`${modelUsage.provider || 'unknown'}\``);
+  lines.push(`- Profile: \`${modelUsage.providerProfile || 'unknown'}\``);
+  lines.push(`- Model: \`${modelUsage.model || 'unknown'}\``);
+  lines.push(`- Thinking level: \`${modelUsage.thinkingLevel || 'off'}\``);
+  lines.push(`- Capabilities: \`${capabilityText(modelUsage.capabilities)}\``);
+  lines.push(`- Usage status: \`${summary.status || 'unavailable'}\``);
+  lines.push(`- Calls: \`${summary.calls || 0}\`, reported: \`${summary.reportedCalls || 0}\`, unreported: \`${summary.unreportedCalls || 0}\``);
+  lines.push(`- Tokens: prompt=\`${summary.promptTokens || 0}\`, completion=\`${summary.completionTokens || 0}\`, total=\`${summary.totalTokens || 0}\``);
+  if (modelUsage.calls && modelUsage.calls.length) {
+    lines.push('');
+    lines.push('Model calls:');
+    modelUsage.calls.slice(0, 12).forEach((call) => {
+      const usage = call.usage || {};
+      lines.push(`- loop=${call.loop} status=${usage.status || 'unknown'} total=${usage.totalTokens || 0}${usage.note ? ` note=${usage.note}` : ''}${call.fallbackUsed ? ' fallback=true' : ''}${call.nativeThinking ? ' nativeThinking=true' : ''}${call.reasoningContentAvailable ? ' reasoningContentAvailable=true' : ''}`);
+    });
+  }
+  return lines.join('\n');
+}
+
+function renderModelUsageHtml(modelUsage) {
+  const summary = modelUsage.summary || emptyUsageSummary();
+  const calls = modelUsage.calls || [];
+  return [
+    '<section class="card"><h2>Model Usage / Provider</h2>',
+    `<div class="meta">Provider: <code>${escapeHtml(modelUsage.provider || 'unknown')}</code></div>`,
+    `<div class="meta">Profile: <code>${escapeHtml(modelUsage.providerProfile || 'unknown')}</code></div>`,
+    `<div class="meta">Model: <code>${escapeHtml(modelUsage.model || 'unknown')}</code></div>`,
+    `<div class="meta">Thinking level: <code>${escapeHtml(modelUsage.thinkingLevel || 'off')}</code></div>`,
+    `<div class="meta">Capabilities: <code>${escapeHtml(capabilityText(modelUsage.capabilities))}</code></div>`,
+    `<div class="meta">Usage status: <code>${escapeHtml(summary.status || 'unavailable')}</code></div>`,
+    `<div class="meta">Calls: <code>${escapeHtml(summary.calls || 0)}</code>, reported: <code>${escapeHtml(summary.reportedCalls || 0)}</code>, unreported: <code>${escapeHtml(summary.unreportedCalls || 0)}</code></div>`,
+    `<div class="meta">Tokens: prompt=<code>${escapeHtml(summary.promptTokens || 0)}</code>, completion=<code>${escapeHtml(summary.completionTokens || 0)}</code>, total=<code>${escapeHtml(summary.totalTokens || 0)}</code></div>`,
+    calls.length
+      ? `<pre>${escapeHtml(calls.slice(0, 12).map((call) => {
+          const usage = call.usage || {};
+          return `loop=${call.loop} status=${usage.status || 'unknown'} total=${usage.totalTokens || 0}${usage.note ? ` note=${usage.note}` : ''}${call.fallbackUsed ? ' fallback=true' : ''}${call.nativeThinking ? ' nativeThinking=true' : ''}${call.reasoningContentAvailable ? ' reasoningContentAvailable=true' : ''}`;
+        }).join('\n'))}</pre>`
+      : '<div class="meta">No model usage events.</div>',
+    '</section>',
+  ].join('\n');
+}
+
 function renderSessionHtml(session) {
   const meta = sessionMeta(session);
   const stats = collectSessionStats(session);
   const audit = auditSession(session);
   const board = findBoardProfileSummary(session);
   const coverage = collectCapabilityCoverage(session);
+  const modelUsage = collectModelUsage(session);
   const timeline = collectTimeline(session)
     .map((item) => {
       const classes = ['event'];
@@ -792,6 +916,7 @@ function renderSessionHtml(session) {
     `<div class="meta">Invalid JSON: <code>${escapeHtml(stats.invalidJson)}</code></div>`,
     `<div class="meta">Evidence: <code>${escapeHtml(stats.evidence)}</code></div>`,
     `<div class="meta">Warnings: <code>${escapeHtml(stats.warnings)}</code></div>`,
+    `<div class="meta">Model usage events: <code>${escapeHtml(stats.modelUsage)}</code></div>`,
     `<div class="meta">Message updates: <code>${escapeHtml(stats.assistantUpdates)}</code></div>`,
     `<div class="meta">Exported: ${escapeHtml(stats.exportedAt)}</div>`,
     '</section>',
@@ -804,6 +929,7 @@ function renderSessionHtml(session) {
       : '<div class="meta">No audit issues.</div>',
     '</section>',
     renderCapabilityCoverageHtml(coverage),
+    renderModelUsageHtml(modelUsage),
     '<section class="card"><h2>Board Profile</h2>',
     board ? `<div class="meta">Model: <code>${escapeHtml(board.model)}</code></div>` : '<div class="meta">No board_profile event found.</div>',
     board && board.arch ? `<div class="meta">Arch: <code>${escapeHtml(board.arch)}</code></div>` : '',
@@ -892,6 +1018,9 @@ function renderSessionTrace(session) {
       const evidence = Array.isArray(event.knowledgeEvidence) ? event.knowledgeEvidence.length : 0;
       const warnings = Array.isArray(event.warnings) ? event.warnings.length : 0;
       lines.push(`context_update #${event.loop || ''} evidence=${evidence} warnings=${warnings}`);
+    } else if (event.type === 'model_usage') {
+      const usage = event.usage || {};
+      lines.push(`model_usage #${event.loop || ''} ${event.provider || ''}/${event.model || ''} [${usage.status || 'unknown'} total=${usage.totalTokens || 0}${event.fallbackUsed ? ' fallback' : ''}${event.nativeThinking ? ' nativeThinking' : ''}${event.reasoningContentAvailable ? ' reasoningContentAvailable' : ''}]`);
     } else if (event.type === 'agent_start') {
       lines.push('agent_start');
     } else if (event.type === 'agent_end') {
@@ -911,6 +1040,7 @@ function renderSessionTrace(session) {
 
 module.exports = {
   collectCapabilityCoverage,
+  collectModelUsage,
   createJsonlSession,
   listSessions,
   openJsonlSession,

@@ -8,7 +8,14 @@ const path = require('path');
 const { createAgentSession } = require('../src/agent-session');
 const { loadConfig } = require('../src/config');
 const { chatCompletionWithEvents, registerProvider } = require('../src/llm');
-const { parseSseData, extractOpenAiDelta } = require('../src/provider-registry');
+const {
+  buildOpenAiPayload,
+  extractOpenAiDelta,
+  extractOpenAiReasoningDelta,
+  extractOpenAiUsage,
+  parseSseData,
+  resolveProviderCapabilities,
+} = require('../src/provider-registry');
 const { handleAgentEvent } = require('../src/tui/event-adapter');
 const { createTuiState } = require('../src/tui/state');
 
@@ -57,6 +64,53 @@ test('config enables streaming by default and env can disable it', async () => {
   else process.env.LOONG_AGENT_STREAMING = previous;
 });
 
+test('config supports provider profiles and thinking level', async () => {
+  const previous = {
+    profile: process.env.LOONG_AGENT_PROVIDER_PROFILE,
+    baseUrl: process.env.LOONG_AGENT_BASE_URL,
+    model: process.env.LOONG_AGENT_MODEL,
+    thinking: process.env.LOONG_AGENT_THINKING_LEVEL,
+  };
+  delete process.env.LOONG_AGENT_PROVIDER_PROFILE;
+  process.env.LOONG_AGENT_BASE_URL = '';
+  process.env.LOONG_AGENT_MODEL = '';
+  delete process.env.LOONG_AGENT_THINKING_LEVEL;
+  const deepseek = loadConfig();
+  assert(deepseek.providerProfile === 'deepseek', 'default profile should be deepseek');
+  assert(deepseek.baseUrl === 'https://api.deepseek.com', 'deepseek baseUrl mismatch');
+  assert(deepseek.model === 'deepseek-chat', 'deepseek model mismatch');
+  assert(deepseek.thinkingLevel === 'off', 'default thinking level mismatch');
+  process.env.LOONG_AGENT_PROVIDER_PROFILE = 'ollama';
+  process.env.LOONG_AGENT_THINKING_LEVEL = 'high';
+  const ollama = loadConfig();
+  assert(ollama.baseUrl === 'http://127.0.0.1:11434/v1', 'ollama baseUrl mismatch');
+  assert(ollama.model === 'llama3.1', 'ollama model mismatch');
+  assert(ollama.thinkingLevel === 'high', 'thinking env mismatch');
+  process.env.LOONG_AGENT_BASE_URL = 'http://example.test/v1';
+  process.env.LOONG_AGENT_MODEL = 'custom-model';
+  const overridden = loadConfig();
+  assert(overridden.baseUrl === 'http://example.test/v1', 'baseUrl override failed');
+  assert(overridden.model === 'custom-model', 'model override failed');
+  process.env.LOONG_AGENT_PROVIDER_PROFILE = 'missing-profile';
+  let message = '';
+  try {
+    loadConfig();
+  } catch (error) {
+    message = error.message;
+  }
+  assert(/Unknown LOONG_AGENT_PROVIDER_PROFILE/.test(message), 'unknown profile should fail clearly');
+  Object.keys(previous).forEach((key) => {
+    const envKey = {
+      profile: 'LOONG_AGENT_PROVIDER_PROFILE',
+      baseUrl: 'LOONG_AGENT_BASE_URL',
+      model: 'LOONG_AGENT_MODEL',
+      thinking: 'LOONG_AGENT_THINKING_LEVEL',
+    }[key];
+    if (previous[key] === undefined) delete process.env[envKey];
+    else process.env[envKey] = previous[key];
+  });
+});
+
 test('SSE parser extracts OpenAI-compatible deltas and DONE', async () => {
   const chunks = [];
   parseSseData('data: {"choices":[{"delta":{"content":"你"}}]}\n\ndata: [DONE]\n\n', (data) => chunks.push(data));
@@ -64,6 +118,42 @@ test('SSE parser extracts OpenAI-compatible deltas and DONE', async () => {
   assert(extractOpenAiDelta(JSON.parse(chunks[0])) === '你', 'delta parse failed');
   assert(chunks[1] === '[DONE]', 'DONE parse failed');
   assert(extractOpenAiDelta({ choices: [{ delta: {} }] }) === '', 'empty delta should be ignored');
+  assert(extractOpenAiReasoningDelta({ choices: [{ delta: { reasoning_content: 'think' } }] }) === 'think', 'reasoning delta parse failed');
+  const usage = extractOpenAiUsage({ usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } });
+  assert(usage.totalTokens === 5, 'usage parse failed');
+});
+
+test('DeepSeek native thinking payload follows official parameters', async () => {
+  const payload = buildOpenAiPayload({
+    providerProfile: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-v4-pro',
+    thinkingLevel: 'high',
+  }, [{ role: 'user', content: 'x' }], { temperature: 0.2 });
+  assert(payload.thinking && payload.thinking.type === 'enabled', 'thinking should be enabled');
+  assert(payload.reasoning_effort === 'high', 'reasoning effort mismatch');
+  assert(!Object.prototype.hasOwnProperty.call(payload, 'temperature'), 'thinking request should omit temperature');
+  const disabled = buildOpenAiPayload({
+    providerProfile: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-v4-pro',
+    thinkingLevel: 'off',
+  }, [], { temperature: 0.2 });
+  assert(disabled.thinking.type === 'disabled', 'thinking should be disabled');
+  const reasoner = buildOpenAiPayload({
+    providerProfile: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-reasoner',
+    thinkingLevel: 'high',
+  }, [], { temperature: 0.2 });
+  assert(!Object.prototype.hasOwnProperty.call(reasoner, 'temperature'), 'reasoner should omit temperature');
+  assert(!Object.prototype.hasOwnProperty.call(reasoner, 'thinking'), 'reasoner should not receive thinking toggle');
+  const capabilities = resolveProviderCapabilities('openai-compatible', {
+    providerProfile: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-v4-pro',
+  });
+  assert(capabilities.thinking === true, 'deepseek-v4-pro should declare thinking support');
 });
 
 test('streaming provider emits multiple updates and final assistant JSON', async () => {
@@ -113,8 +203,14 @@ test('streaming failure before first delta falls back to non-streaming completio
       throw new Error('stream unavailable');
     },
   });
-  const result = await chatCompletionWithEvents(config('test-streaming-error-fallback'), [], {});
+  let metadata = null;
+  const result = await chatCompletionWithEvents(config('test-streaming-error-fallback'), [], {
+    onMetadata: (item) => {
+      metadata = item;
+    },
+  });
   assert(/retry fallback/.test(result), 'pre-delta fallback did not run');
+  assert(metadata && metadata.fallbackUsed === true, 'fallback metadata missing');
 });
 
 test('streaming failure after delta is surfaced as model error', async () => {
@@ -210,7 +306,9 @@ test('OpenAI-compatible HTTP SSE provider streams real chunks', async () => {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write('data: {"choices":[{"delta":{"content":"{\\"tool\\":\\"finish\\""}}]}\n\n');
+    res.write('data: {"choices":[{"delta":{"reasoning_content":"internal reasoning"}}]}\n\n');
     res.write('data: {"choices":[{"delta":{"content":",\\"input\\":{\\"summary\\":\\"sse ok\\"},\\"reason\\":\\"done\\"}"}}]}\n\n');
+    res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":4,"completion_tokens":5,"total_tokens":9}}\n\n');
     res.end('data: [DONE]\n\n');
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -219,10 +317,17 @@ test('OpenAI-compatible HTTP SSE provider streams real chunks', async () => {
   cfg.baseUrl = `http://127.0.0.1:${address.port}`;
   cfg.apiKey = 'test-key';
   const deltas = [];
+  let metadata = null;
   const content = await chatCompletionWithEvents(cfg, [{ role: 'user', content: 'x' }], {
     onDelta: (delta) => deltas.push(delta),
+    onMetadata: (item) => {
+      metadata = item;
+    },
   });
   server.close();
   assert(deltas.length === 2, `unexpected delta count: ${deltas.length}`);
   assert(/sse ok/.test(content), 'missing streamed SSE content');
+  assert(metadata && metadata.usage.status === 'reported', 'missing reported usage metadata');
+  assert(metadata.usage.totalTokens === 9, 'stream usage total mismatch');
+  assert(metadata.reasoningContentAvailable === false, 'regular model should not mark native reasoning');
 });

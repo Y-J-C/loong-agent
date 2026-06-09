@@ -6,6 +6,7 @@ function createAgentState(options) {
     contextWarnings: [],
     knowledgeEvidence: [],
     messages: [],
+    modelUsage: [],
     observations: [],
     tools: (options && options.tools) || [],
     turn: 0,

@@ -9,6 +9,8 @@ const { registerProvider } = require('../src/llm');
 const {
   auditSession,
   collectCapabilityCoverage,
+  collectModelUsage,
+  createJsonlSession,
   readSessionFromPath,
   renderSessionHtml,
   renderSessionMarkdown,
@@ -244,6 +246,98 @@ test('exports include context update knowledge metadata', () => {
   assert(html.indexOf('confidence') >= 0, 'html missing confidence');
   assert(html.indexOf('待确认') >= 0, 'html missing pending confirmation');
   assert(markdown.indexOf('contextAdditions') >= 0, 'markdown missing context additions');
+});
+
+test('exports include provider capability and model usage summary', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'model-usage', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'model-usage', rootSessionId: 'model-usage', cwd: workspace }),
+    JSON.stringify({
+      type: 'agent_start',
+      prompt: 'usage',
+      provider: 'openai-compatible',
+      providerProfile: 'ollama',
+      model: 'llama3.1',
+      thinkingLevel: 'high',
+      providerCapabilities: {
+        streaming: true,
+        thinking: false,
+        usage: true,
+        toolCalling: false,
+      },
+    }),
+    JSON.stringify({
+      type: 'model_usage',
+      loop: 1,
+      provider: 'openai-compatible',
+      providerProfile: 'ollama',
+      model: 'llama3.1',
+      capabilities: {
+        streaming: true,
+        thinking: false,
+        usage: true,
+        toolCalling: false,
+      },
+      thinkingLevel: 'high',
+      streaming: true,
+      fallbackUsed: false,
+      usage: {
+        promptTokens: 3,
+        completionTokens: 4,
+        totalTokens: 7,
+        status: 'reported',
+        note: '',
+      },
+    }),
+    JSON.stringify({
+      type: 'agent_end',
+      status: 'ok',
+      summary: 'done',
+      usageSummary: {
+        promptTokens: 3,
+        completionTokens: 4,
+        totalTokens: 7,
+        calls: 1,
+        reportedCalls: 1,
+        unreportedCalls: 0,
+        status: 'reported',
+      },
+    }),
+  ]);
+  const session = readSessionFromPath(file);
+  const audit = auditSession(session);
+  const usage = collectModelUsage(session);
+  const html = renderSessionHtml(session);
+  const markdown = renderSessionMarkdown(session);
+  assert(audit.stats.modelUsage === 1, 'audit missing model usage count');
+  assert(usage.summary.totalTokens === 7, 'collectModelUsage total mismatch');
+  assert(html.indexOf('Model Usage / Provider') >= 0, 'html missing model usage section');
+  assert(html.indexOf('ollama') >= 0, 'html missing provider profile');
+  assert(html.indexOf('streaming=true') >= 0, 'html missing capability text');
+  assert(markdown.indexOf('## Model Usage / Provider') >= 0, 'markdown missing model usage section');
+  assert(markdown.indexOf('reported') >= 0, 'markdown missing usage status');
+});
+
+test('session writer keeps usage token counts while redacting secrets', () => {
+  const workspace = tempWorkspace();
+  const session = createJsonlSession(config('writer-redaction', workspace), { command: 'test' });
+  session.append({
+    type: 'model_usage',
+    loop: 1,
+    usage: {
+      promptTokens: 2,
+      completionTokens: 3,
+      totalTokens: 5,
+      status: 'reported',
+      note: '',
+    },
+    apiKey: 'secret-value',
+  });
+  const raw = fs.readFileSync(session.filePath, 'utf8');
+  assert(raw.indexOf('"promptTokens":2') >= 0, 'usage promptTokens should not be redacted');
+  assert(raw.indexOf('"totalTokens":5') >= 0, 'usage totalTokens should not be redacted');
+  assert(raw.indexOf('secret-value') < 0, 'api key should be redacted');
+  assert(raw.indexOf('[redacted]') >= 0, 'redacted marker missing');
 });
 
 test('replay and markdown are offline renderers', () => {

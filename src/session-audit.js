@@ -117,6 +117,9 @@ function auditSession(session) {
     policyBlocked: toolEndEvents.filter((event) => event.errorType === 'policy_blocked').length,
     evidence: countResultItems(toolEndEvents.concat(events.filter((event) => event.type === 'context_update')), 'evidence'),
     warnings: countResultItems(toolEndEvents.concat(events.filter((event) => event.type === 'context_update')), 'warnings'),
+    modelUsage: events.filter((event) => event.type === 'model_usage').length,
+    modelUsageReported: events.filter((event) => event.type === 'model_usage' && event.usage && event.usage.status === 'reported').length,
+    modelUsageUnreported: events.filter((event) => event.type === 'model_usage' && (!event.usage || event.usage.status !== 'reported')).length,
   };
   const status = deriveStatus(issues, header);
   return {
@@ -159,6 +162,7 @@ function renderSessionAudit(session, options) {
     `Policy blocked: ${audit.stats.policyBlocked}`,
     `Evidence: ${audit.stats.evidence}`,
     `Warnings: ${audit.stats.warnings}`,
+    `Model usage events: ${audit.stats.modelUsage}`,
     `Issues: ${audit.issues.length}`,
   ];
   audit.issues.slice(0, 12).forEach((item) => lines.push(`- ${formatIssue(item)}`));
@@ -198,6 +202,9 @@ function replayLines(session) {
       lines.push(`tool ${event.toolName || ''} ${status}: ${String(summary).slice(0, 200)}`);
     } else if (event.type === 'turn_end') {
       lines.push(`turn ${event.loop || ''} ${event.status || 'ok'}`);
+    } else if (event.type === 'model_usage') {
+      const usage = event.usage || {};
+      lines.push(`model_usage ${event.provider || ''}/${event.model || ''} ${usage.status || 'unknown'} total=${usage.totalTokens || 0}`);
     } else if (event.type === 'agent_end') {
       lines.push(`agent_end ${event.status || (event.error ? 'error' : 'ok')}: ${event.summary || event.error || ''}`);
     }

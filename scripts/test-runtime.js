@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createAgent } = require('../src/agent-runtime');
+const { parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
 const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
@@ -63,9 +64,130 @@ test('finish event order includes turn_end', async () => {
   assert(result.summary === 'ok', 'finish summary mismatch');
   assert(
     events.join(' -> ') ===
-      'agent_start -> turn_start -> message_start -> message_end -> message_start -> message_update -> message_end -> tool_execution_start -> tool_execution_end -> turn_end -> agent_end',
+      'agent_start -> turn_start -> message_start -> message_end -> message_start -> message_update -> message_end -> model_usage -> tool_execution_start -> tool_execution_end -> turn_end -> agent_end',
     `unexpected event order: ${events.join(' -> ')}`
   );
+});
+
+test('model usage records reported tokens and provider capabilities', async () => {
+  registerProvider({
+    name: 'test-usage-reported',
+    capabilities: {
+      streaming: false,
+      thinking: false,
+      usage: true,
+      toolCalling: false,
+    },
+    chatCompletion: async () => ({
+      content: JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'usage ok' },
+        reason: 'done',
+      }),
+      usage: {
+        promptTokens: 7,
+        completionTokens: 8,
+        totalTokens: 15,
+      },
+    }),
+  });
+  const cfg = Object.assign(config('test-usage-reported'), {
+    providerProfile: 'deepseek',
+    thinkingLevel: 'medium',
+    streaming: false,
+  });
+  const events = [];
+  const agent = createAgent(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('usage');
+  const start = events.find((event) => event.type === 'agent_start');
+  const usage = events.find((event) => event.type === 'model_usage');
+  const end = events.find((event) => event.type === 'agent_end');
+  assert(result.summary === 'usage ok', 'usage run did not finish');
+  assert(start.providerProfile === 'deepseek', 'agent_start missing provider profile');
+  assert(start.providerCapabilities && start.providerCapabilities.usage === true, 'agent_start missing provider capabilities');
+  assert(start.thinkingLevel === 'medium', 'agent_start missing thinking level');
+  assert(usage && usage.usage.status === 'reported', 'model_usage missing reported status');
+  assert(usage.usage.totalTokens === 15, 'model_usage total token mismatch');
+  assert(end.usageSummary.totalTokens === 15, 'agent_end usage summary mismatch');
+  assert(end.usageSummary.status === 'reported', 'agent_end usage status mismatch');
+});
+
+test('model usage marks supported provider without token report as pending confirmation', async () => {
+  registerProvider({
+    name: 'test-usage-not-reported',
+    capabilities: {
+      streaming: false,
+      thinking: false,
+      usage: true,
+      toolCalling: false,
+    },
+    chatCompletion: async () => JSON.stringify({
+      tool: 'finish',
+      input: { summary: 'usage pending' },
+      reason: 'done',
+    }),
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-usage-not-reported'), { streaming: false }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  await agent.prompt('usage pending');
+  const usage = events.find((event) => event.type === 'model_usage');
+  assert(usage && usage.usage.status === 'not_reported', 'usage should be not_reported');
+  assert(usage.usage.note === '待确认', 'usage should mark pending confirmation');
+});
+
+test('thinking level falls back to prompt hint when provider lacks native thinking', async () => {
+  let prompt = '';
+  registerProvider({
+    name: 'test-thinking-hint',
+    capabilities: {
+      streaming: false,
+      thinking: false,
+      usage: false,
+      toolCalling: false,
+    },
+    chatCompletion: async (cfg, messages) => {
+      prompt = messages.map((message) => message.content).join('\n');
+      return JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'thinking hint ok' },
+        reason: 'done',
+      });
+    },
+  });
+  const cfg = Object.assign(config('test-thinking-hint'), {
+    streaming: false,
+    thinkingLevel: 'high',
+  });
+  await createAgent(cfg, { session: null }).prompt('think carefully');
+  assert(prompt.indexOf('Analysis depth hint: high') >= 0, 'missing thinking hint');
+  assert(prompt.indexOf('Do not reveal hidden chain-of-thought') >= 0, 'missing chain-of-thought safety hint');
+});
+
+test('runtime_health reports provider capabilities without exposing api key', async () => {
+  registerProvider({
+    name: 'test-health-provider',
+    capabilities: {
+      streaming: true,
+      thinking: false,
+      usage: true,
+      toolCalling: false,
+    },
+    chatCompletion: async () => 'unused',
+  });
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(Object.assign(config('test-health-provider'), {
+    providerProfile: 'ollama',
+    thinkingLevel: 'low',
+    apiKey: 'secret-value',
+  }), 'runtime_health', {});
+  const text = JSON.stringify(result);
+  assert(result.data.providerProfile === 'ollama', 'runtime_health missing profile');
+  assert(result.data.capabilities.streaming === true, 'runtime_health missing capability');
+  assert(result.data.thinkingLevel === 'low', 'runtime_health missing thinking level');
+  assert(text.indexOf('secret-value') < 0, 'runtime_health leaked api key');
+  assert(text.indexOf('[redacted]') >= 0, 'runtime_health should show redacted api key state');
 });
 
 test('unknown tool records an error event and continues', async () => {
@@ -114,6 +236,12 @@ test('invalid model JSON fails clearly', async () => {
     errorMessage = error.message;
   }
   assert(/Model did not return JSON/.test(errorMessage), `unexpected error: ${errorMessage}`);
+});
+
+test('model JSON parser recovers a missing trailing object brace', () => {
+  const action = parseToolCall('{"tool":"finish","input":{"summary":"ok","reason":"done"}');
+  assert(action.tool === 'finish', 'parser did not recover tool');
+  assert(action.input.summary === 'ok', 'parser did not recover input');
 });
 
 test('model failure is recorded as assistant error lifecycle', async () => {

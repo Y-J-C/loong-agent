@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildMessagesFromTurnContext, buildTurnContext } = require('./prompts');
+const { resolveProviderCapabilities } = require('./provider-registry');
 const {
   finishRun,
   recordAssistantMessage,
@@ -37,6 +38,14 @@ function parseToolCall(text) {
   try {
     return JSON.parse(trimmed);
   } catch (error) {
+    const balanced = balanceTrailingObjectBraces(trimmed);
+    if (balanced !== trimmed) {
+      try {
+        return JSON.parse(balanced);
+      } catch (balanceError) {
+        // Fall through to extracting an object from surrounding text.
+      }
+    }
     const start = trimmed.indexOf('{');
     const end = trimmed.lastIndexOf('}');
     if (start >= 0 && end > start) {
@@ -44,6 +53,34 @@ function parseToolCall(text) {
     }
     throw new Error(`Model did not return JSON: ${trimmed.slice(0, 300)}`);
   }
+}
+
+function balanceTrailingObjectBraces(text) {
+  if (!text || text[0] !== '{') return text;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') depth += 1;
+    else if (ch === '}') depth -= 1;
+    if (depth < 0) return text;
+  }
+  if (inString || depth <= 0 || depth > 3) return text;
+  return `${text}${'}'.repeat(depth)}`;
 }
 
 function normalizePendingMessage(pending) {
@@ -64,6 +101,95 @@ function summarizeObservations(observations) {
     'Reached max loop limit; returning best available summary from collected observations.',
     ...latest,
   ].join('\n');
+}
+
+function safeProviderCapabilities(config) {
+  try {
+    return resolveProviderCapabilities((config && config.provider) || 'openai-compatible', config || {});
+  } catch (error) {
+    return {
+      streaming: false,
+      thinking: false,
+      usage: false,
+      toolCalling: false,
+    };
+  }
+}
+
+function defaultUsage(capabilities) {
+  if (!capabilities || !capabilities.usage) {
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      status: 'unavailable',
+      note: 'Provider does not declare usage support.',
+    };
+  }
+  return {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    status: 'not_reported',
+    note: '待确认',
+  };
+}
+
+function createModelUsageEvent(config, turn, metadata) {
+  const capabilities = metadata && metadata.capabilities
+    ? metadata.capabilities
+    : safeProviderCapabilities(config);
+  const usage = metadata && metadata.usage ? metadata.usage : defaultUsage(capabilities);
+  return {
+    type: 'model_usage',
+    loop: turn,
+    provider: (metadata && metadata.provider) || config.provider || 'openai-compatible',
+    providerProfile: (metadata && metadata.providerProfile) || config.providerProfile || 'custom',
+    model: (metadata && metadata.model) || config.model || '',
+    capabilities,
+    thinkingLevel: (metadata && metadata.thinkingLevel) || config.thinkingLevel || 'off',
+    nativeThinking: Boolean(metadata && metadata.nativeThinking),
+    reasoningContentAvailable: Boolean(metadata && metadata.reasoningContentAvailable),
+    streaming: metadata ? Boolean(metadata.streaming) : config.streaming !== false,
+    fallbackUsed: Boolean(metadata && metadata.fallbackUsed),
+    usage: {
+      promptTokens: Number(usage.promptTokens || 0) || 0,
+      completionTokens: Number(usage.completionTokens || 0) || 0,
+      totalTokens: Number(usage.totalTokens || 0) || 0,
+      status: usage.status || 'not_reported',
+      note: usage.note || '',
+    },
+  };
+}
+
+function addModelUsage(state, event) {
+  if (!state.modelUsage) state.modelUsage = [];
+  state.modelUsage.push(event);
+}
+
+function summarizeModelUsage(state) {
+  const items = (state && state.modelUsage) || [];
+  const summary = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    calls: items.length,
+    reportedCalls: 0,
+    unreportedCalls: 0,
+    status: items.length ? 'not_reported' : 'unavailable',
+  };
+  for (const event of items) {
+    const usage = event.usage || {};
+    summary.promptTokens += Number(usage.promptTokens || 0) || 0;
+    summary.completionTokens += Number(usage.completionTokens || 0) || 0;
+    summary.totalTokens += Number(usage.totalTokens || 0) || 0;
+    if (usage.status === 'reported') summary.reportedCalls += 1;
+    else summary.unreportedCalls += 1;
+  }
+  if (summary.calls && summary.reportedCalls === summary.calls) summary.status = 'reported';
+  else if (summary.calls && summary.reportedCalls > 0) summary.status = 'partial';
+  else if (summary.calls) summary.status = 'not_reported';
+  return summary;
 }
 
 async function emitUserMessages(context, pendingMessages) {
@@ -487,6 +613,7 @@ async function failRun(context, error, options) {
     observations: context.state.observations,
     turns: context.state.turn,
     durationMs: elapsedMs(context.runStartedAt),
+    usageSummary: summarizeModelUsage(context.state),
   });
   error.agentEndEmitted = true;
   throw error;
@@ -519,7 +646,10 @@ async function runAgentLoop(options) {
     prompt: userPrompt,
     maxLoops: config.maxLoops,
     provider: config.provider || '',
+    providerProfile: config.providerProfile || 'custom',
     model: config.model || '',
+    providerCapabilities: safeProviderCapabilities(config),
+    thinkingLevel: config.thinkingLevel || 'off',
     startedAt: nowIso(),
     tools: state.tools.map((tool) => ({
       name: tool.name,
@@ -574,6 +704,12 @@ async function runAgentLoop(options) {
     pendingMessages = [];
 
     let content;
+    let modelMetadata = null;
+    const modelCallbacks = {
+      onMetadata: (metadata) => {
+        modelMetadata = metadata;
+      },
+    };
     try {
       const modelTurnContext = buildTurnContext({
         config,
@@ -583,9 +719,11 @@ async function runAgentLoop(options) {
       });
       const messages = buildMessagesFromTurnContext(modelTurnContext);
       if (config.streaming === false) {
-        content = await chatCompletion(config, messages);
+        content = await chatCompletion(config, messages, modelCallbacks);
       } else {
-        content = await emitStreamingAssistantMessage(turnContext, messages, chatCompletion);
+        content = await emitStreamingAssistantMessage(turnContext, messages, (cfg, msgs, callbacks) => {
+          return chatCompletion(cfg, msgs, Object.assign({}, callbacks || {}, modelCallbacks));
+        });
       }
     } catch (error) {
       return failRun(turnContext, error, { code: 'model_request_error' });
@@ -596,6 +734,9 @@ async function runAgentLoop(options) {
     if (config.streaming === false) {
       await emitAssistantMessage(turnContext, content);
     }
+    const usageEvent = createModelUsageEvent(config, turn, modelMetadata);
+    addModelUsage(state, usageEvent);
+    await emit(usageEvent);
 
     let action;
     try {
@@ -674,6 +815,7 @@ async function runAgentLoop(options) {
         status: 'ok',
         turns: state.turn,
         durationMs: elapsedMs(runStartedAt),
+        usageSummary: summarizeModelUsage(state),
       });
       return {
         summary: result.summary || '',
@@ -697,11 +839,13 @@ async function runAgentLoop(options) {
     status: 'max_loops',
     turns: state.turn,
     durationMs: elapsedMs(runStartedAt),
+    usageSummary: summarizeModelUsage(state),
   });
   return finalResult;
 }
 
 module.exports = {
+  balanceTrailingObjectBraces,
   parseToolCall,
   runAgentLoop,
 };

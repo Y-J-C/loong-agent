@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
+const { loadConfig } = require('../src/config');
 const { createSessionManager } = require('../src/session-manager');
 const { writeSessionExport } = require('../src/session');
 
@@ -164,7 +165,12 @@ function exportLatest(report, outName) {
 }
 
 function hasApiKey() {
-  return Boolean(process.env.LOONG_AGENT_API_KEY || process.env.DEEPSEEK_API_KEY);
+  try {
+    const config = loadConfig();
+    return Boolean(config.apiKey);
+  } catch (error) {
+    return Boolean(process.env.LOONG_AGENT_API_KEY || process.env.DEEPSEEK_API_KEY);
+  }
 }
 
 function writeReports(report, jsonOnly) {

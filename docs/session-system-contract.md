@@ -120,6 +120,56 @@ Agent Loop may append `context_update` after `prepareNextTurn`:
 
 `knowledgeEvidence` entries should include `source`, `path`, `topic`, `status`, `confidence`, `last_updated`, and `sources` when available.
 
+## Model Usage
+
+Agent Loop appends `model_usage` after each successful model call:
+
+```js
+{
+  type: "model_usage",
+  loop: 1,
+  provider: "openai-compatible",
+  providerProfile: "deepseek",
+  model: "deepseek-chat",
+  capabilities: {
+    streaming: true,
+    thinking: false,
+    usage: true,
+    toolCalling: false
+  },
+  thinkingLevel: "off",
+  nativeThinking: false,
+  reasoningContentAvailable: false,
+  streaming: true,
+  fallbackUsed: false,
+  usage: {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    status: "reported|not_reported|unavailable",
+    note: ""
+  }
+}
+```
+
+`model_usage` is an audit/export event. It must not be replayed as a tool result and must not contain API keys, tokens, authorization headers, secrets, credentials, or passwords.
+
+If a provider declares usage support but does not return token counts, `usage.status` must be `not_reported` and `usage.note` must be `待确认`.
+
+`agent_end.usageSummary` aggregates successful model calls for the run:
+
+```js
+{
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  calls: 1,
+  reportedCalls: 0,
+  unreportedCalls: 1,
+  status: "reported|partial|not_reported|unavailable"
+}
+```
+
 ## Recovery
 
 `recoverSession(session)` is read-only. It returns the recoverable event list and audit summary. It never writes back to the original JSONL file.
@@ -146,6 +196,7 @@ Trace, Markdown, and HTML exports should include:
 - tool errors and policy blocks;
 - evidence and warning counts;
 - context updates and knowledge evidence;
+- provider capability and model usage summary;
 - visible `policy_blocked`, `tool_error`, and `invalid_json` markers.
 
 Tool result display should prefer the stage 2 envelope fields:

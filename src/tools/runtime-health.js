@@ -1,7 +1,22 @@
 'use strict';
 
 const { createTool } = require('../tool-registry');
+const { listProviderDetails, resolveProviderCapabilities } = require('../llm');
 const { requireObject, summarize } = require('../tool-utils');
+
+function safeProviderCapabilities(config) {
+  config = config || {};
+  try {
+    return resolveProviderCapabilities(config.provider || 'openai-compatible', config);
+  } catch (error) {
+    return {
+      streaming: false,
+      thinking: false,
+      usage: false,
+      toolCalling: false,
+    };
+  }
+}
 
 function createRuntimeHealthToolDefinition() {
   return {
@@ -13,7 +28,7 @@ function createRuntimeHealthToolDefinition() {
     evidencePolicy: { emitsEvidence: true, source: 'runtime' },
     resultSchema: {
       data: 'runtime health summary',
-      evidence: 'provider, model, node, platform',
+        evidence: 'provider, profile, model, capabilities, node, platform',
     },
     parameters: {},
     promptSnippet: 'Use runtime_health to check provider, runtime, session, hook, and tool status.',
@@ -28,7 +43,11 @@ function createRuntimeHealthToolDefinition() {
         platform: process.platform,
         arch: process.arch,
         provider: config.provider || 'openai-compatible',
+        providerProfile: config.providerProfile || 'custom',
         model: config.model || '',
+        capabilities: safeProviderCapabilities(config),
+        thinkingLevel: config.thinkingLevel || 'off',
+        providerRegistry: listProviderDetails(),
         apiKey: config.apiKey ? '[redacted]' : '',
         workspace: config.workspace,
         sessionRepo: 'jsonl-v2-compatible',
@@ -38,14 +57,17 @@ function createRuntimeHealthToolDefinition() {
       return Object.assign({}, result, {
         ok: true,
         data: result,
-        summary: `node=${result.node}, provider=${result.provider}, model=${result.model}`,
+        summary: `node=${result.node}, provider=${result.provider}, profile=${result.providerProfile}, model=${result.model}, thinking=${result.thinkingLevel}`,
         evidence: [{
           source: 'runtime',
           node: result.node,
           platform: result.platform,
           arch: result.arch,
           provider: result.provider,
+          providerProfile: result.providerProfile,
           model: result.model,
+          capabilities: result.capabilities,
+          thinkingLevel: result.thinkingLevel,
         }],
         warnings: [],
         error: '',

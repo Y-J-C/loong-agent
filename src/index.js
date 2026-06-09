@@ -44,6 +44,8 @@ Environment:
   LOONG_AGENT_BASE_URL   default: https://api.deepseek.com
   LOONG_AGENT_API_KEY    DeepSeek/OpenAI-compatible API key
   LOONG_AGENT_MODEL      default: deepseek-chat
+  LOONG_AGENT_PROVIDER_PROFILE default: deepseek; supported: deepseek, ollama, custom
+  LOONG_AGENT_THINKING_LEVEL   default: off; supported: off, low, medium, high
   LOONG_AGENT_WORKSPACE  default: current directory
   LOONG_AGENT_STREAMING  default: 1; set 0 to force non-streaming
 `);

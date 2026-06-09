@@ -19,7 +19,7 @@ function loadDotEnv(filePath) {
     ) {
       value = value.slice(1, -1);
     }
-    if (!process.env[key]) process.env[key] = value;
+    if (process.env[key] === undefined) process.env[key] = value;
   }
 }
 
@@ -34,6 +34,30 @@ function intEnv(name, defaultValue) {
   return Number.isFinite(value) && value > 0 ? value : defaultValue;
 }
 
+const PROVIDER_PROFILES = {
+  deepseek: {
+    provider: 'openai-compatible',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+  },
+  ollama: {
+    provider: 'openai-compatible',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    model: 'llama3.1',
+  },
+  custom: {
+    provider: 'openai-compatible',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+  },
+};
+
+function normalizeThinkingLevel(value) {
+  const level = String(value || 'off').toLowerCase();
+  if (['off', 'low', 'medium', 'high'].includes(level)) return level;
+  return 'off';
+}
+
 function loadConfig() {
   const projectRoot = path.resolve(__dirname, '..');
   loadDotEnv(path.join(projectRoot, '.env'));
@@ -41,14 +65,21 @@ function loadConfig() {
   const workspace = path.resolve(
     process.env.LOONG_AGENT_WORKSPACE || process.cwd()
   );
+  const providerProfile = process.env.LOONG_AGENT_PROVIDER_PROFILE || 'deepseek';
+  const profile = PROVIDER_PROFILES[providerProfile];
+  if (!profile) {
+    throw new Error(`Unknown LOONG_AGENT_PROVIDER_PROFILE: ${providerProfile}`);
+  }
 
   return {
     projectRoot,
     workspace,
-    baseUrl: process.env.LOONG_AGENT_BASE_URL || 'https://api.deepseek.com',
+    providerProfile,
+    baseUrl: process.env.LOONG_AGENT_BASE_URL || profile.baseUrl || 'https://api.deepseek.com',
     apiKey: process.env.LOONG_AGENT_API_KEY || process.env.DEEPSEEK_API_KEY || '',
-    model: process.env.LOONG_AGENT_MODEL || 'deepseek-chat',
-    provider: process.env.LOONG_AGENT_PROVIDER || 'openai-compatible',
+    model: process.env.LOONG_AGENT_MODEL || profile.model || 'deepseek-chat',
+    provider: process.env.LOONG_AGENT_PROVIDER || profile.provider || 'openai-compatible',
+    thinkingLevel: normalizeThinkingLevel(process.env.LOONG_AGENT_THINKING_LEVEL || 'off'),
     maxLoops: intEnv('LOONG_AGENT_MAX_LOOPS', 6),
     contextBudgetChars: intEnv('LOONG_AGENT_CONTEXT_BUDGET', 1800),
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
@@ -59,4 +90,6 @@ function loadConfig() {
 
 module.exports = {
   loadConfig,
+  normalizeThinkingLevel,
+  PROVIDER_PROFILES,
 };
