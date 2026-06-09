@@ -39,14 +39,32 @@ function toolErrorType(event) {
   return '';
 }
 
+function toolEventKey(event) {
+  return event.toolCallId || event.callId || event.id || `${event.loop || 0}:${event.toolName || 'unknown'}`;
+}
+
+function extractTokenUsage(event) {
+  const usage = event.usageSummary || event.usage || {};
+  return {
+    input: usage.promptTokens || usage.inputTokens || usage.input || 0,
+    output: usage.completionTokens || usage.outputTokens || usage.output || 0,
+    cached: usage.cachedTokens || usage.cachedInputTokens || usage.cached || 0,
+    contextUsed: usage.totalTokens || usage.contextUsed || 0,
+    contextBudget: usage.contextBudget || usage.contextWindow || 0,
+  };
+}
+
 function handleAgentEvent(state, event) {
   if (!event || !event.type) return;
   if (event.type === 'agent_start') {
     state.mode = 'running';
     state.status = 'agent running';
+    state.agentStatus = 'running';
+    state.lastEventTime = Date.now();
     if (event.prompt) addMessage(state, { type: 'system', text: `prompt: ${event.prompt}` });
   } else if (event.type === 'turn_start') {
     state.turnCount = Math.max(state.turnCount || 0, event.loop || 0);
+    state.lastEventTime = Date.now();
   } else if (event.type === 'message_start' && event.role === 'user') {
     if (event.internal) return;
     addMessage(state, { type: 'user', text: event.content || '' });
@@ -69,7 +87,8 @@ function handleAgentEvent(state, event) {
     if (!tool) state.lastAssistantText = event.content || state.lastAssistantText;
   } else if (event.type === 'tool_execution_start') {
     state.toolCount += 1;
-    const key = `${event.loop || 0}:${event.toolName || 'unknown'}`;
+    state.lastEventTime = Date.now();
+    const key = toolEventKey(event);
     const item = addMessage(state, {
       id: `tool-${key}`,
       type: 'tool',
@@ -86,7 +105,8 @@ function handleAgentEvent(state, event) {
     });
     state.currentToolEventIdByKey[key] = item.id;
   } else if (event.type === 'tool_execution_end') {
-    const key = `${event.loop || 0}:${event.toolName || 'unknown'}`;
+    state.lastEventTime = Date.now();
+    const key = toolEventKey(event);
     const id = state.currentToolEventIdByKey[key];
     const result = event.result || {};
     const errorType = toolErrorType(event);
@@ -108,11 +128,29 @@ function handleAgentEvent(state, event) {
     addMessage(state, patch);
   } else if (event.type === 'turn_end') {
     if (event.status) state.status = `turn ${event.status}`;
+  } else if (event.type === 'model_usage') {
+    const usage = extractTokenUsage(event);
+    state.tokenInput += usage.input;
+    state.tokenOutput += usage.output;
+    state.tokenCached += usage.cached;
+    if (usage.contextUsed) state.contextUsed = usage.contextUsed;
+    if (usage.contextBudget) state.contextBudget = usage.contextBudget;
+    state.lastEventTime = Date.now();
   } else if (event.type === 'agent_end') {
     state.mode = 'idle';
     state.queuedFollowUps = [];
     const status = event.status || (event.error ? 'error' : 'ok');
     state.status = status === 'ok' ? 'idle' : status;
+    state.agentStatus = status === 'ok' ? 'idle' : 'error';
+    state.lastEventTime = Date.now();
+    if (event.usageSummary) {
+      const usage = extractTokenUsage(event);
+      if (usage.input) state.tokenInput = usage.input;
+      if (usage.output) state.tokenOutput = usage.output;
+      if (usage.cached) state.tokenCached = usage.cached;
+      if (usage.contextUsed) state.contextUsed = usage.contextUsed;
+      if (usage.contextBudget) state.contextBudget = usage.contextBudget;
+    }
     addMessage(state, {
       type: event.error || status !== 'ok' ? 'error' : 'assistant',
       text: `agent_end status=${status}\n${event.summary || event.error || 'done'}`,

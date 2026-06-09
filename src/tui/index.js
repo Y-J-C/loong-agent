@@ -7,7 +7,8 @@ const { handleAgentEvent } = require('./event-adapter');
 const { applyKey, parseKey, pushHistory, setInput } = require('./input');
 const { renderTui } = require('./renderer');
 const { ANSI, terminalSize } = require('./screen');
-const { addMessage, createTuiState } = require('./state');
+const { addMessage, clearMessages, createTuiState, updateAutocomplete } = require('./state');
+const { createDiffRenderer } = require('./diff');
 
 function runTui(config, options) {
   options = options || {};
@@ -19,6 +20,7 @@ function runTui(config, options) {
   }
 
   const state = createTuiState(config);
+  const diffRenderer = createDiffRenderer();
   let activeConfig = config;
   let agentSession = createAgentSession(config, { command: 'tui' });
   let unsubscribe = null;
@@ -115,7 +117,9 @@ function runTui(config, options) {
 
   function render() {
     if (stopped) return;
-    output.write(`${ANSI.hideCursor}${ANSI.clear}${ANSI.home}${renderTui(state, terminalSize(output))}`);
+    const size = terminalSize(output);
+    const lines = renderTui(state, size).split('\n');
+    output.write(diffRenderer.render(lines, size));
   }
 
   function stop() {
@@ -129,12 +133,50 @@ function runTui(config, options) {
     output.write(`${ANSI.showCursor}${ANSI.reset}\n`);
   }
 
+  function acceptAutocomplete() {
+    const command = state.autoItems[state.autoIndex >= 0 ? state.autoIndex : 0];
+    if (!command) return;
+    setInput(state, `${command} `);
+    state.autoItems = [];
+    state.autoIndex = -1;
+  }
+
   async function onData(buffer) {
     const key = parseKey(buffer);
     if (state.mode === 'session_selector') {
       await handleSelectorKey(key);
       render();
       return;
+    }
+    if (state.autoItems.length > 0) {
+      if (key.type === 'text' && key.text === '\t') {
+        acceptAutocomplete();
+        updateAutocomplete(state);
+        render();
+        return;
+      }
+      if (key.type === 'up' || key.type === 'ctrl_p') {
+        state.autoIndex = Math.max(0, (state.autoIndex || 0) - 1);
+        render();
+        return;
+      }
+      if (key.type === 'down' || key.type === 'ctrl_n') {
+        state.autoIndex = Math.min(state.autoItems.length - 1, (state.autoIndex || 0) + 1);
+        render();
+        return;
+      }
+      if (key.type === 'escape') {
+        state.autoItems = [];
+        state.autoIndex = -1;
+        render();
+        return;
+      }
+      if (key.type === 'enter') {
+        acceptAutocomplete();
+        updateAutocomplete(state);
+        render();
+        return;
+      }
     }
     if (key.type === 'enter') {
       const text = state.inputBuffer;
@@ -150,6 +192,7 @@ function runTui(config, options) {
         render();
       } else if (state.inputBuffer) {
         setInput(state, '');
+        updateAutocomplete(state);
         render();
       } else {
         stop();
@@ -161,6 +204,12 @@ function runTui(config, options) {
       return;
     }
     if (key.type === 'escape') {
+      if (state.autoItems.length) {
+        state.autoItems = [];
+        state.autoIndex = -1;
+        render();
+        return;
+      }
       if (state.mode === 'running') {
         agentSession.abort();
         addMessage(state, { type: 'system', text: 'abort requested' });
@@ -170,11 +219,13 @@ function runTui(config, options) {
       } else {
         setInput(state, '');
       }
+      updateAutocomplete(state);
       render();
       return;
     }
     if (key.type === 'ctrl_l') {
-      state.messages = [];
+      clearMessages(state);
+      diffRenderer.reset();
       render();
       return;
     }
@@ -185,6 +236,7 @@ function runTui(config, options) {
       return;
     }
     applyKey(state, key);
+    updateAutocomplete(state);
     render();
   }
 

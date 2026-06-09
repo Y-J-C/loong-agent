@@ -131,7 +131,7 @@ function writeManifest(outputDir) {
     nodeBaseline: '>=14.16.0',
     boardProfileId: board.id || 'ls2k1000-pai-udb-v1_5',
     smokeCommand: 'node scripts/board-smoke.js --full',
-    includedPaths: ['src', 'boards', 'kb', 'scripts', 'docs', 'runs/sample-offline-demo.*', 'README.md', 'package.json', '.env.example'],
+    includedPaths: ['src', 'boards', 'kb', 'scripts', 'docs', 'runs/sample-offline-demo.*', 'README.md', 'package.json', '.env.example', 'loong'],
     files,
   };
   fs.writeFileSync(path.join(outputDir, 'RELEASE_MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
@@ -205,7 +205,7 @@ function pack(outputDir) {
   copyDir(path.join(ROOT, 'scripts'), path.join(resolved, 'scripts'), scriptsFilter);
   copyDir(path.join(ROOT, 'docs'), path.join(resolved, 'docs'), docsFilter);
   copyDir(path.join(ROOT, 'runs'), path.join(resolved, 'runs'), safeRunsFilter);
-  ['README.md', 'package.json', '.env.example'].forEach((name) => {
+  ['README.md', 'package.json', '.env.example', 'loong'].forEach((name) => {
     copyFile(path.join(ROOT, name), path.join(resolved, name));
   });
 

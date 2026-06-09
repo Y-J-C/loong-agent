@@ -1,0 +1,11 @@
+#!/bin/sh
+# Quick launcher for loong-agent.
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CLI_PATH="$SCRIPT_DIR/src/index.js"
+
+if [ "$#" -eq 0 ]; then
+  exec node "$CLI_PATH" tui
+fi
+
+exec node "$CLI_PATH" "$@"

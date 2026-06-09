@@ -41,6 +41,28 @@ test('tool start and end update same tool item', () => {
   assert(tools[0].summary === 'ok', 'tool summary not updated');
 });
 
+test('toolCallId keeps same-name tool calls separate', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'tool_execution_start', loop: 1, toolName: 'read_file', toolCallId: 'call-a', callSummary: 'first' });
+  handleAgentEvent(state, { type: 'tool_execution_start', loop: 1, toolName: 'read_file', toolCallId: 'call-b', callSummary: 'second' });
+  handleAgentEvent(state, { type: 'tool_execution_end', loop: 1, toolName: 'read_file', toolCallId: 'call-a', resultSummary: 'first done' });
+  handleAgentEvent(state, { type: 'tool_execution_end', loop: 1, toolName: 'read_file', toolCallId: 'call-b', resultSummary: 'second done' });
+  const tools = state.messages.filter((message) => message.type === 'tool');
+  assert(tools.length === 2, `expected two tool items, got ${tools.length}`);
+  assert(tools[0].summary === 'first done', 'first tool summary not updated independently');
+  assert(tools[1].summary === 'second done', 'second tool summary not updated independently');
+});
+
+test('model usage updates token footer fields', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'model_usage', usage: { promptTokens: 12, completionTokens: 7, cachedTokens: 3, totalTokens: 19 } });
+  handleAgentEvent(state, { type: 'model_usage', usage: { promptTokens: 5, completionTokens: 2 } });
+  assert(state.tokenInput === 17, `expected input tokens 17, got ${state.tokenInput}`);
+  assert(state.tokenOutput === 9, `expected output tokens 9, got ${state.tokenOutput}`);
+  assert(state.tokenCached === 3, `expected cached tokens 3, got ${state.tokenCached}`);
+  assert(state.contextUsed === 19, `expected context used 19, got ${state.contextUsed}`);
+});
+
 test('agent_end restores idle and clears queued followups', () => {
   const state = createTuiState({});
   state.mode = 'running';

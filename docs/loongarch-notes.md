@@ -48,31 +48,6 @@ SSH access from Windows: C:\Windows\System32\OpenSSH\ssh.exe -i C:\Users\22826\.
 - 不适合本机运行大模型服务。
 - 更适合连接 DeepSeek、OpenAI-compatible 内网模型或远程 Ollama。
 
-## 下一步验证命令
-
-```bash
-sudo apt update
-apt-cache policy g++ g++-8 npm node-gyp
-apt-cache depends g++-8
-apt-cache depends node-gyp
-apt-cache policy gcc-8-base gcc-8 libstdc++-8-dev g++-8
-apt-cache policy libssl1.1 libssl-dev libnode-dev node-gyp
-apt-cache policy libc6 libc6-dev binutils cpp-8 libgcc-8-dev libgcc1 libstdc++6 zlib1g
-apt-cache policy libgmp10 libisl19 libmpc3 libmpfr6 libcc1-0
-apt-cache policy
-```
-
-若需要继续定位安装方案，先执行模拟安装，不实际改系统。当前模拟结果已经显示 full-upgrade 风险过高，除非有系统备份或可重刷镜像，否则不要执行真实 full-upgrade：
-
-```bash
-sudo apt install -s g++-8
-sudo apt install -s libssl-dev libnode-dev node-gyp
-sudo apt full-upgrade -s
-apt-mark showhold
-```
-
-安装成功后再执行 `npm -v`、`g++ -v`、配置 npm 镜像，并在 `/data` 下做最小 npm install 和原始 Pi Agent 依赖安装试验，保留完整日志。
-
 ## 当前执行策略
 
 1. 不执行真实 `sudo apt full-upgrade`。
@@ -97,14 +72,3 @@ loongson
 loongarch64
 /home/loongson
 ```
-
-## 优先支持的问题
-
-- 原始 Pi Agent 运行条件差距分析。
-- Node/npm/g++ 安装或升级建议。
-- npm install / native addon 构建失败分析。
-- 环境诊断。
-- 编译失败日志解释。
-- LoongArch 依赖兼容性判断。
-- GCC/CMake 参数建议。
-- 设备树、驱动、I2C/SPI/UART 排障。

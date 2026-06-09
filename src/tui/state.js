@@ -1,5 +1,44 @@
 'use strict';
 
+const SLASH_COMMANDS = [
+  '/help',
+  '/hotkeys',
+  '/exit',
+  '/clear',
+  '/new',
+  '/name',
+  '/theme',
+  '/health',
+  '/project',
+  '/sessions',
+  '/tree',
+  '/session',
+  '/audit',
+  '/lineage',
+  '/fork',
+  '/clone',
+  '/resume',
+  '/branch',
+  '/stats',
+  '/demo',
+  '/export',
+  '/copy',
+  '/reload',
+  '/debug',
+  '/compact',
+  '/goto',
+  '/more',
+  '/model',
+  '/settings',
+  '/login',
+  '/logout',
+  '/share',
+  '/import',
+  '/trust',
+  '/changelog',
+  '/scoped-models',
+];
+
 function createTuiState(config) {
   return {
     mode: 'idle',
@@ -31,6 +70,16 @@ function createTuiState(config) {
     provider: (config && config.provider) || 'openai-compatible',
     model: (config && config.model) || '',
     cwd: (config && config.workspace) || process.cwd(),
+    tokenInput: 0,
+    tokenOutput: 0,
+    tokenCached: 0,
+    contextUsed: 0,
+    contextBudget: 0,
+    thinkingLevel: (config && config.thinkingLevel) || 'off',
+    agentStatus: 'idle',
+    lastEventTime: 0,
+    autoItems: [],
+    autoIndex: -1,
   };
 }
 
@@ -62,6 +111,28 @@ function clearMessages(state) {
   state.toolCount = 0;
   state.turnCount = 0;
   state.status = 'cleared';
+  state.agentStatus = 'idle';
+}
+
+function updateAutocomplete(state) {
+  const input = state.inputBuffer || '';
+  if (!input.startsWith('/')) {
+    state.autoItems = [];
+    state.autoIndex = -1;
+    return;
+  }
+
+  const query = input.toLowerCase();
+  state.autoItems = SLASH_COMMANDS
+    .filter((command) => command.toLowerCase().indexOf(query) >= 0)
+    .slice(0, 12);
+  if (!state.autoItems.length) {
+    state.autoIndex = -1;
+  } else if (state.autoIndex < 0) {
+    state.autoIndex = 0;
+  } else {
+    state.autoIndex = Math.min(state.autoIndex, state.autoItems.length - 1);
+  }
 }
 
 module.exports = {
@@ -69,5 +140,7 @@ module.exports = {
   clearMessages,
   createTuiState,
   removeMessage,
+  SLASH_COMMANDS,
+  updateAutocomplete,
   updateMessage,
 };

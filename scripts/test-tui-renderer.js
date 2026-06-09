@@ -2,9 +2,10 @@
 'use strict';
 
 const { handleAgentEvent } = require('../src/tui/event-adapter');
+const { createDiffRenderer } = require('../src/tui/diff');
 const { renderTui } = require('../src/tui/renderer');
 const { stripAnsi, visibleWidth } = require('../src/tui/screen');
-const { createTuiState } = require('../src/tui/state');
+const { createTuiState, updateAutocomplete } = require('../src/tui/state');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -129,6 +130,24 @@ test('renderer shows tool policy error metadata', () => {
   assert(output.indexOf('evidence=1') >= 0, 'missing evidence count');
   assert(output.indexOf('warnings=1') >= 0, 'missing warning count');
   assert(output.indexOf('readonly_command.dangerous') >= 0, 'missing policy id');
+});
+
+test('renderer shows slash command autocomplete', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/se';
+  updateAutocomplete(state);
+  const output = renderTui(state, { columns: 80, rows: 20 });
+  assert(output.indexOf('/sessions') >= 0 || output.indexOf('/session') >= 0, 'missing slash autocomplete');
+});
+
+test('diff renderer only rewrites changed rows after first frame', () => {
+  const renderer = createDiffRenderer();
+  const first = renderer.render(['alpha', 'beta'], { columns: 20, rows: 4 });
+  const second = renderer.render(['alpha', 'gamma'], { columns: 20, rows: 4 });
+  assert(first.indexOf('\x1b[2J') >= 0, 'first frame did not clear screen');
+  assert(second.indexOf('\x1b[2J') < 0, 'second frame unexpectedly cleared screen');
+  assert(second.indexOf('\x1b[2;1H') >= 0, 'second frame did not move to changed row');
+  assert(second.indexOf('gamma') >= 0, 'second frame missing changed content');
 });
 
 test('selector clamps filtered selected index and fits narrow width', () => {

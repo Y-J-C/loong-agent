@@ -98,6 +98,8 @@ function renderTool(message, width, expanded, theme) {
     }
     if (message.errorType) lines.push(...renderBlock(`errorType: ${message.errorType}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
     if (message.durationMs !== undefined) lines.push(...renderBlock(`durationMs: ${message.durationMs}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
+    if (message.evidenceCount !== undefined) lines.push(...renderBlock(`evidence=${message.evidenceCount}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
+    if (message.warningCount !== undefined) lines.push(...renderBlock(`warnings=${message.warningCount}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
     lines.push(...renderBlock(`isError: ${Boolean(message.isError)}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
     lines.push(...renderBlock(detail, width, theme, 'dim', { prefix: '  ', maxLines: MAX_TOOL_DETAIL_LINES }));
   }
@@ -119,7 +121,22 @@ function renderInput(state, width, theme) {
   return [
     paint(theme, 'divider', '-'.repeat(Math.max(1, width))),
     truncateToWidth(`${prefix}${input}`, width),
+    paint(theme, 'divider', '-'.repeat(Math.max(1, width))),
   ];
+}
+
+function renderAutocomplete(state, width, theme) {
+  const items = state.autoItems || [];
+  if (!items.length || state.mode === 'session_selector') return [];
+  const lines = [];
+  const maxShow = Math.min(items.length, 6);
+  for (let index = 0; index < maxShow; index += 1) {
+    const selected = index === state.autoIndex;
+    const prefix = selected ? '> ' : '  ';
+    const text = fitLine(`${prefix}${items[index]}`, width);
+    lines.push(selected ? paint(theme, 'selector', padRight(text, width)) : text);
+  }
+  return lines;
 }
 
 function renderSelector(state, width, theme) {
@@ -156,8 +173,9 @@ function renderTui(state, size) {
   const theme = getTheme(state.theme || 'loong-dark');
   const header = renderHeader(width, height, theme);
   const input = renderInput(state, width, theme);
+  const autocomplete = renderAutocomplete(state, width, theme);
   const status = [renderStatusBar(state, width)];
-  const available = Math.max(1, height - header.length - input.length - status.length);
+  const available = Math.max(1, height - header.length - input.length - autocomplete.length - status.length);
   const body = state.selector ? renderSelector(state, width, theme) : [];
   if (!state.selector) {
     for (const message of state.messages) {
@@ -172,7 +190,7 @@ function renderTui(state, size) {
   const end = Math.max(0, body.length - (state.scrollOffset || 0));
   const visibleBody = body.slice(Math.max(0, end - available), end);
   while (visibleBody.length < available) visibleBody.unshift('');
-  const lines = header.concat(visibleBody, input, status).slice(0, height);
+  const lines = header.concat(visibleBody, input, autocomplete, status).slice(0, height);
   return lines.map((line) => {
     const fitted = fitLine(line, width);
     return visibleWidth(fitted) < width ? padRight(fitted, width) : fitted;
