@@ -75,12 +75,44 @@ function buildOpenAiPayload(config, messages, options) {
   return payload;
 }
 
-function requestJson(urlString, apiKey, payload) {
+function requestJson(urlString, apiKey, payload, handlers) {
+  handlers = handlers || {};
   return new Promise((resolve, reject) => {
     const url = new URL(urlString);
     const body = JSON.stringify(payload);
     const transport = url.protocol === 'http:' ? http : https;
-    const req = transport.request(
+    let settled = false;
+    let abortTimer = null;
+    let req = null;
+
+    function cleanup() {
+      if (abortTimer) {
+        clearInterval(abortTimer);
+        abortTimer = null;
+      }
+    }
+
+    function resolveOnce(value) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    }
+
+    function rejectOnce(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function checkAbort() {
+      if (!handlers.isAborted || !handlers.isAborted()) return false;
+      if (req) req.destroy(createAbortError());
+      return true;
+    }
+
+    req = transport.request(
       {
         method: 'POST',
         hostname: url.hostname,
@@ -97,14 +129,16 @@ function requestJson(urlString, apiKey, payload) {
         let data = '';
         res.setEncoding('utf8');
         res.on('data', (chunk) => {
+          if (checkAbort()) return;
           data += chunk;
         });
         res.on('end', () => {
+          if (settled || checkAbort()) return;
           let parsed;
           try {
             parsed = data ? JSON.parse(data) : {};
           } catch (error) {
-            reject(new Error(`Model returned non-JSON response: ${data.slice(0, 300)}`));
+            rejectOnce(new Error(`Model returned non-JSON response: ${data.slice(0, 300)}`));
             return;
           }
           if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -112,17 +146,21 @@ function requestJson(urlString, apiKey, payload) {
               parsed && parsed.error && parsed.error.message
                 ? parsed.error.message
                 : `HTTP ${res.statusCode}`;
-            reject(new Error(message));
+            rejectOnce(new Error(message));
             return;
           }
-          resolve(parsed);
+          resolveOnce(parsed);
         });
       }
     );
-    req.on('error', reject);
+    req.on('error', rejectOnce);
     req.on('timeout', () => {
       req.destroy(new Error('Model request timed out'));
     });
+    if (handlers.onRequest) handlers.onRequest(req);
+    abortTimer = setInterval(checkAbort, 50);
+    if (abortTimer.unref) abortTimer.unref();
+    if (checkAbort()) return;
     req.write(body);
     req.end();
   });
@@ -207,24 +245,43 @@ function streamJson(urlString, apiKey, payload, handlers) {
     let deltaChain = Promise.resolve();
     let usage = null;
     let reasoningContent = '';
+    let abortTimer = null;
+    let req = null;
+    function cleanup() {
+      if (abortTimer) {
+        clearInterval(abortTimer);
+        abortTimer = null;
+      }
+    }
+    function resolveOnce(value) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    }
+    function rejectOnce(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+    function checkAbort() {
+      if (!handlers.isAborted || !handlers.isAborted()) return false;
+      if (req) req.destroy(createAbortError());
+      return true;
+    }
     function finish() {
       deltaChain.then(() => {
-        if (!settled) {
-          settled = true;
-          resolve({ usage, reasoningContent });
-        }
+        resolveOnce({ usage, reasoningContent });
       }).catch((error) => {
-        if (!settled) {
-          settled = true;
-          reject(error);
-        }
+        rejectOnce(error);
       });
     }
     function pushDelta(delta) {
       if (!delta || !handlers.onDelta) return;
       deltaChain = deltaChain.then(() => handlers.onDelta(delta));
     }
-    const req = transport.request(
+    req = transport.request(
       {
         method: 'POST',
         hostname: url.hostname,
@@ -246,7 +303,6 @@ function streamJson(urlString, apiKey, payload, handlers) {
           });
           res.on('end', () => {
             if (settled) return;
-            settled = true;
             let parsed = {};
             try {
               parsed = data ? JSON.parse(data) : {};
@@ -257,16 +313,13 @@ function streamJson(urlString, apiKey, payload, handlers) {
               parsed && parsed.error && parsed.error.message
                 ? parsed.error.message
                 : `HTTP ${res.statusCode}`;
-            reject(new Error(message));
+            rejectOnce(new Error(message));
           });
           return;
         }
         res.setEncoding('utf8');
         res.on('data', (chunk) => {
-          if (handlers.isAborted && handlers.isAborted()) {
-            req.destroy(createAbortError());
-            return;
-          }
+          if (checkAbort()) return;
           buffer += chunk;
           const parts = buffer.split(/\n\n|\r\n\r\n/);
           buffer = parts.pop();
@@ -280,12 +333,12 @@ function streamJson(urlString, apiKey, payload, handlers) {
               try {
                 parsed = JSON.parse(data);
               } catch (error) {
-                reject(new Error(`Model returned invalid SSE JSON: ${data.slice(0, 300)}`));
+                rejectOnce(new Error(`Model returned invalid SSE JSON: ${data.slice(0, 300)}`));
                 return;
               }
               if (parsed && parsed.error) {
                 const message = parsed.error.message || JSON.stringify(parsed.error);
-                reject(new Error(message));
+                rejectOnce(new Error(message));
                 return;
               }
               const parsedUsage = extractOpenAiUsage(parsed);
@@ -309,8 +362,7 @@ function streamJson(urlString, apiKey, payload, handlers) {
                   const delta = extractOpenAiDelta(parsed);
                   pushDelta(delta);
                 } catch (error) {
-                  reject(new Error(`Model returned invalid SSE JSON: ${data.slice(0, 300)}`));
-                  settled = true;
+                  rejectOnce(new Error(`Model returned invalid SSE JSON: ${data.slice(0, 300)}`));
                 }
               }
             });
@@ -320,14 +372,15 @@ function streamJson(urlString, apiKey, payload, handlers) {
       }
     );
     req.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
+      rejectOnce(error);
     });
     req.on('timeout', () => {
       req.destroy(new Error('Model streaming request timed out'));
     });
     if (handlers.onRequest) handlers.onRequest(req);
+    abortTimer = setInterval(checkAbort, 50);
+    if (abortTimer.unref) abortTimer.unref();
+    if (checkAbort()) return;
     req.write(body);
     req.end();
   });
@@ -387,7 +440,11 @@ registerProvider({
     const response = await requestJson(
       joinUrl(config.baseUrl, '/chat/completions'),
       config.apiKey,
-      buildOpenAiPayload(config, messages, options)
+      buildOpenAiPayload(config, messages, options),
+      {
+        isAborted: options && options.isAborted,
+        onRequest: options && options.onRequest,
+      }
     );
 
     const content = extractOpenAiContent(response);

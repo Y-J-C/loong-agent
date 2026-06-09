@@ -84,7 +84,7 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
     onDelta: callbacks && callbacks.onDelta,
   };
   if (!streamingEnabled(config) || typeof provider.streamChatCompletion !== 'function') {
-    const result = await provider.chatCompletion(config, messages, { temperature: 0.2 });
+    const result = await provider.chatCompletion(config, messages, options);
     const metadata = normalizeCompletionResult(result, config || {}, {
       streaming: false,
       fallbackUsed: false,
@@ -111,7 +111,7 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
     return metadata.content;
   } catch (error) {
     if (!receivedDelta && (!callbacks || !callbacks.isAborted || !callbacks.isAborted())) {
-      const result = await provider.chatCompletion(config, messages, { temperature: 0.2 });
+      const result = await provider.chatCompletion(config, messages, options);
       const metadata = normalizeCompletionResult(result, config || {}, {
         streaming: false,
         fallbackUsed: true,

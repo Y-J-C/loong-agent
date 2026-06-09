@@ -8,6 +8,7 @@ const { loongEnvCheck } = require('./tools');
 const { chatCompletion } = require('./llm');
 const { runCompat, printHumanReport } = require('./compat');
 const { printLogReport, runLogDiagnostics } = require('./log-diagnostics');
+const { runRpc } = require('./rpc');
 const { createSessionManager } = require('./session-manager');
 const {
   renderSessionHtml,
@@ -36,6 +37,7 @@ Usage:
   node src/index.js session audit <session-id-or-path> [--json]
   node src/index.js session replay <session-id-or-path> [--trace|--markdown]
   node src/index.js doctor
+  node src/index.js rpc
   node src/index.js ask "your question"
   node src/index.js chat
   node src/index.js tui
@@ -283,6 +285,11 @@ async function main() {
 
   if (command === 'doctor') {
     await doctor(config);
+    return;
+  }
+
+  if (command === 'rpc') {
+    await runRpc(config);
     return;
   }
 
