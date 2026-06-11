@@ -9,6 +9,7 @@ const { chatCompletion } = require('./llm');
 const { runCompat, printHumanReport } = require('./compat');
 const { printLogReport, runLogDiagnostics } = require('./log-diagnostics');
 const { runRpc } = require('./rpc');
+const { renderUsage } = require('./cli-view');
 const { createSessionManager } = require('./session-manager');
 const {
   renderSessionHtml,
@@ -20,37 +21,7 @@ const {
 } = require('./session');
 
 function printUsage() {
-  console.log(`Loong Pi Agent
-
-Usage:
-  node src/index.js diagnose
-  node src/index.js compat
-  node src/index.js log <file>
-  node src/index.js log --stdin
-  node src/index.js sessions
-  node src/index.js session <session-id-or-path> [--json|--markdown|--html] [--out file]
-  node src/index.js session latest [--json|--markdown|--html] [--out file]
-  node src/index.js sessions --tree
-  node src/index.js session fork <session-id-or-path> [--name branch] [--at entry-id]
-  node src/index.js session lineage <session-id-or-path>
-  node src/index.js session resume <session-id-or-path> "follow-up"
-  node src/index.js session audit <session-id-or-path> [--json]
-  node src/index.js session replay <session-id-or-path> [--trace|--markdown]
-  node src/index.js doctor
-  node src/index.js rpc
-  node src/index.js ask "your question"
-  node src/index.js chat
-  node src/index.js tui
-
-Environment:
-  LOONG_AGENT_BASE_URL   default: https://api.deepseek.com
-  LOONG_AGENT_API_KEY    DeepSeek/OpenAI-compatible API key
-  LOONG_AGENT_MODEL      default: deepseek-chat
-  LOONG_AGENT_PROVIDER_PROFILE default: deepseek; supported: deepseek, ollama, custom
-  LOONG_AGENT_THINKING_LEVEL   default: off; supported: off, low, medium, high
-  LOONG_AGENT_WORKSPACE  default: current directory
-  LOONG_AGENT_STREAMING  default: 1; set 0 to force non-streaming
-`);
+  console.log(renderUsage());
 }
 
 function printJson(value) {
@@ -318,7 +289,7 @@ Usage:
   node src/index.js tui
 
 Keys:
-  Enter send, Esc abort/back, Ctrl+C/Ctrl+D exit, Ctrl+O expand tools
+  Enter send, Ctrl+Enter/Alt+Enter newline, Esc abort/back, Ctrl+C/Ctrl+D exit, Ctrl+O expand tools
 
 Commands:
   /help /hotkeys /health /project /sessions /tree /lineage /fork /resume /export /session /audit /new /name /theme /stats /branch /demo /clone /more /debug /exit

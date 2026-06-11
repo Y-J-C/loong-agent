@@ -12,6 +12,12 @@ const {
 } = require('./screen');
 const { renderStatusBar } = require('./status-bar');
 const { getTheme, paint } = require('./theme');
+const {
+  brandMotto,
+  brandTitle,
+  instructionFlow,
+  toolStatusLabel,
+} = require('../cli-view');
 
 const MAX_MESSAGE_LINES = 80;
 const MAX_TOOL_DETAIL_LINES = 18;
@@ -50,18 +56,19 @@ function renderHeader(width, height, theme) {
   const compact = width < 60 || height < 18;
   const tiny = height < 14;
   const lines = tiny ? [
-    paint(theme, 'header', 'loong-agent v0.x'),
+    paint(theme, 'header', 'loong-agent v0.x | LoongArch'),
     paint(theme, 'dim', '/help - Esc abort - Ctrl+O tools'),
   ] : compact ? [
-    paint(theme, 'header', 'loong-agent v0.x'),
-    paint(theme, 'dim', '/help - Esc abort/back - ! readonly - Ctrl+O tools'),
+    paint(theme, 'header', 'loong-agent v0.x | 龙芯智能开发终端'),
+    paint(theme, 'dim', '需求->规划->工具->证据->总结 | /help - ! readonly'),
     '',
   ] : [
-    paint(theme, 'header', 'loong-agent v0.x'),
-    paint(theme, 'dim', 'escape interrupt - ctrl+c/ctrl+d exit - / commands - ! readonly command - ctrl+o more'),
-    paint(theme, 'dim', 'Press /help to show commands.'),
+    paint(theme, 'header', `loong-agent v0.x | ${brandTitle()}`),
+    paint(theme, 'dim', brandMotto()),
+    paint(theme, 'dim', instructionFlow()),
+    paint(theme, 'dim', 'Esc abort/back - Ctrl+C/Ctrl+D exit - / commands - ! readonly command - Ctrl+O details'),
     '',
-    paint(theme, 'dim', 'Loong-Agent can inspect its runtime, sessions, and LoongArch board context.'),
+    paint(theme, 'dim', '面向 LoongArch 板端: 只读优先, 证据驱动, session 可审计。'),
     '',
   ];
   return lines.map((line) => padRight(fitLine(line, width), width));
@@ -81,12 +88,13 @@ function renderTool(message, width, expanded, theme) {
   const rawStatus = message.errorType || message.status || (message.isError ? 'tool_error' : message.done ? 'ok' : 'running');
   const token = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error' ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
   const status = paint(theme, token, rawStatus);
+  const displayStatus = toolStatusLabel(rawStatus, message.isError);
   const meta = [];
   if (message.durationMs !== undefined) meta.push(`${message.durationMs}ms`);
   if (message.evidenceCount !== undefined) meta.push(`evidence=${message.evidenceCount}`);
   if (message.warningCount !== undefined) meta.push(`warnings=${message.warningCount}`);
   const suffix = meta.length ? ` [${meta.join(' ')}]` : '';
-  const first = `tool ${stripAnsi(status)}: ${message.toolName || 'unknown'} ${redactSensitive(message.summary || '')}${suffix}`;
+  const first = `tool ${stripAnsi(status)} / ${displayStatus}: ${message.toolName || 'unknown'} ${redactSensitive(message.summary || '')}${suffix}`;
   const lines = [paint(theme, token, fitLine(first, width))];
   if (expanded && message.detail) {
     const detail = typeof message.detail === 'string' ? message.detail : JSON.stringify(message.detail, redactJson, 2);
@@ -102,6 +110,7 @@ function renderTool(message, width, expanded, theme) {
     if (message.warningCount !== undefined) lines.push(...renderBlock(`warnings=${message.warningCount}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
     lines.push(...renderBlock(`isError: ${Boolean(message.isError)}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
     lines.push(...renderBlock(detail, width, theme, 'dim', { prefix: '  ', maxLines: MAX_TOOL_DETAIL_LINES }));
+    lines.push(...renderBlock(`audit: status=${rawStatus} / ${displayStatus}${suffix}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
   }
   return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : 4, width, theme);
 }
@@ -116,13 +125,21 @@ function renderMessage(message, width, expandedTools, theme) {
 }
 
 function renderInput(state, width, theme) {
-  const prefix = state.mode === 'running' ? 'queued> ' : 'loong> ';
+  const hasQueued = state.mode === 'running' && state.queuedFollowUps && state.queuedFollowUps.length > 0;
+  const prefix = hasQueued ? 'queued> ' : 'loong> ';
   const input = sanitize(state.inputBuffer || '');
-  return [
-    paint(theme, 'divider', '─'.repeat(Math.max(1, width))),
-    truncateToWidth(`${prefix}${input}`, width),
-    paint(theme, 'divider', '─'.repeat(Math.max(1, width))),
-  ];
+  const sourceLines = String(input).split('\n');
+  const lines = [paint(theme, 'divider', '─'.repeat(Math.max(1, width)))];
+  const maxInputLines = 4;
+  const start = Math.max(0, sourceLines.length - maxInputLines);
+  if (start > 0) lines.push(paint(theme, 'dim', fitLine(`... ${start} more input line(s)`, width)));
+  for (let index = start; index < sourceLines.length; index += 1) {
+    const linePrefix = index === 0 ? prefix : '....> ';
+    lines.push(truncateToWidth(`${linePrefix}${sourceLines[index]}`, width));
+  }
+  if (!sourceLines.length) lines.push(truncateToWidth(prefix, width));
+  lines.push(paint(theme, 'divider', '─'.repeat(Math.max(1, width))));
+  return lines;
 }
 
 function renderAutocomplete(state, width, theme) {
@@ -130,10 +147,23 @@ function renderAutocomplete(state, width, theme) {
   if (!items.length || state.mode === 'session_selector') return [];
   const lines = [];
   const maxShow = Math.min(items.length, 6);
-  for (let index = 0; index < maxShow; index += 1) {
-    const selected = index === state.autoIndex;
+  const selectedIndex = Math.max(0, Math.min(items.length - 1, state.autoIndex >= 0 ? state.autoIndex : 0));
+  let start = selectedIndex - maxShow + 1;
+  if (start < 0) start = 0;
+  if (start + maxShow > items.length) start = Math.max(0, items.length - maxShow);
+  const end = Math.min(items.length, start + maxShow);
+  for (let index = start; index < end; index += 1) {
+    const selected = index === selectedIndex;
     const prefix = selected ? '> ' : '  ';
-    const text = fitLine(`${prefix}${items[index]}`, width);
+    const item = items[index];
+    const command = typeof item === 'string' ? item : item.command || '';
+    const description = typeof item === 'string' ? '' : item.description || '';
+    const text = fitLine(
+      width < 58 || !description
+        ? `${prefix}${command}`
+        : `${prefix}${padRight(command, 18)} ${description}`,
+      width
+    );
     lines.push(selected ? paint(theme, 'selector', padRight(text, width)) : text);
   }
   return lines;
@@ -144,7 +174,7 @@ function renderSelector(state, width, theme) {
   if (!selector) return [];
   const lines = [
     paint(theme, 'header', fitLine(`Session selector (${selector.view || 'recent'})${selector.query ? ` filter="${selector.query}"` : ''}`, width)),
-    paint(theme, 'dim', fitLine(width < 60 ? 'filter - up/down - enter - tab - esc' : 'type filter - up/down select - enter choose - tab recent/tree - r rename - d disabled - esc back', width)),
+    paint(theme, 'dim', fitLine(width < 60 ? '筛选 - 上下 - Enter - Tab - Esc' : '输入筛选 - 上下选择 - Enter 载入 - Tab recent/tree - Esc 返回', width)),
   ];
   const query = selector.query ? selector.query.toLowerCase() : '';
   const items = (selector.items || []).filter((item) => {
@@ -179,7 +209,7 @@ function renderTui(state, size) {
   const body = state.selector ? renderSelector(state, width, theme) : [];
   if (!state.selector) {
     for (const message of state.messages) {
-      body.push(...renderMessage(message, width, state.expandedTools || message.expanded, theme));
+      body.push(...renderMessage(message, width, state.expandedTools, theme));
       body.push('');
     }
     if (state.pendingMessages && state.pendingMessages.length) {
@@ -191,10 +221,7 @@ function renderTui(state, size) {
   const visibleBody = body.slice(Math.max(0, end - available), end);
   while (visibleBody.length < available) visibleBody.unshift('');
   const lines = header.concat(visibleBody, input, autocomplete, status).slice(0, height);
-  return lines.map((line) => {
-    const fitted = fitLine(line, width);
-    return visibleWidth(fitted) < width ? padRight(fitted, width) : fitted;
-  }).join('\n');
+  return lines.map((line) => padRight(fitLine(line, width), width)).join('\n');
 }
 
 module.exports = {

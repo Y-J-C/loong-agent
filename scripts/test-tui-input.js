@@ -7,7 +7,7 @@ const {
   pushHistory,
   setInput,
 } = require('../src/tui/input');
-const { createTuiState } = require('../src/tui/state');
+const { createTuiState, scoreSlashCommand, updateAutocomplete } = require('../src/tui/state');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -90,4 +90,35 @@ test('parseKey recognizes controls', () => {
   assert(parseKey(Buffer.from('\x0b')).type === 'ctrl_k', 'ctrl-k parse failed');
   assert(parseKey(Buffer.from('\x17')).type === 'ctrl_w', 'ctrl-w parse failed');
   assert(parseKey(Buffer.from('\x1b[5~')).type === 'page_up', 'page-up parse failed');
+  assert(parseKey(Buffer.from('\x1b[13;5u')).type === 'ctrl_enter', 'ctrl-enter parse failed');
+  assert(parseKey(Buffer.from('\x1b[10;5u')).type === 'ctrl_enter', 'ctrl-enter lf parse failed');
+  assert(parseKey(Buffer.from('\x1b\r')).type === 'alt_enter', 'alt-enter parse failed');
+  assert(parseKey(Buffer.from('\x1b[Z')).type === 'shift_tab', 'shift-tab parse failed');
+  assert(parseKey(Buffer.from('\x1b[1;5D')).type === 'ctrl_left', 'ctrl-left parse failed');
+  assert(parseKey(Buffer.from('\x1b[1;5C')).type === 'ctrl_right', 'ctrl-right parse failed');
+  assert(parseKey(Buffer.from('\x1b[127;5u')).type === 'ctrl_backspace', 'ctrl-backspace parse failed');
+});
+
+test('word navigation and ctrl-enter newline work', () => {
+  const state = createTuiState({});
+  setInput(state, 'hello world again');
+  applyKey(state, { type: 'ctrl_left' });
+  assert(state.cursor === 12, `ctrl-left failed: ${state.cursor}`);
+  applyKey(state, { type: 'ctrl_backspace' });
+  assert(state.inputBuffer === 'hello again', `ctrl-backspace failed: ${state.inputBuffer}`);
+  applyKey(state, { type: 'ctrl_right' });
+  applyKey(state, { type: 'ctrl_enter' });
+  applyKey(state, { type: 'text', text: 'next' });
+  applyKey(state, { type: 'alt_enter' });
+  applyKey(state, { type: 'text', text: 'fallback' });
+  assert(state.inputBuffer === 'hello again\nnext\nfallback', `ctrl/alt-enter failed: ${state.inputBuffer}`);
+});
+
+test('slash autocomplete fuzzy matches commands', () => {
+  assert(scoreSlashCommand('/lineage', '/lg') !== null, 'fuzzy score should match /lineage');
+  const state = createTuiState({});
+  setInput(state, '/hea');
+  updateAutocomplete(state);
+  assert(state.autoItems.length > 0, 'autocomplete missing results');
+  assert(state.autoItems[0].command === '/health', `expected /health, got ${state.autoItems[0].command}`);
 });

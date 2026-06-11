@@ -4,13 +4,16 @@ const path = require('path');
 const { padRight, redactSensitive, truncateToWidth, visibleWidth } = require('./screen');
 const { formatBoardStatus } = require('./board-status');
 const { getTheme, paint } = require('./theme');
+const { statusLabel } = require('../cli-view');
 
 function formatCwd(cwd) {
+  if (cwd === null || cwd === undefined) cwd = process.cwd();
   const home = process.env.HOME || process.env.USERPROFILE || '';
-  if (home && path.resolve(cwd).indexOf(path.resolve(home)) === 0) {
-    return `~${path.resolve(cwd).slice(path.resolve(home).length)}`;
+  const resolved = path.resolve(cwd);
+  if (home && resolved.indexOf(path.resolve(home)) === 0) {
+    return `~${resolved.slice(path.resolve(home).length)}`;
   }
-  return cwd || process.cwd();
+  return resolved;
 }
 
 function formatTokens(value) {
@@ -35,20 +38,21 @@ function renderStatusBar(state, width) {
   const board = formatBoardStatus(state.boardStatus);
   const cwdShort = truncateToWidth(formatCwd(state.cwd), Math.floor(width / 4));
   const modeIcon = state.agentStatus === 'running' ? 'RUN' : state.agentStatus === 'error' ? 'ERR' : 'IDLE';
+  const modeText = statusLabel(state.agentStatus || state.status);
   const queued = state.queuedFollowUps && state.queuedFollowUps.length ? ` +${state.queuedFollowUps.length}` : '';
-  const left = redactSensitive(`${cwdShort} ${modeIcon}${queued} ${truncateToWidth(board, Math.floor(width / 3))}`);
+  const left = `${cwdShort} ${modeIcon}/${modeText}${queued} ${truncateToWidth(board, Math.floor(width / 3))}`;
   const tokens = `in ${formatTokens(state.tokenInput)} out ${formatTokens(state.tokenOutput)}${state.tokenCached ? ` cache ${formatTokens(state.tokenCached)}` : ''}`;
   const model = state.model ? `${state.provider || ''}/${state.model}` : state.provider || 'no-model';
   const think = state.thinkingLevel && state.thinkingLevel !== 'off' ? ` ${state.thinkingLevel}` : '';
   const context = formatContextBar(state.contextUsed, state.contextBudget);
   const session = state.currentSession && state.currentSession.id ? state.currentSession.id.slice(0, 8) : '';
-  const right = redactSensitive([truncateToWidth(model, Math.floor(width / 5)) + think, context, session].filter(Boolean).join(' - '));
+  const right = [truncateToWidth(model, Math.floor(width / 5)) + think, context, session].filter(Boolean).join(' | ');
   const leftText = truncateToWidth(left, Math.max(8, width - visibleWidth(tokens) - visibleWidth(right) - 4));
   const availableForTokens = Math.max(0, width - visibleWidth(leftText) - visibleWidth(right) - 4);
   const tokenText = truncateToWidth(tokens, Math.max(4, availableForTokens));
   const gapLeft = Math.max(1, Math.floor((width - visibleWidth(leftText) - visibleWidth(tokenText) - visibleWidth(right)) / 2));
   const gapRight = Math.max(0, width - visibleWidth(leftText) - visibleWidth(tokenText) - visibleWidth(right) - gapLeft);
-  const line = leftText + ' '.repeat(gapLeft) + tokenText + ' '.repeat(gapRight) + right;
+  const line = redactSensitive(leftText + ' '.repeat(gapLeft) + tokenText + ' '.repeat(gapRight) + right);
   return paint(theme, 'status', padRight(line, width));
 }
 

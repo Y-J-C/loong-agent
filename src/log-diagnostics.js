@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chatCompletion } = require('./llm');
+const { bullet, renderBanner, section } = require('./cli-view');
 const { createJsonlSession } = require('./session');
 
 const RULES = [
@@ -201,33 +202,38 @@ async function runLogDiagnostics(config, options) {
 }
 
 function printLogReport(report) {
-  console.log(`Log Diagnostic Report: ${report.file}`);
-  console.log(`category: ${report.category}`);
-  console.log(`severity: ${report.severity}`);
+  console.log(renderBanner({ width: 72 }));
   console.log('');
-  console.log('matched rules:');
-  if (report.matchedRules.length === 0) console.log('- none');
-  for (const rule of report.matchedRules) console.log(`- ${rule.id} (${rule.severity})`);
+  console.log(section('日志诊断结论', [
+    `文件: ${report.file}`,
+    `类别: ${report.category}`,
+    `严重性: ${report.severity}`,
+  ]));
   console.log('');
-  console.log('likely causes:');
-  if (report.likelyCauses.length === 0) console.log('- No specific rule matched.');
-  for (const item of report.likelyCauses) console.log(`- ${item}`);
+  console.log(section('命中规则', (report.matchedRules || []).length
+    ? report.matchedRules.map((rule) => `- ${rule.id} (${rule.severity})`)
+    : ['- none']));
   console.log('');
-  console.log('recommended fixes:');
-  if (report.recommendedFixes.length === 0) console.log('- Re-run with more complete logs.');
-  for (const item of report.recommendedFixes) console.log(`- ${item}`);
+  console.log(section('可能原因', bullet(report.likelyCauses, '未命中特定规则, 建议提供更完整日志。')));
   console.log('');
-  console.log('verify commands:');
-  if (report.verifyCommands.length === 0) console.log('- none');
-  for (const item of report.verifyCommands) console.log(`- ${item}`);
+  console.log(section('修复建议', bullet(report.recommendedFixes, '重新收集更完整日志后再诊断。')));
+  console.log('');
+  console.log(section('验证命令', bullet(report.verifyCommands)));
   if (report.modelSummary) {
     console.log('');
-    console.log('model summary:');
+    console.log('[模型补充]');
     console.log(report.modelSummary);
   }
   if (report.modelSummaryError) {
     console.log('');
-    console.log(`model summary error: ${report.modelSummaryError}`);
+    console.log(section('模型补充异常', [`model summary error: ${report.modelSummaryError}`]));
+  }
+  if (report.session) {
+    console.log('');
+    console.log(section('审计记录', [
+      `Session: ${report.session.id}`,
+      `Path: ${report.session.path}`,
+    ]));
   }
 }
 

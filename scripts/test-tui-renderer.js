@@ -140,6 +140,24 @@ test('renderer shows slash command autocomplete', () => {
   assert(output.indexOf('/sessions') >= 0 || output.indexOf('/session') >= 0, 'missing slash autocomplete');
 });
 
+test('renderer shows autocomplete descriptions and scrolls selected item', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  state.autoIndex = 8;
+  const output = renderTui(state, { columns: 90, rows: 24 });
+  assert(output.indexOf('/theme') >= 0 || output.indexOf('/health') >= 0, 'autocomplete did not scroll to selected region');
+  assert(output.indexOf('运行时健康检查') >= 0 || output.indexOf('查看或切换主题') >= 0, 'autocomplete description missing');
+});
+
+test('renderer displays multiline input with continuation prompt', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '第一行\n第二行';
+  const output = renderTui(state, { columns: 80, rows: 20 });
+  assert(output.indexOf('loong> 第一行') >= 0, 'missing first input line');
+  assert(output.indexOf('....> 第二行') >= 0, 'missing continuation input line');
+});
+
 test('diff renderer only rewrites changed rows after first frame', () => {
   const renderer = createDiffRenderer();
   const first = renderer.render(['alpha', 'beta'], { columns: 20, rows: 4 });

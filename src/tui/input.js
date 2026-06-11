@@ -48,6 +48,22 @@ function moveRight(state) {
   state.cursor = Math.min(chars(state.inputBuffer).length, state.cursor + 1);
 }
 
+function moveWordLeft(state) {
+  const list = chars(state.inputBuffer);
+  let index = state.cursor;
+  while (index > 0 && /\s/.test(list[index - 1])) index -= 1;
+  while (index > 0 && !/\s/.test(list[index - 1])) index -= 1;
+  state.cursor = index;
+}
+
+function moveWordRight(state) {
+  const list = chars(state.inputBuffer);
+  let index = state.cursor;
+  while (index < list.length && /\s/.test(list[index])) index += 1;
+  while (index < list.length && !/\s/.test(list[index])) index += 1;
+  state.cursor = index;
+}
+
 function historyUp(state) {
   if (!state.history.length) return;
   if (state.historyIndex < 0) state.historyIndex = state.history.length - 1;
@@ -88,7 +104,18 @@ function parseKey(buffer) {
   if (text === '\x10') return { type: 'ctrl_p' };
   if (text === '\x15') return { type: 'ctrl_u' };
   if (text === '\x17') return { type: 'ctrl_w' };
+  if (
+    text === '\x1b[13;5u' ||
+    text === '\x1b[10;5u' ||
+    text === '\x1b[27;5;13~' ||
+    text === '\x1b[27;5;10~'
+  ) return { type: 'ctrl_enter' };
+  if (text === '\x1b\r' || text === '\x1b\n') return { type: 'alt_enter' };
+  if (text === '\x1b[Z') return { type: 'shift_tab' };
   if (text === '\x1b') return { type: 'escape' };
+  if (text === '\x1b[1;5D' || text === '\x1b[5D') return { type: 'ctrl_left' };
+  if (text === '\x1b[1;5C' || text === '\x1b[5C') return { type: 'ctrl_right' };
+  if (text === '\x1b[127;5u' || text === '\x1b[3;5~') return { type: 'ctrl_backspace' };
   if (text === '\x7f' || text === '\b') return { type: 'backspace' };
   if (text === '\x1b[D') return { type: 'left' };
   if (text === '\x1b[C') return { type: 'right' };
@@ -103,9 +130,13 @@ function parseKey(buffer) {
 
 function applyKey(state, key) {
   if (key.type === 'text') insertText(state, key.text);
+  else if (key.type === 'ctrl_enter' || key.type === 'alt_enter') insertText(state, '\n');
   else if (key.type === 'backspace') backspace(state);
+  else if (key.type === 'ctrl_backspace') deleteWordBackward(state);
   else if (key.type === 'left') moveLeft(state);
   else if (key.type === 'right') moveRight(state);
+  else if (key.type === 'ctrl_left') moveWordLeft(state);
+  else if (key.type === 'ctrl_right') moveWordRight(state);
   else if (key.type === 'up' || key.type === 'ctrl_p') historyUp(state);
   else if (key.type === 'down' || key.type === 'ctrl_n') historyDown(state);
   else if (key.type === 'ctrl_a' || key.type === 'home') state.cursor = 0;
@@ -124,6 +155,8 @@ module.exports = {
   deleteToEnd,
   deleteWordBackward,
   insertText,
+  moveWordLeft,
+  moveWordRight,
   parseKey,
   pushHistory,
   setInput,

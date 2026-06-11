@@ -1,6 +1,7 @@
 'use strict';
 
 const { addMessage, updateMessage } = require('./state');
+const { statusLabel, workflow } = require('../cli-view');
 
 function parseAssistantTool(content) {
   const text = String(content || '').trim();
@@ -61,9 +62,20 @@ function handleAgentEvent(state, event) {
     state.status = 'agent running';
     state.agentStatus = 'running';
     state.lastEventTime = Date.now();
-    if (event.prompt) addMessage(state, { type: 'system', text: `prompt: ${event.prompt}` });
+    if (event.prompt) {
+      addMessage(state, {
+        type: 'system',
+        text: [
+          workflow('intake', event.prompt),
+          workflow('plan', `模型 ${event.providerProfile || event.provider || 'provider'}/${event.model || 'model'} 已接入`),
+          workflow('risk', '默认只读边界, 工具调用写入 session 审计。'),
+          `prompt: ${event.prompt}`,
+        ].join('\n'),
+      });
+    }
   } else if (event.type === 'turn_start') {
     state.turnCount = Math.max(state.turnCount || 0, event.loop || 0);
+    state.status = `turn ${event.loop || state.turnCount} planning`;
     state.lastEventTime = Date.now();
   } else if (event.type === 'message_start' && event.role === 'user') {
     if (event.internal) return;
@@ -87,13 +99,14 @@ function handleAgentEvent(state, event) {
     if (!tool) state.lastAssistantText = event.content || state.lastAssistantText;
   } else if (event.type === 'tool_execution_start') {
     state.toolCount += 1;
+    state.status = `tool ${event.toolName || 'unknown'} running`;
     state.lastEventTime = Date.now();
     const key = toolEventKey(event);
     const item = addMessage(state, {
       id: `tool-${key}`,
       type: 'tool',
       toolName: event.toolName,
-      summary: event.callSummary || event.reason || '',
+      summary: event.callSummary || event.reason || workflow('execute', '等待工具返回'),
       args: event.args || {},
       status: 'running',
       done: false,
@@ -106,6 +119,7 @@ function handleAgentEvent(state, event) {
     state.currentToolEventIdByKey[key] = item.id;
   } else if (event.type === 'tool_execution_end') {
     state.lastEventTime = Date.now();
+    state.status = event.isError ? `tool ${event.toolName || 'unknown'} error` : `tool ${event.toolName || 'unknown'} ok`;
     const key = toolEventKey(event);
     const id = state.currentToolEventIdByKey[key];
     const result = event.result || {};
@@ -113,7 +127,7 @@ function handleAgentEvent(state, event) {
     const patch = {
       type: 'tool',
       toolName: event.toolName,
-      summary: toolResultSummary(event),
+      summary: toolResultSummary(event) || workflow('evidence', '工具已返回'),
       done: true,
       isError: Boolean(event.isError),
       status: errorType || (event.isError ? 'tool_error' : 'ok'),
@@ -127,7 +141,7 @@ function handleAgentEvent(state, event) {
     if (id && updateMessage(state, id, patch)) return;
     addMessage(state, patch);
   } else if (event.type === 'turn_end') {
-    if (event.status) state.status = `turn ${event.status}`;
+    if (event.status) state.status = `turn ${statusLabel(event.status)} (${event.status})`;
   } else if (event.type === 'model_usage') {
     const usage = extractTokenUsage(event);
     state.tokenInput += usage.input;
@@ -153,14 +167,18 @@ function handleAgentEvent(state, event) {
     }
     addMessage(state, {
       type: event.error || status !== 'ok' ? 'error' : 'assistant',
-      text: `agent_end status=${status}\n${event.summary || event.error || 'done'}`,
+      text: [
+        workflow(status === 'ok' ? 'report' : 'risk', `${statusLabel(status)} (${status})`),
+        `agent_end status=${status}`,
+        event.summary || event.error || 'done',
+      ].join('\n'),
     });
   } else if (event.type === 'fork_start') {
-    addMessage(state, { type: 'system', text: `fork_start: ${event.sourceSessionId || 'unknown'}` });
+    addMessage(state, { type: 'system', text: `会话分支开始 / fork_start: ${event.sourceSessionId || 'unknown'}` });
   } else if (event.type === 'log_start') {
-    addMessage(state, { type: 'system', text: `log_start: ${event.file || ''}` });
+    addMessage(state, { type: 'system', text: `日志诊断开始 / log_start: ${event.file || ''}` });
   } else if (event.type === 'log_end') {
-    addMessage(state, { type: 'system', text: `log_end: ${event.report && event.report.category || ''}` });
+    addMessage(state, { type: 'system', text: `日志诊断完成 / log_end: ${event.report && event.report.category || ''}` });
   }
 }
 

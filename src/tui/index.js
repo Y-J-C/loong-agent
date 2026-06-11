@@ -7,8 +7,11 @@ const { handleAgentEvent } = require('./event-adapter');
 const { applyKey, parseKey, pushHistory, setInput } = require('./input');
 const { renderTui } = require('./renderer');
 const { ANSI, terminalSize } = require('./screen');
-const { addMessage, clearMessages, createTuiState, updateAutocomplete } = require('./state');
+const { addMessage, autocompleteCommand, clearMessages, createTuiState, updateAutocomplete } = require('./state');
 const { createDiffRenderer } = require('./diff');
+
+const ENABLE_MODIFIED_KEYS = '\x1b[>4;2m';
+const DISABLE_MODIFIED_KEYS = '\x1b[>4;0m';
 
 function runTui(config, options) {
   options = options || {};
@@ -32,6 +35,8 @@ function runTui(config, options) {
       handleAgentEvent(state, event);
       const info = session.getSessionInfo && session.getSessionInfo();
       if (info) state.currentSession = { id: info.id, path: info.path };
+      // 新事件到达时自动滚动到底部
+      if (state.scrollOffset > 0 && state.selector === null) state.scrollOffset = 0;
       render();
     });
     const info = session.getSessionInfo && session.getSessionInfo();
@@ -117,9 +122,17 @@ function runTui(config, options) {
 
   function render() {
     if (stopped) return;
-    const size = terminalSize(output);
-    const lines = renderTui(state, size).split('\n');
-    output.write(diffRenderer.render(lines, size));
+    try {
+      const size = terminalSize(output);
+      const lines = renderTui(state, size).split('\n');
+      output.write(diffRenderer.render(lines, size));
+    } catch (error) {
+      try {
+        output.write(`${ANSI.showCursor}${ANSI.reset}\n[TUI render error] ${error && error.message ? error.message : String(error)}\n`);
+      } catch (writeError) {
+        // 完全静默: 连 fallback 写入都失败了
+      }
+    }
   }
 
   function stop() {
@@ -130,11 +143,11 @@ function runTui(config, options) {
     output.removeListener('resize', render);
     if (input.setRawMode) input.setRawMode(false);
     input.pause();
-    output.write(`${ANSI.showCursor}${ANSI.reset}\n`);
+    output.write(`${DISABLE_MODIFIED_KEYS}${ANSI.showCursor}${ANSI.reset}\n`);
   }
 
   function acceptAutocomplete() {
-    const command = state.autoItems[state.autoIndex >= 0 ? state.autoIndex : 0];
+    const command = autocompleteCommand(state.autoItems[state.autoIndex >= 0 ? state.autoIndex : 0]);
     if (!command) return;
     setInput(state, `${command} `);
     state.autoItems = [];
@@ -149,6 +162,17 @@ function runTui(config, options) {
       return;
     }
     if (state.autoItems.length > 0) {
+      if (key.type === 'ctrl_enter') {
+        applyKey(state, key);
+        updateAutocomplete(state);
+        render();
+        return;
+      }
+      if (key.type === 'shift_tab') {
+        state.autoIndex = Math.max(0, (state.autoIndex || 0) - 1);
+        render();
+        return;
+      }
       if (key.type === 'text' && key.text === '\t') {
         acceptAutocomplete();
         updateAutocomplete(state);
@@ -323,6 +347,7 @@ function runTui(config, options) {
   input.resume();
   input.on('data', onData);
   output.on('resize', render);
+  output.write(ENABLE_MODIFIED_KEYS);
   render();
   refreshBoardStatus(activeConfig);
 

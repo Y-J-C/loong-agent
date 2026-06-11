@@ -1,6 +1,7 @@
 'use strict';
 
 const childProcess = require('child_process');
+const { bullet, renderBanner, section } = require('./cli-view');
 
 function runShell(command, timeoutMs) {
   return new Promise((resolve) => {
@@ -189,24 +190,21 @@ function analyze(results) {
 }
 
 function printHumanReport(report) {
-  console.log('Loong Agent Compatibility Report');
+  console.log(renderBanner({ width: 72 }));
   console.log('');
-  console.log(`loong-agent 可运行: ${report.canRunLoongAgent ? 'yes' : 'no'}`);
-  console.log(`当前是否适合直接尝试原始 pi-agent: ${report.canTryOriginalPiAgentNow ? 'yes' : 'no'}`);
+  console.log(section('兼容性结论', [
+    `loong-agent 可运行: ${report.canRunLoongAgent ? 'yes' : 'no'}`,
+    `当前是否适合直接尝试原始 pi-agent: ${report.canTryOriginalPiAgentNow ? 'yes' : 'no'}`,
+    '判断原则: 保持系统稳定, 优先验证 LoongArch/Node 14 轻量运行路径。',
+  ]));
   console.log('');
-  console.log('已满足:');
-  for (const item of report.satisfied) console.log(`- ${item}`);
+  console.log(section('已满足', bullet(report.satisfied)));
   console.log('');
-  console.log('阻塞项:');
-  for (const item of report.blockers) console.log(`- ${item}`);
-  if (report.blockers.length === 0) console.log('- none');
+  console.log(section('阻塞项', bullet(report.blockers)));
   console.log('');
-  console.log('风险/注意:');
-  for (const item of report.warnings) console.log(`- ${item}`);
-  if (report.warnings.length === 0) console.log('- none');
+  console.log(section('风险提示', bullet(report.warnings)));
   console.log('');
-  console.log('下一步:');
-  for (const item of report.nextSteps) console.log(`- ${item}`);
+  console.log(section('下一步建议', bullet(report.nextSteps)));
 }
 
 async function runCompat() {

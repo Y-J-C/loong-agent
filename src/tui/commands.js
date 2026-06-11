@@ -12,6 +12,7 @@ const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status
 const { addMessage, clearMessages } = require('./state');
 const { collectTuiStats, fileSize, formatBranchInfo, formatStats } = require('./stats');
 const { hasTheme, listThemes } = require('./theme');
+const { brandMotto, instructionFlow, section } = require('../cli-view');
 
 const UNSUPPORTED = new Set([
   '/model',
@@ -56,12 +57,12 @@ function splitCommand(text) {
 function hotkeysText() {
   return [
     'Hotkeys:',
-    'Enter send - \\ + Enter newline - Esc abort/back - Ctrl+C abort/exit',
-    'Ctrl+D exit when empty - Ctrl+L clear - Ctrl+O expand tools',
-    'Ctrl+A/Ctrl+E or Home/End line start/end',
-    'Ctrl+K delete to end - Ctrl+W delete previous word',
-    'Up/Down or Ctrl+P/Ctrl+N history',
-    'PageUp/PageDown scroll transcript',
+    'Enter 发送 - Ctrl+Enter 换行 - Alt+Enter 换行 - \\ + Enter 换行 - Esc 中断/返回 - Ctrl+C 中断/退出',
+    'Ctrl+D 空输入退出 - Ctrl+L 清屏 - Ctrl+O 展开工具细节',
+    'Ctrl+A/Ctrl+E 或 Home/End 行首/行尾',
+    'Ctrl+K 删除到行尾 - Ctrl+W 删除前一词',
+    'Up/Down 或 Ctrl+P/Ctrl+N 历史输入',
+    'PageUp/PageDown 滚动记录',
   ].join('\n');
 }
 
@@ -127,13 +128,16 @@ function writeDebugFile(config, state) {
 function helpText() {
   return [
     'Commands:',
+    brandMotto(),
+    instructionFlow(),
     '/help /hotkeys /exit /clear /new /name /theme /health /project /sessions /tree',
     '/lineage [latest|selected|id] /fork [name] /resume [latest|selected|id] <text>',
     '/clone [name] /branch /stats /demo /export [latest|current|demo|selected|id] [out]',
     '/session [latest|selected|id] /audit [latest|selected|id] /copy /reload /debug /compact [text] /goto <entry-id> /more',
     '! <readonly command>',
     '',
-    'Keys: Enter send - Esc abort/clear - Ctrl+C/Ctrl+D exit - Ctrl+O expand tools',
+    'Keys: Enter send - Ctrl+Enter newline - Esc abort/clear - Ctrl+C/Ctrl+D exit - Ctrl+O expand tools',
+    '策略: 默认只读, 证据优先, session 可审计。',
   ].join('\n');
 }
 
@@ -149,7 +153,7 @@ function selectedOrCurrentSession(manager, state, target) {
 }
 
 function selectedSessionRequired(state) {
-  addMessage(state, { type: 'error', text: 'No selected session. Run /sessions or /tree, choose a session, then retry with selected.' });
+  addMessage(state, { type: 'error', text: 'No selected session. 未选择会话。先运行 /sessions 或 /tree 选择会话, 再使用 selected。' });
 }
 
 async function runSlashCommand(context, text) {
@@ -167,7 +171,7 @@ async function runSlashCommand(context, text) {
   if (UNSUPPORTED.has(name)) {
     addMessage(state, {
       type: 'system',
-      text: `${name} is recognized from Pi, but is not implemented in the Loong Node 14 TUI subset yet.`,
+      text: `${name} 已识别, 但当前 Loong Node 14 TUI 子集 not implemented。\n说明: 为保持板端稳健和自主可控, 该能力暂未开放。`,
     });
     return;
   }
@@ -190,7 +194,7 @@ async function runSlashCommand(context, text) {
   if (name === '/theme') {
     const next = parts[1] || '';
     if (!next) {
-      addMessage(state, { type: 'system', text: `Current theme: ${state.theme || 'loong-dark'}\nAvailable: ${listThemes().join(', ')}` });
+      addMessage(state, { type: 'system', text: `当前主题 / Current theme: ${state.theme || 'loong-dark'}\nAvailable: ${listThemes().join(', ')}` });
       return;
     }
     if (!hasTheme(next)) {
@@ -198,14 +202,14 @@ async function runSlashCommand(context, text) {
       return;
     }
     state.theme = next;
-    addMessage(state, { type: 'system', text: `Theme set: ${next}` });
+    addMessage(state, { type: 'system', text: `主题已切换 / Theme set: ${next}` });
     return;
   }
 
   if (name === '/new') {
     const session = createAgentSession(config, { command: 'tui' });
     context.replaceAgentSession(session);
-    addMessage(state, { type: 'system', text: 'New TUI session started.' });
+    addMessage(state, { type: 'system', text: '新 TUI 会话已启动 / New TUI session started.' });
     return;
   }
 
@@ -217,7 +221,7 @@ async function runSlashCommand(context, text) {
     }
     const writer = currentSessionWriter(state);
     if (writer) writer.append({ type: 'session_name', name: next });
-    addMessage(state, { type: 'system', text: `Session name set: ${next}` });
+    addMessage(state, { type: 'system', text: `会话名称已设置 / Session name set: ${next}` });
     return;
   }
 
@@ -239,7 +243,7 @@ async function runSlashCommand(context, text) {
 
   if (name === '/debug') {
     const written = writeDebugFile(config, state);
-    addMessage(state, { type: 'system', text: `TUI debug snapshot written: ${written}` });
+    addMessage(state, { type: 'system', text: `TUI 调试快照已写入 / TUI debug snapshot written: ${written}` });
     return;
   }
 
@@ -247,7 +251,7 @@ async function runSlashCommand(context, text) {
     const result = await createDefaultToolRegistry().execute(config, 'session_summary', { session: 'latest' });
     addMessage(state, {
       type: 'system',
-      text: `Compaction is not implemented in this Node 14 subset yet.\nSession summary:\n${JSON.stringify(result, null, 2)}`,
+      text: `压缩摘要暂未正式启用 / Compaction is not implemented in this Node 14 subset yet.\nSession summary:\n${JSON.stringify(result, null, 2)}`,
     });
     return;
   }
@@ -297,7 +301,7 @@ async function runSlashCommand(context, text) {
     const forked = manager.fork('latest', { branchName });
     addMessage(state, {
       type: 'system',
-      text: `Forked session: ${forked.id}\nSession: ${forked.path}\nParent: ${forked.parentSession}`,
+      text: `会话分支已创建 / Forked session: ${forked.id}\nSession: ${forked.path}\nParent: ${forked.parentSession}`,
     });
     return;
   }
@@ -307,7 +311,7 @@ async function runSlashCommand(context, text) {
     const forked = manager.fork('latest', { branchName });
     addMessage(state, {
       type: 'system',
-      text: `Cloned session: ${forked.id}\nSession: ${forked.path}\nParent: ${forked.parentSession}`,
+      text: `会话克隆已创建 / Cloned session: ${forked.id}\nSession: ${forked.path}\nParent: ${forked.parentSession}`,
     });
     return;
   }
@@ -337,10 +341,8 @@ async function runSlashCommand(context, text) {
 
   if (name === '/more') {
     state.expandedTools = !state.expandedTools;
-    const latest = state.messages[state.messages.length - 1];
-    if (latest) latest.expanded = !latest.expanded;
     state.mode = state.expandedTools ? 'more' : 'idle';
-    addMessage(state, { type: 'system', text: state.expandedTools ? 'Expanded recent details.' : 'Collapsed details.' });
+    addMessage(state, { type: 'system', text: state.expandedTools ? '工具调用已展开.' : '工具调用已折叠.' });
     return;
   }
 
@@ -392,6 +394,7 @@ async function runSlashCommand(context, text) {
     addMessage(state, {
       type: 'system',
       text: [
+        '审计导出完成',
         `Wrote ${written}`,
         `session: ${session.id}`,
         `events: ${(session.events || []).length}`,
@@ -419,6 +422,7 @@ async function runSlashCommand(context, text) {
       type: 'system',
       text: [
         'Loong-Agent demo:',
+        '龙芯板端演示视图',
         `board: ${formatBoardStatus(state.boardStatus)}`,
         `runtime: ${health.provider}/${health.model} - ${health.sessionRepo}`,
         `project: ${project.kind || 'project_map'}`,
@@ -472,7 +476,6 @@ async function runSlashCommand(context, text) {
 }
 
 async function runBangCommand(context, text) {
-  const excluded = String(text || '').trim().startsWith('!!');
   const command = String(text || '').replace(/^!!?\s*/, '').trim();
   if (!command) {
     addMessage(context.state, { type: 'error', text: 'Usage: ! <readonly command>' });
@@ -482,12 +485,12 @@ async function runBangCommand(context, text) {
     const result = await runReadonlyCommand({ command });
     addMessage(context.state, {
       type: result.exitCode === 0 ? 'system' : 'error',
-      text: [
-        `${excluded ? '!!' : '!'} ${command}${excluded ? ' (excluded from context)' : ''}`,
+      text: section('只读命令执行', [
+        `! ${command}`,
         `exitCode: ${result.exitCode}`,
         result.stdout ? `stdout:\n${result.stdout}` : '',
         result.stderr ? `stderr:\n${result.stderr}` : '',
-      ].filter(Boolean).join('\n'),
+      ].filter(Boolean)),
     });
   } catch (error) {
     addMessage(context.state, {
