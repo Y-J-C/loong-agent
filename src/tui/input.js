@@ -104,6 +104,8 @@ function parseKey(buffer) {
   if (text === '\x10') return { type: 'ctrl_p' };
   if (text === '\x15') return { type: 'ctrl_u' };
   if (text === '\x17') return { type: 'ctrl_w' };
+  if (text === '\x19') return { type: 'ctrl_y' };
+  if (text === '\x1a') return { type: 'ctrl_z' };
   if (
     text === '\x1b[13;5u' ||
     text === '\x1b[10;5u' ||
@@ -128,12 +130,83 @@ function parseKey(buffer) {
   return { type: 'text', text };
 }
 
+// --- Undo/Redo ---
+
+function pushUndo(state) {
+  state.undoStack.push({
+    inputBuffer: state.inputBuffer,
+    cursor: state.cursor,
+  });
+  if (state.undoStack.length > (state.undoDepth || 50)) {
+    state.undoStack = state.undoStack.slice(-(state.undoDepth || 50));
+  }
+  state.redoStack = [];
+}
+
+function undo(state) {
+  if (!state.undoStack.length) return;
+  state.redoStack.push({ inputBuffer: state.inputBuffer, cursor: state.cursor });
+  const prev = state.undoStack.pop();
+  state.inputBuffer = prev.inputBuffer;
+  state.cursor = prev.cursor;
+}
+
+function redo(state) {
+  if (!state.redoStack.length) return;
+  state.undoStack.push({ inputBuffer: state.inputBuffer, cursor: state.cursor });
+  const next = state.redoStack.pop();
+  state.inputBuffer = next.inputBuffer;
+  state.cursor = next.cursor;
+}
+
+// --- Apply ---
+
 function applyKey(state, key) {
-  if (key.type === 'text') insertText(state, key.text);
-  else if (key.type === 'ctrl_enter' || key.type === 'alt_enter') insertText(state, '\n');
-  else if (key.type === 'backspace') backspace(state);
-  else if (key.type === 'ctrl_backspace') deleteWordBackward(state);
-  else if (key.type === 'left') moveLeft(state);
+  // Undo/redo
+  if (key.type === 'ctrl_z') {
+    if (key.shift) redo(state);
+    else undo(state);
+    return;
+  }
+  if (key.type === 'ctrl_y') {
+    redo(state);
+    return;
+  }
+
+  // Text insert with undo tracking and paste detection
+  if (key.type === 'text') {
+    pushUndo(state);
+    insertText(state, key.text);
+    if (key.text.length > 3) {
+      state.pasteCount += 1;
+    } else {
+      state.pasteCount = 0;
+    }
+    return;
+  }
+
+  // Destructive edits
+  if (key.type === 'backspace' || key.type === 'ctrl_backspace') {
+    if (state.inputBuffer) pushUndo(state);
+    if (key.type === 'ctrl_backspace') deleteWordBackward(state);
+    else backspace(state);
+    return;
+  }
+  if (key.type === 'ctrl_enter' || key.type === 'alt_enter') {
+    pushUndo(state);
+    insertText(state, '\n');
+    return;
+  }
+  if (key.type === 'ctrl_u' || key.type === 'ctrl_k' || key.type === 'ctrl_w') {
+    if (state.inputBuffer) pushUndo(state);
+    if (key.type === 'ctrl_u') setInput(state, '');
+    else if (key.type === 'ctrl_k') deleteToEnd(state);
+    else if (key.type === 'ctrl_w') deleteWordBackward(state);
+    return;
+  }
+
+  // Navigation
+  if (key.type === 'left') moveLeft(state);
   else if (key.type === 'right') moveRight(state);
   else if (key.type === 'ctrl_left') moveWordLeft(state);
   else if (key.type === 'ctrl_right') moveWordRight(state);
@@ -141,9 +214,6 @@ function applyKey(state, key) {
   else if (key.type === 'down' || key.type === 'ctrl_n') historyDown(state);
   else if (key.type === 'ctrl_a' || key.type === 'home') state.cursor = 0;
   else if (key.type === 'ctrl_e' || key.type === 'end') state.cursor = chars(state.inputBuffer).length;
-  else if (key.type === 'ctrl_u') setInput(state, '');
-  else if (key.type === 'ctrl_k') deleteToEnd(state);
-  else if (key.type === 'ctrl_w') deleteWordBackward(state);
   else if (key.type === 'page_up') state.scrollOffset = Math.min((state.scrollOffset || 0) + 5, 500);
   else if (key.type === 'page_down') state.scrollOffset = Math.max((state.scrollOffset || 0) - 5, 0);
 }
@@ -160,4 +230,7 @@ module.exports = {
   parseKey,
   pushHistory,
   setInput,
+  undo,
+  redo,
+  pushUndo,
 };

@@ -1,6 +1,7 @@
 'use strict';
 
 const { createAgentSession } = require('../agent');
+const { loadConfig } = require('../config');
 const { createBoardStatusSnapshot } = require('./board-status');
 const { handleCommand } = require('./commands');
 const { handleAgentEvent } = require('./event-adapter');
@@ -147,17 +148,318 @@ function runTui(config, options) {
   }
 
   function acceptAutocomplete() {
-    const command = autocompleteCommand(state.autoItems[state.autoIndex >= 0 ? state.autoIndex : 0]);
+    const item = state.autoItems[state.autoIndex >= 0 ? state.autoIndex : 0];
+    if (!item) return;
+    const command = autocompleteCommand(item);
     if (!command) return;
-    setInput(state, `${command} `);
+    // @file completion: replace the @... prefix in the input
+    if (command.startsWith('@')) {
+      const input = state.inputBuffer || '';
+      const atIndex = input.lastIndexOf('@');
+      if (atIndex >= 0) {
+        const beforeAt = input.slice(0, atIndex);
+        setInput(state, `${beforeAt}${command} `);
+      } else {
+        setInput(state, `${command} `);
+      }
+    } else {
+      setInput(state, `${command} `);
+    }
     state.autoItems = [];
     state.autoIndex = -1;
   }
 
+  function filteredSelectorItems() {
+    const selector = state.selector;
+    if (!selector) return [];
+    const query = selector.query ? selector.query.toLowerCase() : '';
+    return (selector.items || []).filter((item) => {
+      const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
+      return !query || haystack.indexOf(query) >= 0;
+    });
+  }
+
+  async function executeSessionAction(action, selected) {
+    if (!selected) {
+      state.mode = 'idle';
+      state.selector = null;
+      return;
+    }
+    const id = selected.id;
+    if (action.action === 'resume') {
+      if (state.currentSession) {
+        const prompt = `continue from session ${id}`;
+        await handleCommand({
+          config: activeConfig, state, replaceAgentSession, startPrompt,
+          reloadConfig: () => {}, refreshBoardStatus,
+        }, `/resume ${id} ${prompt}`);
+      }
+      state.mode = 'idle';
+      state.selector = null;
+      return;
+    }
+    if (action.action === 'session') {
+      state.mode = 'idle';
+      state.selector = null;
+      await handleCommand({
+        config: activeConfig, state, replaceAgentSession, startPrompt,
+        reloadConfig: () => {}, refreshBoardStatus,
+      }, `/session ${id}`);
+      return;
+    }
+    if (action.action === 'audit') {
+      state.mode = 'idle';
+      state.selector = null;
+      await handleCommand({
+        config: activeConfig, state, replaceAgentSession, startPrompt,
+        reloadConfig: () => {}, refreshBoardStatus,
+      }, `/audit ${id}`);
+      return;
+    }
+    if (action.action === 'export') {
+      state.mode = 'idle';
+      state.selector = null;
+      await handleCommand({
+        config: activeConfig, state, replaceAgentSession, startPrompt,
+        reloadConfig: () => {}, refreshBoardStatus,
+      }, `/export ${id}`);
+      return;
+    }
+    if (action.action === 'name') {
+      const name = `会话-${Date.now().toString().slice(-6)}`;
+      const manager = require('../session-manager').createSessionManager(activeConfig);
+      const session = manager.read(id);
+      if (session) {
+        require('../session').openJsonlSession(session.path, session.id).append({ type: 'session_name', name });
+        state.currentSessionName = name;
+        addMessage(state, { type: 'system', text: `会话名称已设置 / Session name set: ${name}` });
+      }
+      state.mode = 'idle';
+      state.selector = null;
+      return;
+    }
+    state.mode = 'idle';
+    state.selector = null;
+  }
+
+  async function handleSelectorKey(key) {
+    const selector = state.selector;
+    if (!selector) {
+      state.mode = 'idle';
+      return;
+    }
+    // Action menu mode (after selecting a session)
+    if (selector.subMode === 'actions') {
+      const actions = selector.actions || [];
+      if (key.type === 'escape') {
+        selector.subMode = '';
+        selector.selectedIndex = 0;
+        return;
+      }
+      if (key.type === 'up' || key.type === 'ctrl_p') {
+        selector.actionIndex = Math.max(0, (selector.actionIndex || 0) - 1);
+        return;
+      }
+      if (key.type === 'down' || key.type === 'ctrl_n') {
+        selector.actionIndex = Math.min(actions.length - 1, (selector.actionIndex || 0) + 1);
+        return;
+      }
+      if (key.type === 'enter') {
+        const actionIdx = selector.actionIndex || 0;
+        const action = actions[actionIdx];
+        if (action) await executeSessionAction(action, selector.selectedItem);
+        return;
+      }
+      if (key.type === 'text') {
+        const ch = key.text.toLowerCase();
+        const match = actions.findIndex((a) => a.key === ch);
+        if (match >= 0) {
+          selector.actionIndex = match;
+          const action = actions[match];
+          if (action) await executeSessionAction(action, selector.selectedItem);
+        }
+        return;
+      }
+      return;
+    }
+
+    // Normal session list navigation
+    if (key.type === 'escape') {
+      state.mode = 'idle';
+      state.selector = null;
+      return;
+    }
+    if (key.type === 'up' || key.type === 'ctrl_p') {
+      selector.selectedIndex = Math.max(0, (selector.selectedIndex || 0) - 1);
+      return;
+    }
+    if (key.type === 'down' || key.type === 'ctrl_n') {
+      const items = filteredSelectorItems();
+      selector.selectedIndex = Math.min(Math.max(0, items.length - 1), (selector.selectedIndex || 0) + 1);
+      return;
+    }
+    if (key.type === 'text' && key.text === '\t') {
+      await handleCommand({
+        config: activeConfig,
+        state,
+        replaceAgentSession,
+        startPrompt,
+        reloadConfig: () => {},
+        refreshBoardStatus,
+      }, selector.view === 'tree' ? '/sessions' : '/tree');
+      return;
+    }
+    if (key.type === 'enter') {
+      const items = filteredSelectorItems();
+      const selected = items[selector.selectedIndex || 0];
+      if (selected) {
+        state.selectedSessionId = selected.id;
+        selector.selectedItem = selected;
+        // Show action menu
+        selector.subMode = 'actions';
+        selector.actions = [
+          { key: 'r', label: '继续/Resume', action: 'resume' },
+          { key: 's', label: '查看/Session trace', action: 'session' },
+          { key: 'a', label: '审计/Audit', action: 'audit' },
+          { key: 'e', label: '导出/Export HTML', action: 'export' },
+          { key: 'n', label: '命名/Set name', action: 'name' },
+        ];
+        selector.actionIndex = 0;
+      }
+      return;
+    }
+    if (key.type === 'backspace') {
+      selector.query = String(selector.query || '').slice(0, -1);
+      selector.selectedIndex = 0;
+      return;
+    }
+    if (key.type === 'text') {
+      selector.query = `${selector.query || ''}${key.text}`;
+      selector.selectedIndex = 0;
+    }
+  }
+
+  function applySettingsSelection() {
+    activeConfig = Object.assign({}, activeConfig, {
+      thinkingLevel: state.thinkingLevel || 'off',
+      streaming: state.settingsStreaming !== false,
+      contextBudgetChars: state.contextBudget || activeConfig.contextBudgetChars,
+    });
+    if (state.mode !== 'running') {
+      replaceAgentSession(createAgentSession(activeConfig, { command: 'tui' }));
+    }
+    refreshBoardStatus(activeConfig);
+  }
+
+  function handleSettingsKey(key) {
+    const menu = state.settingsMenu;
+    if (!menu) { state.mode = 'idle'; return; }
+    const items = menu.items || [];
+    if (key.type === 'escape') {
+      state.mode = 'idle';
+      state.settingsMenu = null;
+      return;
+    }
+    if (key.type === 'up' || key.type === 'ctrl_p') {
+      menu.selectedIndex = Math.max(0, (menu.selectedIndex || 0) - 1);
+      return;
+    }
+    if (key.type === 'down' || key.type === 'ctrl_n') {
+      menu.selectedIndex = Math.min(items.length - 1, (menu.selectedIndex || 0) + 1);
+      return;
+    }
+    if (key.type === 'enter') {
+      const item = items[menu.selectedIndex || 0];
+      if (item && item.onSelect) item.onSelect(state);
+      applySettingsSelection();
+      state.mode = 'idle';
+      state.settingsMenu = null;
+      addMessage(state, { type: 'system', text: item ? `设置已更新: ${item.label} = ${item.value()}` : '' });
+      return;
+    }
+    if (key.type === 'left' || key.type === 'right') {
+      const item = items[menu.selectedIndex || 0];
+      if (item && item.onCycle) {
+        const dir = key.type === 'left' ? -1 : 1;
+        item.onCycle(state, dir);
+        applySettingsSelection();
+      }
+      return;
+    }
+  }
+
+  function applyModelSelection(model) {
+    if (!model) return;
+    if (model.fromEnv) {
+      activeConfig = loadConfig();
+    } else {
+      activeConfig = Object.assign({}, activeConfig, {
+        model: model.id,
+        provider: model.provider || activeConfig.provider,
+        providerProfile: model.providerProfile || activeConfig.providerProfile,
+        baseUrl: model.baseUrl || activeConfig.baseUrl,
+      });
+    }
+    state.model = activeConfig.model || '';
+    state.provider = activeConfig.provider || state.provider;
+    state.cwd = activeConfig.workspace || state.cwd;
+    if (state.mode !== 'running') {
+      replaceAgentSession(createAgentSession(activeConfig, { command: 'tui' }));
+    }
+    refreshBoardStatus(activeConfig);
+  }
+
+  function handleModelKey(key) {
+    const sel = state.modelSelector;
+    if (!sel) { state.mode = 'idle'; return; }
+    const models = sel.models || [];
+    if (key.type === 'escape') {
+      state.mode = 'idle';
+      state.modelSelector = null;
+      return;
+    }
+    if (key.type === 'up' || key.type === 'ctrl_p') {
+      sel.selectedIndex = Math.max(0, (sel.selectedIndex || 0) - 1);
+      return;
+    }
+    if (key.type === 'down' || key.type === 'ctrl_n') {
+      sel.selectedIndex = Math.min(models.length - 1, (sel.selectedIndex || 0) + 1);
+      return;
+    }
+    if (key.type === 'enter') {
+      const model = models[sel.selectedIndex || 0];
+      if (model) {
+        applyModelSelection(model);
+        addMessage(state, { type: 'system', text: `模型已切换 / Model set: ${activeConfig.model || '(env)'}` });
+      }
+      state.mode = 'idle';
+      state.modelSelector = null;
+      return;
+    }
+  }
+
   async function onData(buffer) {
     const key = parseKey(buffer);
+    // 记录原始按键序列
+    state.recentKeys.push({
+      raw: Array.from(buffer).map((b) => `\\x${b.toString(16).padStart(2, '0')}`).join(''),
+      type: key.type,
+      ts: Date.now(),
+    });
+    if (state.recentKeys.length > 30) state.recentKeys = state.recentKeys.slice(-30);
+
     if (state.mode === 'session_selector') {
       await handleSelectorKey(key);
+      render();
+      return;
+    }
+    if (state.mode === 'settings') {
+      handleSettingsKey(key);
+      render();
+      return;
+    }
+    if (state.mode === 'model_selector') {
+      handleModelKey(key);
       render();
       return;
     }
@@ -262,84 +564,6 @@ function runTui(config, options) {
     applyKey(state, key);
     updateAutocomplete(state);
     render();
-  }
-
-  async function handleSelectorKey(key) {
-    const selector = state.selector;
-    if (!selector) {
-      state.mode = 'idle';
-      return;
-    }
-    function filteredSelectorItems() {
-      const query = selector.query ? selector.query.toLowerCase() : '';
-      return (selector.items || []).filter((item) => {
-        const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
-        return !query || haystack.indexOf(query) >= 0;
-      });
-    }
-    if (key.type === 'escape') {
-      state.mode = 'idle';
-      state.selector = null;
-      return;
-    }
-    if (key.type === 'up' || key.type === 'ctrl_p') {
-      selector.selectedIndex = Math.max(0, (selector.selectedIndex || 0) - 1);
-      return;
-    }
-    if (key.type === 'down' || key.type === 'ctrl_n') {
-      const items = filteredSelectorItems();
-      selector.selectedIndex = Math.min(Math.max(0, items.length - 1), (selector.selectedIndex || 0) + 1);
-      return;
-    }
-    if (key.type === 'text' && key.text === '\t') {
-      await handleCommand({
-        config: activeConfig,
-        state,
-        replaceAgentSession,
-        startPrompt,
-        reloadConfig: () => {},
-        refreshBoardStatus,
-      }, selector.view === 'tree' ? '/sessions' : '/tree');
-      return;
-    }
-    if (key.type === 'text' && key.text === 'd') {
-      addMessage(state, { type: 'system', text: 'Session deletion is disabled to avoid removing competition traces.' });
-      state.mode = 'idle';
-      state.selector = null;
-      return;
-    }
-    if (key.type === 'text' && key.text === 'r') {
-      const selected = filteredSelectorItems()[selector.selectedIndex || 0];
-      if (selected) {
-        const name = `renamed-${Date.now().toString().slice(-6)}`;
-        const manager = require('../session-manager').createSessionManager(activeConfig);
-        const session = manager.read(selected.id);
-        require('../session').openJsonlSession(session.path, session.id).append({ type: 'session_name', name });
-        addMessage(state, { type: 'system', text: `Session name set: ${name}` });
-      }
-      state.mode = 'idle';
-      state.selector = null;
-      return;
-    }
-    if (key.type === 'enter') {
-      const selected = filteredSelectorItems()[selector.selectedIndex || 0];
-      if (selected) {
-        state.selectedSessionId = selected.id;
-        addMessage(state, { type: 'system', text: `Selected session: ${selected.id}` });
-      }
-      state.mode = 'idle';
-      state.selector = null;
-      return;
-    }
-    if (key.type === 'backspace') {
-      selector.query = String(selector.query || '').slice(0, -1);
-      selector.selectedIndex = 0;
-      return;
-    }
-    if (key.type === 'text') {
-      selector.query = `${selector.query || ''}${key.text}`;
-      selector.selectedIndex = 0;
-    }
   }
 
   subscribe(agentSession);

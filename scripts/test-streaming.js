@@ -6,7 +6,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { createAgentSession } = require('../src/agent-session');
-const { loadConfig } = require('../src/config');
+const { loadConfig, normalizeThinkingLevel } = require('../src/config');
 const { chatCompletionWithEvents, registerProvider } = require('../src/llm');
 const {
   buildOpenAiPayload,
@@ -70,6 +70,7 @@ test('config supports provider profiles and thinking level', async () => {
     baseUrl: process.env.LOONG_AGENT_BASE_URL,
     model: process.env.LOONG_AGENT_MODEL,
     thinking: process.env.LOONG_AGENT_THINKING_LEVEL,
+    jsonMode: process.env.LOONG_AGENT_JSON_MODE,
   };
   delete process.env.LOONG_AGENT_PROVIDER_PROFILE;
   process.env.LOONG_AGENT_BASE_URL = '';
@@ -78,14 +79,21 @@ test('config supports provider profiles and thinking level', async () => {
   const deepseek = loadConfig();
   assert(deepseek.providerProfile === 'deepseek', 'default profile should be deepseek');
   assert(deepseek.baseUrl === 'https://api.deepseek.com', 'deepseek baseUrl mismatch');
-  assert(deepseek.model === 'deepseek-chat', 'deepseek model mismatch');
+  assert(deepseek.model === 'deepseek-v4-flash', 'deepseek model mismatch');
   assert(deepseek.thinkingLevel === 'off', 'default thinking level mismatch');
+  assert(deepseek.jsonMode === true, 'json mode should default true');
   process.env.LOONG_AGENT_PROVIDER_PROFILE = 'ollama';
   process.env.LOONG_AGENT_THINKING_LEVEL = 'high';
   const ollama = loadConfig();
   assert(ollama.baseUrl === 'http://127.0.0.1:11434/v1', 'ollama baseUrl mismatch');
   assert(ollama.model === 'llama3.1', 'ollama model mismatch');
   assert(ollama.thinkingLevel === 'high', 'thinking env mismatch');
+  process.env.LOONG_AGENT_THINKING_LEVEL = 'xhigh';
+  assert(loadConfig().thinkingLevel === 'max', 'xhigh should map to max');
+  process.env.LOONG_AGENT_THINKING_LEVEL = 'medium';
+  assert(loadConfig().thinkingLevel === 'high', 'medium should map to high');
+  process.env.LOONG_AGENT_JSON_MODE = '0';
+  assert(loadConfig().jsonMode === false, 'json mode env disable failed');
   process.env.LOONG_AGENT_BASE_URL = 'http://example.test/v1';
   process.env.LOONG_AGENT_MODEL = 'custom-model';
   const overridden = loadConfig();
@@ -105,10 +113,21 @@ test('config supports provider profiles and thinking level', async () => {
       baseUrl: 'LOONG_AGENT_BASE_URL',
       model: 'LOONG_AGENT_MODEL',
       thinking: 'LOONG_AGENT_THINKING_LEVEL',
+      jsonMode: 'LOONG_AGENT_JSON_MODE',
     }[key];
     if (previous[key] === undefined) delete process.env[envKey];
     else process.env[envKey] = previous[key];
   });
+});
+
+test('normalizeThinkingLevel maps official and legacy aliases', async () => {
+  assert(normalizeThinkingLevel('off') === 'off', 'off mismatch');
+  assert(normalizeThinkingLevel('high') === 'high', 'high mismatch');
+  assert(normalizeThinkingLevel('max') === 'max', 'max mismatch');
+  assert(normalizeThinkingLevel('low') === 'high', 'low should map to high');
+  assert(normalizeThinkingLevel('medium') === 'high', 'medium should map to high');
+  assert(normalizeThinkingLevel('xhigh') === 'max', 'xhigh should map to max');
+  assert(normalizeThinkingLevel('unknown') === 'off', 'unknown should map to off');
 });
 
 test('SSE parser extracts OpenAI-compatible deltas and DONE', async () => {
@@ -133,6 +152,15 @@ test('DeepSeek native thinking payload follows official parameters', async () =>
   assert(payload.thinking && payload.thinking.type === 'enabled', 'thinking should be enabled');
   assert(payload.reasoning_effort === 'high', 'reasoning effort mismatch');
   assert(!Object.prototype.hasOwnProperty.call(payload, 'temperature'), 'thinking request should omit temperature');
+  assert(payload.response_format && payload.response_format.type === 'json_object', 'json output should be enabled');
+  const maxPayload = buildOpenAiPayload({
+    providerProfile: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-v4-pro',
+    thinkingLevel: 'max',
+  }, [], { temperature: 0.2, streaming: true });
+  assert(maxPayload.reasoning_effort === 'max', 'max reasoning effort mismatch');
+  assert(maxPayload.stream_options && maxPayload.stream_options.include_usage === true, 'stream usage option missing');
   const disabled = buildOpenAiPayload({
     providerProfile: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
@@ -140,6 +168,15 @@ test('DeepSeek native thinking payload follows official parameters', async () =>
     thinkingLevel: 'off',
   }, [], { temperature: 0.2 });
   assert(disabled.thinking.type === 'disabled', 'thinking should be disabled');
+  assert(disabled.temperature === 0.2, 'disabled thinking should keep temperature');
+  const noJson = buildOpenAiPayload({
+    providerProfile: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-v4-flash',
+    thinkingLevel: 'off',
+    jsonMode: false,
+  }, [], { temperature: 0.2 });
+  assert(!Object.prototype.hasOwnProperty.call(noJson, 'response_format'), 'json mode disable failed');
   const reasoner = buildOpenAiPayload({
     providerProfile: 'deepseek',
     baseUrl: 'https://api.deepseek.com',

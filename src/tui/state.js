@@ -28,8 +28,8 @@ const SLASH_COMMAND_DEFINITIONS = [
   { command: '/compact', description: '查看会话摘要占位' },
   { command: '/goto', description: '按 entry id 定位事件' },
   { command: '/more', description: '展开/折叠工具细节' },
-  { command: '/model', description: '暂未实现: 模型选择' },
-  { command: '/settings', description: '暂未实现: 设置面板' },
+  { command: '/model', description: '切换模型' },
+  { command: '/settings', description: '打开设置面板' },
   { command: '/login', description: '暂未实现: 登录' },
   { command: '/logout', description: '暂未实现: 登出' },
   { command: '/share', description: '暂未实现: 分享' },
@@ -40,6 +40,45 @@ const SLASH_COMMAND_DEFINITIONS = [
 ];
 
 const SLASH_COMMANDS = SLASH_COMMAND_DEFINITIONS.map((item) => item.command);
+
+const COMMAND_USAGE_PRIORITY = {
+  '/settings': 0,
+  '/model': 1,
+  '/help': 2,
+  '/hotkeys': 3,
+  '/clear': 4,
+  '/new': 5,
+  '/name': 6,
+  '/theme': 7,
+  '/health': 8,
+  '/project': 9,
+  '/sessions': 10,
+  '/tree': 11,
+  '/session': 12,
+  '/audit': 13,
+  '/more': 14,
+  '/debug': 15,
+  '/export': 16,
+  '/resume': 17,
+  '/fork': 18,
+  '/clone': 19,
+  '/lineage': 20,
+  '/branch': 21,
+  '/stats': 22,
+  '/demo': 23,
+  '/copy': 24,
+  '/reload': 25,
+  '/compact': 26,
+  '/goto': 27,
+  '/exit': 28,
+};
+
+function commandPriority(command, order) {
+  if (Object.prototype.hasOwnProperty.call(COMMAND_USAGE_PRIORITY, command)) {
+    return COMMAND_USAGE_PRIORITY[command];
+  }
+  return 1000 + order;
+}
 
 function createTuiState(config) {
   return {
@@ -82,6 +121,20 @@ function createTuiState(config) {
     lastEventTime: 0,
     autoItems: [],
     autoIndex: -1,
+    currentSessionName: '',
+    recentKeys: [],
+    // 设置系统
+    settingsLanguage: 'zh',
+    settingsToolDetail: 'collapsed',
+    settingsStreaming: true,
+    // 设置/模型选择器
+    settingsMenu: null,
+    modelSelector: null,
+    // 输入增强
+    pasteCount: 0,
+    undoStack: [],
+    redoStack: [],
+    undoDepth: 50,
   };
 }
 
@@ -118,6 +171,42 @@ function clearMessages(state) {
 
 function updateAutocomplete(state) {
   const input = state.inputBuffer || '';
+
+  // @file path completion
+  if (input.indexOf('@') >= 0 && !input.startsWith('/')) {
+    const atIndex = input.lastIndexOf('@');
+    const afterAt = input.slice(atIndex + 1);
+    if (afterAt.indexOf(' ') < 0 && afterAt.length <= 40) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const cwd = process.cwd();
+        const searchDir = afterAt ? path.dirname(afterAt) : '.';
+        const prefix = afterAt ? path.basename(afterAt) : '';
+        const fullDir = path.resolve(cwd, searchDir);
+        let entries = [];
+        try {
+          entries = fs.readdirSync(fullDir);
+        } catch (e) { /* dir not found */ }
+        const matched = entries.filter((e) => e.startsWith(prefix)).slice(0, 10);
+        if (matched.length) {
+          const basePath = afterAt ? afterAt.slice(0, afterAt.lastIndexOf(path.sep) + 1) : '';
+          state.autoItems = matched.map((e) => {
+            const full = path.join(fullDir, e);
+            let isDir = false;
+            try { isDir = fs.statSync(full).isDirectory(); } catch (ex) { /* ignore */ }
+            return {
+              command: `@${basePath}${e}${isDir ? path.sep : ''}`,
+              description: isDir ? '目录' : '文件',
+            };
+          });
+          state.autoIndex = state.autoIndex >= 0 ? Math.min(state.autoIndex, state.autoItems.length - 1) : 0;
+          return;
+        }
+      } catch (e) { /* ignore fs errors */ }
+    }
+  }
+
   if (!input.startsWith('/')) {
     state.autoItems = [];
     state.autoIndex = -1;
@@ -129,14 +218,18 @@ function updateAutocomplete(state) {
     .map((item, index) => {
       const score = scoreSlashCommand(item.command, query);
       const unsupportedPenalty = String(item.description || '').indexOf('暂未实现') >= 0 ? 20 : 0;
-      return score === null ? null : Object.assign({ score: score + unsupportedPenalty, order: index }, item);
+      return score === null ? null : Object.assign({
+        score: score + unsupportedPenalty,
+        order: index,
+        priority: commandPriority(item.command, index),
+      }, item);
     })
     .filter(Boolean)
     .sort((left, right) => {
       if (left.score !== right.score) return left.score - right.score;
+      if (left.priority !== right.priority) return left.priority - right.priority;
       return left.order - right.order;
-    })
-    .slice(0, 12);
+    });
   if (!state.autoItems.length) {
     state.autoIndex = -1;
   } else if (state.autoIndex < 0) {

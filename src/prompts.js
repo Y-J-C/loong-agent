@@ -5,7 +5,7 @@ const { resolveProviderCapabilities } = require('./provider-registry');
 
 const SYSTEM_PROMPT = `You are Loong Pi Agent, a lightweight coding and diagnostics agent for LoongArch developer boards.
 
-You must respond with strict JSON only. Do not wrap JSON in markdown.
+You must respond with strict JSON only. The response must be a valid json object. Do not wrap JSON in markdown.
 
 Available tools:
 {{TOOLS}}
@@ -37,6 +37,7 @@ function safeConfigSummary(config) {
     providerCapabilities: capabilities,
     maxLoops: config.maxLoops || 0,
     streaming: config.streaming !== false,
+    jsonMode: config.jsonMode !== false,
     contextBudgetChars: config.contextBudgetChars || 1800,
     allowWrite: Boolean(config.allowWrite),
     allowCommands: Boolean(config.allowCommands),
@@ -172,6 +173,7 @@ function buildMessagesFromTurnContext(turnContext) {
       low: 'Use concise analysis and proceed with the smallest sufficient check.',
       medium: 'Balance analysis with action; state assumptions and evidence briefly.',
       high: 'Use a more careful analysis style: identify assumptions, risks, and verification evidence before selecting the next tool.',
+      max: 'Use the most careful analysis style for complex agent work: verify evidence, failure modes, and next tool choice before acting.',
     };
     parts.push([
       `Analysis depth hint: ${thinkingLevel}`,

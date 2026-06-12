@@ -15,8 +15,6 @@ const { hasTheme, listThemes } = require('./theme');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
 
 const UNSUPPORTED = new Set([
-  '/model',
-  '/settings',
   '/login',
   '/logout',
   '/share',
@@ -56,13 +54,20 @@ function splitCommand(text) {
 
 function hotkeysText() {
   return [
-    'Hotkeys:',
-    'Enter 发送 - Ctrl+Enter 换行 - Alt+Enter 换行 - \\ + Enter 换行 - Esc 中断/返回 - Ctrl+C 中断/退出',
-    'Ctrl+D 空输入退出 - Ctrl+L 清屏 - Ctrl+O 展开工具细节',
-    'Ctrl+A/Ctrl+E 或 Home/End 行首/行尾',
-    'Ctrl+K 删除到行尾 - Ctrl+W 删除前一词',
+    '快捷键:',
+    'Enter 发送命令',
+    'Ctrl+Enter 换行（终端支持时）/ Alt+Enter 换行（推荐 fallback）/ \\ + Enter 换行（通用 fallback）',
+    'Esc 中断/返回 / Ctrl+C 中断/退出 / Ctrl+D 空输入退出',
+    'Ctrl+L 清屏 / Ctrl+O 展开工具细节',
+    'Ctrl+A / Home 行首 / Ctrl+E / End 行尾',
+    'Ctrl+K 删除到行尾 / Ctrl+W / Ctrl+Backspace 删除前一词',
     'Up/Down 或 Ctrl+P/Ctrl+N 历史输入',
     'PageUp/PageDown 滚动记录',
+    '',
+    '换行说明:',
+    '- Ctrl+Enter: 如终端支持 CSI u 或 SS3 编码',
+    '- Alt+Enter: 大多数终端支持，推荐 fallback',
+    '- \\ + Enter: 通用方案，所有环境可用',
   ].join('\n');
 }
 
@@ -127,17 +132,18 @@ function writeDebugFile(config, state) {
 
 function helpText() {
   return [
-    'Commands:',
-    brandMotto(),
-    instructionFlow(),
-    '/help /hotkeys /exit /clear /new /name /theme /health /project /sessions /tree',
-    '/lineage [latest|selected|id] /fork [name] /resume [latest|selected|id] <text>',
-    '/clone [name] /branch /stats /demo /export [latest|current|demo|selected|id] [out]',
-    '/session [latest|selected|id] /audit [latest|selected|id] /copy /reload /debug /compact [text] /goto <entry-id> /more',
-    '! <readonly command>',
+    '命令:',
+    '/exit /clear /new /name /theme /health /project /sessions /tree',
+    '/session /audit /lineage /fork /resume /clone /branch /stats /demo /export',
+    '/copy /reload /debug /debug keys /settings /model /compact /goto /more',
+    '! <只读命令>',
     '',
-    'Keys: Enter send - Ctrl+Enter newline - Esc abort/clear - Ctrl+C/Ctrl+D exit - Ctrl+O expand tools',
-    '策略: 默认只读, 证据优先, session 可审计。',
+    '换行: Ctrl+Enter(终端支持时)/Alt+Enter(推荐)/\\+Enter(通用)',
+    '退出: Ctrl+C / Ctrl+D(空输入) / /exit',
+    '工具: Ctrl+O 展开/折叠工具细节',
+    '滚动: PageUp / PageDown',
+    '',
+    brandMotto(),
   ].join('\n');
 }
 
@@ -221,6 +227,7 @@ async function runSlashCommand(context, text) {
     }
     const writer = currentSessionWriter(state);
     if (writer) writer.append({ type: 'session_name', name: next });
+    state.currentSessionName = next;
     addMessage(state, { type: 'system', text: `会话名称已设置 / Session name set: ${next}` });
     return;
   }
@@ -242,6 +249,20 @@ async function runSlashCommand(context, text) {
   }
 
   if (name === '/debug') {
+    const sub = parts[1] || '';
+    if (sub === 'keys') {
+      const keys = (state.recentKeys || []).slice(-15);
+      if (!keys.length) {
+        addMessage(state, { type: 'system', text: 'No recent key presses recorded.' });
+        return;
+      }
+      const lines = keys.map((k) => {
+        const rawPart = k.raw ? `raw: ${k.raw} -> ` : '';
+        return `${rawPart}${k.type}${k.type === 'text' && k.raw ? ` (${k.raw})` : ''}`;
+      });
+      addMessage(state, { type: 'system', text: `Recent key presses (${keys.length}):\n${lines.join('\n')}` });
+      return;
+    }
     const written = writeDebugFile(config, state);
     addMessage(state, { type: 'system', text: `TUI 调试快照已写入 / TUI debug snapshot written: ${written}` });
     return;
@@ -257,9 +278,31 @@ async function runSlashCommand(context, text) {
   }
 
   if (name === '/health' || name === '/project') {
-    const tool = name === '/health' ? 'runtime_health' : 'project_map';
-    const result = await createDefaultToolRegistry().execute(config, tool, {});
-    addMessage(state, { type: 'system', text: JSON.stringify(result, null, 2) });
+    const isHealth = name === '/health';
+    // --json 标志：显示完整 JSON
+    if (parts[1] === '--json') {
+      const tool = isHealth ? 'runtime_health' : 'project_map';
+      const result = await createDefaultToolRegistry().execute(config, tool, {});
+      addMessage(state, { type: 'system', text: JSON.stringify(result, null, 2) });
+      return;
+    }
+    // 默认输出摘要
+    if (state.boardStatus) {
+      const summary = [
+        isHealth ? '╭─ 运行健康检查' : '╭─ 项目结构摘要',
+        `│ ${formatBoardStatus(state.boardStatus)}`,
+        `│ provider: ${state.provider || 'unknown'} / model: ${state.model || 'unknown'}`,
+        `│ session: ${state.currentSession ? state.currentSession.id || 'none' : 'none'}`,
+      ];
+      if (isHealth) {
+        summary.push(`│ token in: ${state.tokenInput} / out: ${state.tokenOutput}`);
+      }
+      addMessage(state, { type: 'system', text: summary.join('\n') });
+    } else {
+      const tool = isHealth ? 'runtime_health' : 'project_map';
+      const result = await createDefaultToolRegistry().execute(config, tool, {});
+      addMessage(state, { type: 'system', text: JSON.stringify(result, null, 2) });
+    }
     return;
   }
 
@@ -353,7 +396,26 @@ async function runSlashCommand(context, text) {
       selectedSessionRequired(state);
       return;
     }
-    addMessage(state, { type: 'system', text: renderSessionTrace(session) || 'Empty session.' });
+    const events = session.events || [];
+    const summary = [
+      `╭─ 会话 / session: ${session.id}`,
+      `│ events: ${events.length} 条`,
+      `│ name: ${session.name || session.sessionName || '-'}`,
+      `│ command: ${session.command || '-'}`,
+      `│ modified: ${session.modifiedAt || '-'}`,
+      `│ path: ${session.path || '-'}`,
+    ];
+    if (events.length > 0) {
+      const lastEvents = events.slice(-5);
+      summary.push('│ 最近事件 / recent events:');
+      for (const e of lastEvents) {
+        const detail = e.toolName || e.role || e.command || e.name || e.type || '';
+        const eventId = e.entryId || e.id || '';
+        summary.push(`│   ${eventId} ${detail}`);
+      }
+      if (events.length > 5) summary.push(`│   ... ${events.length - 5} more`);
+    }
+    addMessage(state, { type: 'system', text: summary.join('\n') });
     return;
   }
 
@@ -364,7 +426,26 @@ async function runSlashCommand(context, text) {
       selectedSessionRequired(state);
       return;
     }
-    addMessage(state, { type: 'system', text: renderSessionAudit(session) });
+    const events = session.events || [];
+    const toolCalls = events.filter((e) => e.type === 'tool_execution_end' || e.toolName);
+    const errors = events.filter((e) => e.isError || (e.result && e.result.blocked));
+    const summary = [
+      `╭─ 审计 / audit: ${session.id}`,
+      `│ events: ${events.length} 条`,
+      `│ tool_calls: ${toolCalls.length} 次`,
+      `│ errors: ${errors.length} 个`,
+      `│ name: ${session.name || session.sessionName || '-'}`,
+      `│ command: ${session.command || '-'}`,
+      `│ modified: ${session.modifiedAt || '-'}`,
+    ];
+    if (errors.length > 0) {
+      summary.push('│ 错误详情 / errors:');
+      for (const e of errors.slice(0, 5)) {
+        const blocked = e.result && e.result.blocked ? ' policy_blocked' : '';
+        summary.push(`│   ${e.toolName || '?'}: ${e.errorType || e.result && e.result.error || 'error'}${blocked}`);
+      }
+    }
+    addMessage(state, { type: 'system', text: summary.join('\n') });
     return;
   }
 
@@ -469,6 +550,103 @@ async function runSlashCommand(context, text) {
       prompt,
     ].join('\n');
     await context.startPrompt(contextPrompt);
+    return;
+  }
+
+  // --- /settings 设置菜单 ---
+  if (name === '/settings') {
+    const items = [
+      {
+        key: 't', label: '主题 / Theme',
+        value: () => state.theme || 'loong-dark',
+        onCycle: (s, dir) => {
+          const list = ['loong-dark', 'plain'];
+          const idx = list.indexOf(s.theme || 'loong-dark');
+          s.theme = list[(((idx + dir) % list.length) + list.length) % list.length];
+        },
+      },
+      {
+        key: 'l', label: '语言 / Language',
+        value: () => state.settingsLanguage || 'zh',
+        onCycle: (s, dir) => {
+          const list = ['zh', 'en', 'mixed'];
+          const idx = list.indexOf(s.settingsLanguage || 'zh');
+          s.settingsLanguage = list[(((idx + dir) % list.length) + list.length) % list.length];
+        },
+      },
+      {
+        key: 'd', label: '工具详情 / Tool detail',
+        value: () => state.settingsToolDetail || 'collapsed',
+        onCycle: (s, dir) => {
+          s.settingsToolDetail = dir > 0 ? 'expanded' : 'collapsed';
+          s.expandedTools = s.settingsToolDetail === 'expanded';
+        },
+      },
+      {
+        key: 's', label: '流式 / Streaming',
+        value: () => state.settingsStreaming ? '开启/on' : '关闭/off',
+        onCycle: (s, dir) => { s.settingsStreaming = dir > 0; },
+      },
+      {
+        key: 'k', label: '思考层级 / Thinking level',
+        value: () => state.thinkingLevel || 'off',
+        onCycle: (s, dir) => {
+          const list = ['off', 'high', 'max'];
+          const idx = list.indexOf(s.thinkingLevel || 'off');
+          s.thinkingLevel = list[(((idx + dir) % list.length) + list.length) % list.length];
+        },
+      },
+      {
+        key: 'c', label: '上下文预算 / Context budget',
+        value: () => String(state.contextBudget || 1800),
+        onCycle: (s, dir) => {
+          const list = ['800', '1800', '3200', '6400', '12800'];
+          const cur = String(s.contextBudget || 1800);
+          const idx = list.indexOf(cur);
+          s.contextBudget = Number(list[(((idx + dir) % list.length) + list.length) % list.length]);
+        },
+      },
+    ];
+    state.mode = 'settings';
+    state.settingsMenu = { items, selectedIndex: 0 };
+    return;
+  }
+
+  // --- /model 模型选择器 ---
+  if (name === '/model') {
+    const currentModel = state.model || config.model || 'deepseek-v4-flash';
+    const models = [
+      {
+        id: 'deepseek-v4-flash',
+        provider: 'openai-compatible',
+        providerProfile: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        label: 'DeepSeek V4 Flash',
+      },
+      {
+        id: 'deepseek-v4-pro',
+        provider: 'openai-compatible',
+        providerProfile: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        label: 'DeepSeek V4 Pro',
+      },
+    ];
+    const detectedLabel = config.model ? `${config.model}${config.provider ? ` (${config.provider})` : ''}` : '';
+    if (detectedLabel && !models.find((m) => m.id === config.model)) {
+      models.push({
+        id: config.model,
+        provider: config.provider || 'openai-compatible',
+        providerProfile: config.providerProfile || 'custom',
+        baseUrl: config.baseUrl,
+        label: detectedLabel,
+      });
+    }
+    models.push({ id: '', provider: 'env', fromEnv: true, label: '来自环境变量 / From env' });
+    state.mode = 'model_selector';
+    state.modelSelector = {
+      models,
+      selectedIndex: Math.max(0, models.findIndex((m) => m.id === currentModel)),
+    };
     return;
   }
 

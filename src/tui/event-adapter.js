@@ -68,14 +68,14 @@ function handleAgentEvent(state, event) {
         text: [
           workflow('intake', event.prompt),
           workflow('plan', `模型 ${event.providerProfile || event.provider || 'provider'}/${event.model || 'model'} 已接入`),
-          workflow('risk', '默认只读边界, 工具调用写入 session 审计。'),
+          workflow('risk', '默认只读边界, tool_execution 写入 JSONL session 审计。'),
           `prompt: ${event.prompt}`,
         ].join('\n'),
       });
     }
   } else if (event.type === 'turn_start') {
     state.turnCount = Math.max(state.turnCount || 0, event.loop || 0);
-    state.status = `turn ${event.loop || state.turnCount} planning`;
+    state.status = `轮次 ${event.loop || state.turnCount} 规划中 / turn ${event.loop || state.turnCount} planning`;
     state.lastEventTime = Date.now();
   } else if (event.type === 'message_start' && event.role === 'user') {
     if (event.internal) return;

@@ -11,6 +11,9 @@ const ANSI = {
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  brightCyan: '\x1b[96m',
+  brightBlue: '\x1b[94m',
   cyan: '\x1b[36m',
   inverse: '\x1b[7m',
 };

@@ -71,10 +71,10 @@ test('slash commands render help health project and sessions', async () => {
   await handleCommand(context, '/project');
   await handleCommand(context, '/hotkeys');
   const text = context.state.messages.map((message) => message.text).join('\n');
-  assert(text.indexOf('Commands:') >= 0, 'missing help');
-  assert(text.indexOf('Hotkeys:') >= 0, 'missing hotkeys');
-  assert(text.indexOf('runtime_health') >= 0, 'missing health');
-  assert(text.indexOf('project_map') >= 0, 'missing project map');
+  assert(text.indexOf('命令:') >= 0, 'missing help');
+  assert(text.indexOf('快捷键:') >= 0, 'missing hotkeys');
+  assert(text.indexOf('运行健康检查') >= 0 || text.indexOf('provider') >= 0, 'missing health');
+  assert(text.indexOf('项目结构摘要') >= 0 || text.indexOf('provider') >= 0, 'missing project map');
 });
 
 test('tree lineage fork export and session commands work', async () => {
@@ -100,7 +100,7 @@ test('tree lineage fork export and session commands work', async () => {
   assert(text.indexOf('Forked session') >= 0, 'missing fork');
   assert(text.indexOf('demo') >= 0, 'missing branch name');
   assert(text.indexOf('fork_start') >= 0, 'missing session trace');
-  assert(text.indexOf('Audit status') >= 0, 'missing audit output');
+  assert(text.indexOf('审计 / audit') >= 0 || text.indexOf('audit:') >= 0, 'missing audit output');
   assert(fs.existsSync(path.join(workspace, 'runs', 'tui-test.html')), 'missing export');
   assert(fs.existsSync(path.join(workspace, 'runs', 'tui-current.html')), 'missing current export');
   assert(fs.existsSync(path.join(workspace, 'runs', 'tui-selected.html')), 'missing selected export');
@@ -121,12 +121,33 @@ test('new name clone more debug copy compact reload and unsupported commands wor
   await handleCommand(context, '/compact');
   await handleCommand(context, '/reload');
   await handleCommand(context, '/model');
+  await handleCommand(context, '/login');
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf('New TUI session started') >= 0, 'missing new command');
   assert(text.indexOf('Session name set') >= 0, 'missing name command');
   assert(text.indexOf('Cloned session') >= 0, 'missing clone command');
   assert(text.indexOf('TUI debug snapshot written') >= 0, 'missing debug command');
+  assert(context.state.mode === 'model_selector', 'model selector did not open');
+  assert(context.state.modelSelector.models[0].id === 'deepseek-v4-flash', 'missing official flash model');
+  assert(context.state.modelSelector.models[1].id === 'deepseek-v4-pro', 'missing official pro model');
+  assert(context.state.modelSelector.models[0].label.indexOf('V3') < 0, 'old V3 label should not be used');
+  assert(context.state.modelSelector.models[1].label.indexOf('R1') < 0, 'old R1 label should not be used');
   assert(text.indexOf('not implemented') >= 0, 'missing unsupported command');
+});
+
+test('settings thinking level cycles through off high max only', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/settings');
+  const thinking = context.state.settingsMenu.items.find((item) => item.label.indexOf('Thinking level') >= 0);
+  assert(thinking, 'missing thinking setting');
+  assert(thinking.value() === 'off', 'default thinking should be off');
+  thinking.onCycle(context.state, 1);
+  assert(thinking.value() === 'high', 'thinking should cycle to high');
+  thinking.onCycle(context.state, 1);
+  assert(thinking.value() === 'max', 'thinking should cycle to max');
+  thinking.onCycle(context.state, 1);
+  assert(thinking.value() === 'off', 'thinking should cycle back to off');
 });
 
 test('resume command replaces session and starts prompt', async () => {

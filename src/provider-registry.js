@@ -53,7 +53,12 @@ function resolveProviderCapabilities(name, config) {
 
 function normalizeReasoningEffort(level) {
   if (level === 'off') return '';
+  if (level === 'max' || level === 'xhigh') return 'max';
   return 'high';
+}
+
+function jsonModeEnabled(config) {
+  return !config || config.jsonMode !== false;
 }
 
 function buildOpenAiPayload(config, messages, options) {
@@ -65,9 +70,16 @@ function buildOpenAiPayload(config, messages, options) {
   const thinkingLevel = config.thinkingLevel || 'off';
   const nativeThinkingModel = isDeepSeekThinkingModeModel(config.model) && isDeepSeekProviderConfig(config);
   const reasonerModel = isDeepSeekReasonerModel(config.model) && isDeepSeekProviderConfig(config);
+  const deepSeekV4Model = nativeThinkingModel;
   if (nativeThinkingModel) {
     payload.thinking = { type: thinkingLevel === 'off' ? 'disabled' : 'enabled' };
     if (thinkingLevel !== 'off') payload.reasoning_effort = normalizeReasoningEffort(thinkingLevel);
+  }
+  if (deepSeekV4Model && jsonModeEnabled(config)) {
+    payload.response_format = { type: 'json_object' };
+  }
+  if (options && options.streaming && deepSeekV4Model) {
+    payload.stream_options = { include_usage: true };
   }
   if (!reasonerModel && !(nativeThinkingModel && thinkingLevel !== 'off')) {
     payload.temperature = options && options.temperature !== undefined ? options.temperature : 0.2;
@@ -462,7 +474,7 @@ registerProvider({
       throw new Error('Missing LOONG_AGENT_API_KEY or DEEPSEEK_API_KEY');
     }
     let content = '';
-    const metadata = await streamJson(joinUrl(config.baseUrl, '/chat/completions'), config.apiKey, buildOpenAiPayload(config, messages, options), {
+    const metadata = await streamJson(joinUrl(config.baseUrl, '/chat/completions'), config.apiKey, buildOpenAiPayload(config, messages, Object.assign({}, options || {}, { streaming: true })), {
       isAborted: options && options.isAborted,
       onDelta: (delta) => {
         content += delta;

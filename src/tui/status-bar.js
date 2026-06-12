@@ -46,7 +46,8 @@ function renderStatusBar(state, width) {
   const think = state.thinkingLevel && state.thinkingLevel !== 'off' ? ` ${state.thinkingLevel}` : '';
   const context = formatContextBar(state.contextUsed, state.contextBudget);
   const session = state.currentSession && state.currentSession.id ? state.currentSession.id.slice(0, 8) : '';
-  const right = [truncateToWidth(model, Math.floor(width / 5)) + think, context, session].filter(Boolean).join(' | ');
+  const sessionName = state.currentSessionName ? truncateToWidth(state.currentSessionName, 16) : '';
+  const right = [truncateToWidth(model, Math.floor(width / 5)) + think, context, sessionName || session].filter(Boolean).join(' | ');
   const leftText = truncateToWidth(left, Math.max(8, width - visibleWidth(tokens) - visibleWidth(right) - 4));
   const availableForTokens = Math.max(0, width - visibleWidth(leftText) - visibleWidth(right) - 4);
   const tokenText = truncateToWidth(tokens, Math.max(4, availableForTokens));

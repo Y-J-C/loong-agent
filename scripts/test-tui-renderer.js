@@ -26,9 +26,10 @@ test('renderer includes header input and status bar', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.inputBuffer = '你好';
   const output = renderTui(state, { columns: 80, rows: 20 });
-  assert(output.indexOf('loong-agent v0.x') >= 0, 'missing header');
-  assert(output.indexOf('loong> 你好') >= 0, 'missing input');
-  assert(output.indexOf('mock/m') >= 0, 'missing model status');
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('loong-agent v0.x') >= 0, 'missing header');
+  assert(plain.indexOf('loong>') >= 0 && plain.indexOf('你好') >= 0, 'missing input');
+  assert(plain.indexOf('mock/m') >= 0, 'missing model status');
 });
 
 test('renderer does not expose api key-like text from state', () => {
@@ -150,12 +151,24 @@ test('renderer shows autocomplete descriptions and scrolls selected item', () =>
   assert(output.indexOf('运行时健康检查') >= 0 || output.indexOf('查看或切换主题') >= 0, 'autocomplete description missing');
 });
 
+test('slash autocomplete keeps all commands selectable and prioritizes settings model', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  const commands = state.autoItems.map((item) => item.command);
+  assert(commands[0] === '/settings', 'settings should be first');
+  assert(commands[1] === '/model', 'model should be second');
+  assert(commands.indexOf('/model') >= 0, 'model missing from autocomplete pool');
+  assert(commands.length >= 30, `autocomplete pool was truncated: ${commands.length}`);
+});
+
 test('renderer displays multiline input with continuation prompt', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.inputBuffer = '第一行\n第二行';
   const output = renderTui(state, { columns: 80, rows: 20 });
-  assert(output.indexOf('loong> 第一行') >= 0, 'missing first input line');
-  assert(output.indexOf('....> 第二行') >= 0, 'missing continuation input line');
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('loong>') >= 0 && plain.indexOf('第一行') >= 0, 'missing first input line');
+  assert(plain.indexOf('....>') >= 0 && plain.indexOf('第二行') >= 0, 'missing continuation input line');
 });
 
 test('diff renderer only rewrites changed rows after first frame', () => {

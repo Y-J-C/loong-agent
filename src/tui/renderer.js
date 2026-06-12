@@ -52,6 +52,18 @@ function renderBlock(text, width, theme, token, options) {
   return output.map((line) => paint(theme, token, line));
 }
 
+// 将扁平 cursor 索引映射到多行输入中的 (行, 列)
+function cursorToLineCol(text, cursor) {
+  const lines = String(text || '').split('\n');
+  let remaining = Math.max(0, cursor);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (remaining <= lines[i].length) return { line: i, col: remaining };
+    remaining -= lines[i].length + 1; // +1 for \n
+  }
+  const last = Math.max(0, lines.length - 1);
+  return { line: last, col: lines[last] ? lines[last].length : 0 };
+}
+
 function renderHeader(width, height, theme) {
   const compact = width < 60 || height < 18;
   const tiny = height < 14;
@@ -75,44 +87,84 @@ function renderHeader(width, height, theme) {
 }
 
 function renderUser(message, width, theme) {
-  return renderBlock(message.text || '', width, theme, 'user', { prefix: 'user: ' });
+  const text = message.text || '';
+  if (!String(text).trim()) return [];
+  const clean = sanitize(text);
+  const sourceLines = clean.split('\n');
+  const lines = [];
+  // Header: ╭─ 你
+  const headerW = Math.max(2, width - 6);
+  lines.push(paint(theme, 'userBorder', fitLine(`╭─ 你${' ─'.repeat(Math.floor(headerW / 2))}`, width)));
+  // Content with │ prefix
+  const indent = '│ ';
+  const contentW = Math.max(1, width - 2);
+  for (const source of sourceLines) {
+    const wrapped = wrapToWidth(source || '', contentW - 2);
+    for (const wLine of (wrapped.length ? wrapped : [''])) {
+      lines.push(paint(theme, 'user', fitLine(`${indent}${truncateToWidth(wLine, contentW - 2)}`, width)));
+    }
+  }
+  return lines;
 }
 
 function renderAssistant(message, width, theme) {
   const text = message.text || '';
-  if (!String(text).trim()) return [paint(theme, 'dim', 'assistant: ...')];
+  if (!String(text).trim()) return [];
+  // 自然文本流，无前缀
   return renderBlock(text, width, theme, 'assistant');
 }
 
 function renderTool(message, width, expanded, theme) {
   const rawStatus = message.errorType || message.status || (message.isError ? 'tool_error' : message.done ? 'ok' : 'running');
   const token = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error' ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
-  const status = paint(theme, token, rawStatus);
   const displayStatus = toolStatusLabel(rawStatus, message.isError);
   const meta = [];
   if (message.durationMs !== undefined) meta.push(`${message.durationMs}ms`);
   if (message.evidenceCount !== undefined) meta.push(`evidence=${message.evidenceCount}`);
   if (message.warningCount !== undefined) meta.push(`warnings=${message.warningCount}`);
-  const suffix = meta.length ? ` [${meta.join(' ')}]` : '';
-  const first = `tool ${stripAnsi(status)} / ${displayStatus}: ${message.toolName || 'unknown'} ${redactSensitive(message.summary || '')}${suffix}`;
-  const lines = [paint(theme, token, fitLine(first, width))];
+  const suffix = meta.length ? ` ${meta.join(' ')}` : '';
+  const toolName = message.toolName || 'unknown';
+  const contentW = Math.max(1, width - 2);
+  const indent = '│ ';
+  const lines = [];
+  // Header line
+  lines.push(paint(theme, 'toolBorder', fitLine(`╭─ 工具 ${toolName} / ${displayStatus}${suffix}`, width)));
+  // Error/阻断 special display
+  if (message.isError || rawStatus === 'policy_blocked') {
+    const errorDetail = message.errorType ? `policy: ${message.errorType}` : `error: ${rawStatus}`;
+    lines.push(paint(theme, 'toolError', fitLine(`${indent}${errorDetail}`, width)));
+  }
+  // Summary
+  const summary = redactSensitive(message.summary || '');
+  if (summary && !expanded) {
+    lines.push(paint(theme, 'dim', fitLine(`${indent}${truncateToWidth(summary, contentW - 2)}`, width)));
+  }
+  // Expanded detail
   if (expanded && message.detail) {
-    const detail = typeof message.detail === 'string' ? message.detail : JSON.stringify(message.detail, redactJson, 2);
     if (message.args) {
-      lines.push(...renderBlock(`args: ${JSON.stringify(message.args, redactJson)}`, width, theme, 'dim', { prefix: '  ', maxLines: 4 }));
+      lines.push(...renderBlock(`args: ${JSON.stringify(message.args, redactJson)}`, width, theme, 'dim', { prefix: '  │ ', maxLines: 4 }));
     }
     if (message.resultSummary) {
-      lines.push(...renderBlock(`resultSummary: ${message.resultSummary}`, width, theme, 'dim', { prefix: '  ', maxLines: 4 }));
+      lines.push(...renderBlock(`result: ${message.resultSummary}`, width, theme, 'dim', { prefix: '  │ ', maxLines: 4 }));
     }
-    if (message.errorType) lines.push(...renderBlock(`errorType: ${message.errorType}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
-    if (message.durationMs !== undefined) lines.push(...renderBlock(`durationMs: ${message.durationMs}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
-    if (message.evidenceCount !== undefined) lines.push(...renderBlock(`evidence=${message.evidenceCount}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
-    if (message.warningCount !== undefined) lines.push(...renderBlock(`warnings=${message.warningCount}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
-    lines.push(...renderBlock(`isError: ${Boolean(message.isError)}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
-    lines.push(...renderBlock(detail, width, theme, 'dim', { prefix: '  ', maxLines: MAX_TOOL_DETAIL_LINES }));
-    lines.push(...renderBlock(`audit: status=${rawStatus} / ${displayStatus}${suffix}`, width, theme, 'dim', { prefix: '  ', maxLines: 2 }));
+    const detail = typeof message.detail === 'string' ? message.detail : JSON.stringify(message.detail, redactJson, 2);
+    lines.push(...renderBlock(detail, width, theme, 'dim', { prefix: '  │ ', maxLines: MAX_TOOL_DETAIL_LINES }));
   }
   return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : 4, width, theme);
+}
+
+function renderTurnSeparator(prevType, nextType, width, theme) {
+  if (!prevType || !nextType) return [];
+  if (prevType === 'user' && (nextType === 'assistant' || nextType === 'tool')) return [];
+  if (prevType === 'assistant' && nextType === 'tool') return [];
+  if (prevType === 'tool' && nextType === 'assistant') return [];
+  if ((prevType === 'tool' || prevType === 'assistant') && nextType === 'user') {
+    return [paint(theme, 'turnSeparator', fitLine('·'.repeat(Math.max(2, width - 2)), width))];
+  }
+  if (nextType === 'user') {
+    return [paint(theme, 'turnSeparator', fitLine('·'.repeat(Math.max(2, width - 2)), width))];
+  }
+  return [];
 }
 
 function renderMessage(message, width, expandedTools, theme) {
@@ -124,20 +176,50 @@ function renderMessage(message, width, expandedTools, theme) {
   return renderBlock(message.text || '', width, theme, 'system');
 }
 
+function renderCursor(theme, char) {
+  if (theme && theme.cursor) return paint(theme, 'cursor', char || ' ');
+  return char && char !== ' ' ? `[${char}]` : '█';
+}
+
 function renderInput(state, width, theme) {
   const hasQueued = state.mode === 'running' && state.queuedFollowUps && state.queuedFollowUps.length > 0;
   const prefix = hasQueued ? 'queued> ' : 'loong> ';
   const input = sanitize(state.inputBuffer || '');
   const sourceLines = String(input).split('\n');
-  const lines = [paint(theme, 'divider', '─'.repeat(Math.max(1, width)))];
+  const pasteCount = state.pasteCount || 0;
+  const lines = [];
+  // Paste marker
+  if (pasteCount > 0) {
+    const pasteText = pasteCount === 1 ? '[paste]' : `[paste #${pasteCount}]`;
+    lines.push(paint(theme, 'system', fitLine(pasteText, width)));
+  }
+  lines.push(paint(theme, 'divider', '─'.repeat(Math.max(1, width))));
   const maxInputLines = 4;
   const start = Math.max(0, sourceLines.length - maxInputLines);
   if (start > 0) lines.push(paint(theme, 'dim', fitLine(`... ${start} more input line(s)`, width)));
+  // 将扁平 cursor 映射到多行的 (line, col)
+  const cursor = state.cursor || 0;
+  const cursorPos = cursorToLineCol(state.inputBuffer || '', cursor);
   for (let index = start; index < sourceLines.length; index += 1) {
     const linePrefix = index === 0 ? prefix : '....> ';
-    lines.push(truncateToWidth(`${linePrefix}${sourceLines[index]}`, width));
+    const lineText = sourceLines[index] || '';
+    if (index === cursorPos.line && cursorPos.col >= 0) {
+      // 在光标所在行绘制光标
+      const chars = Array.from(lineText);
+      const col = Math.min(cursorPos.col, chars.length);
+      const before = chars.slice(0, col).join('');
+      const atCh = chars[col] || ' '; // 行尾用空格
+      const after = chars.slice(col + 1).join('');
+      const rendered = linePrefix + before + renderCursor(theme, atCh) + after;
+      lines.push(truncateToWidth(rendered, width));
+    } else {
+      lines.push(truncateToWidth(`${linePrefix}${lineText}`, width));
+    }
   }
-  if (!sourceLines.length) lines.push(truncateToWidth(prefix, width));
+  if (!sourceLines.length) {
+    // 空输入：显示带光标的空行
+    lines.push(truncateToWidth(prefix + renderCursor(theme, ' '), width));
+  }
   lines.push(paint(theme, 'divider', '─'.repeat(Math.max(1, width))));
   return lines;
 }
@@ -172,9 +254,27 @@ function renderAutocomplete(state, width, theme) {
 function renderSelector(state, width, theme) {
   const selector = state.selector;
   if (!selector) return [];
+  // Action sub-menu
+  if (selector.subMode === 'actions') {
+    const selectedItem = selector.selectedItem || {};
+    const actions = selector.actions || [];
+    const lines = [
+      paint(theme, 'header', fitLine(`操作选择 / Action: ${truncateToWidth(String(selectedItem.id || ''), 24)}`, width)),
+      paint(theme, 'dim', fitLine('上下选择 - Enter确认 - Esc返回', width)),
+      '',
+    ];
+    actions.forEach((action, index) => {
+      const selected = index === (selector.actionIndex || 0);
+      const prefix = selected ? '> ' : '  ';
+      const hint = action.key ? `[${action.key}]` : '   ';
+      const text = `${prefix}${hint} ${action.label}`;
+      lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
+    });
+    return lines;
+  }
   const lines = [
     paint(theme, 'header', fitLine(`Session selector (${selector.view || 'recent'})${selector.query ? ` filter="${selector.query}"` : ''}`, width)),
-    paint(theme, 'dim', fitLine(width < 60 ? '筛选 - 上下 - Enter - Tab - Esc' : '输入筛选 - 上下选择 - Enter 载入 - Tab recent/tree - Esc 返回', width)),
+    paint(theme, 'dim', fitLine(width < 60 ? '筛选 - 上下 - Enter - Tab - Esc' : '输入筛选 - 上下选择 - Enter 菜单 - Tab recent/tree - Esc 返回', width)),
   ];
   const query = selector.query ? selector.query.toLowerCase() : '';
   const items = (selector.items || []).filter((item) => {
@@ -183,15 +283,61 @@ function renderSelector(state, width, theme) {
   });
   if ((selector.selectedIndex || 0) >= items.length) selector.selectedIndex = Math.max(0, items.length - 1);
   if (!items.length) lines.push(paint(theme, 'dim', fitLine('No sessions match the current filter.', width)));
-  items.slice(0, 12).forEach((item, index) => {
+  items.slice(0, 10).forEach((item, index) => {
     const selected = index === (selector.selectedIndex || 0);
     const prefix = selected ? '> ' : '  ';
     const branch = item.branchName ? ` (${item.branchName})` : '';
     const maxDepth = width < 60 ? 3 : 8;
     const depth = item.depth ? '  '.repeat(Math.min(item.depth, maxDepth)) : '';
-    const count = item.entryCount !== undefined ? ` entries=${item.entryCount}` : '';
-    const fork = item.forkedFromEntryId ? ` fork=${item.forkedFromEntryId}` : '';
-    const text = `${prefix}${depth}${item.id}${branch} [${item.command || 'session'}]${count}${fork}`;
+    const name = item.sessionName || item.name || '';
+    const nameStr = name ? ` "${truncateToWidth(name, 12)}"` : '';
+    const count = item.entryCount !== undefined ? ` ${item.entryCount}条` : '';
+    // 当前会话标记
+    const currentId = state.currentSession && state.currentSession.id ? state.currentSession.id : '';
+    const isCurrent = currentId && item.id && (item.id.indexOf(currentId.slice(0, 8)) === 0 || currentId.indexOf(item.id) === 0);
+    const cur = isCurrent ? ' ←' : '';
+    // modified time
+    const mod = item.modifiedAt ? ` ${String(item.modifiedAt).slice(0, 10)}` : '';
+    const text = `${prefix}${depth}${item.id}${branch}${nameStr} [${item.command || 'session'}]${count}${mod}${cur}`;
+    lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
+  });
+  return lines;
+}
+
+function renderSettingsMenu(state, width, theme) {
+  const menu = state.settingsMenu;
+  if (!menu) return [];
+  const items = menu.items || [];
+  const lines = [
+    paint(theme, 'header', fitLine('设置 / Settings', width)),
+    paint(theme, 'dim', fitLine('← → 切换值 - Enter 确认 - Esc 返回', width)),
+    '',
+  ];
+  items.forEach((item, index) => {
+    const selected = index === (menu.selectedIndex || 0);
+    const prefix = selected ? '> ' : '  ';
+    const value = item.value ? item.value() : '';
+    const text = `${prefix}${item.label}: ${value}`;
+    lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
+  });
+  return lines;
+}
+
+function renderModelSelector(state, width, theme) {
+  const sel = state.modelSelector;
+  if (!sel) return [];
+  const models = sel.models || [];
+  const lines = [
+    paint(theme, 'header', fitLine('模型选择 / Model Selector', width)),
+    paint(theme, 'dim', fitLine('上下选择 - Enter 使用 - Esc 取消', width)),
+    '',
+  ];
+  models.forEach((model, index) => {
+    const selected = index === (sel.selectedIndex || 0);
+    const isCurrent = model.id === (state.model || '');
+    const prefix = selected ? '> ' : '  ';
+    const cur = isCurrent ? ' ← 当前' : '';
+    const text = `${prefix}${model.label || model.id}${cur}`;
     lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
   });
   return lines;
@@ -206,11 +352,21 @@ function renderTui(state, size) {
   const autocomplete = renderAutocomplete(state, width, theme);
   const status = [renderStatusBar(state, width)];
   const available = Math.max(1, height - header.length - input.length - autocomplete.length - status.length);
-  const body = state.selector ? renderSelector(state, width, theme) : [];
-  if (!state.selector) {
+  let body = [];
+  if (state.selector) {
+    body = renderSelector(state, width, theme);
+  } else if (state.settingsMenu) {
+    body = renderSettingsMenu(state, width, theme);
+  } else if (state.modelSelector) {
+    body = renderModelSelector(state, width, theme);
+  }
+  if (!state.selector && !state.settingsMenu && !state.modelSelector) {
+    let prevType = '';
     for (const message of state.messages) {
+      const sep = renderTurnSeparator(prevType, message.type, width, theme);
+      body.push(...sep);
       body.push(...renderMessage(message, width, state.expandedTools, theme));
-      body.push('');
+      prevType = message.type;
     }
     if (state.pendingMessages && state.pendingMessages.length) {
       body.push(paint(theme, 'dim', '-- pending --'));
