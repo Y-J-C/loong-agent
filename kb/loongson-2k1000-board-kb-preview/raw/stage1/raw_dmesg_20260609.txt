@@ -1,0 +1,68 @@
+说明：本文件由本次会话中提供的 dmesg head/grep 输出与补充片段合并而成；不伪造未提供的日志行。若验收要求严格“完整 dmesg”，需在板端再次执行 dmesg 并保存完整输出。
+
+ -Ei "error|fail|warn|gpt|fat|rtc|eth|audio|sound|drm|gpu|usb|i2c|spi" | head -n 200 ====
+[    0.055160] ls-spi 1fff0220.spi: controller is unqueued, this is deprecated
+[    0.058726] Advanced Linux Sound Architecture Driver Initialized.
+[    3.527239] loongarch_iommu_ivrs_init get ivrs table failed
+[    3.527243] Failed to init iommu by ivrs
+[    3.533194] [drm] loongson kernel modesetting driver enable
+[    4.024649] Alternate GPT is invalid, using primary GPT.
+[    4.064528] rtc rtc0: invalid alarm value: 2019-1-23 31:60:63
+[    4.070403]   No soundcards found.
+[    4.498147] [drm] LS2K1000 found
+[    4.606863] [drm] Cannot find any crtc or sizes
+[    7.521913] loongson-audio 400d0000.hda: no codecs found!
+[    9.003913] FAT-fs (sda2): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
+[   11.995581] stmmaceth 40050000.ethernet: Failed to reset the dma
+[   12.001698] stmmaceth 40050000.ethernet eth1: stmmac_hw_setup: DMA engine initialization failed
+[   12.010573] stmmaceth 40050000.ethernet eth1: stmmac_open: Hw setup failed
+[   17.892294] stmmaceth 40040000.ethernet eth0: Link is Up - 1Gbps/Full - flow control rx/tx
+
+
+==== STAGE1_V0_1_SUPPLEMENT_READONLY_COLLECTION ====
+说明：本次仅补采第一阶段验收缺失材料，只读，不安装、不升级、不修改配置、不写盘。
+
+==== dmesg 补充片段 ====
+[    4.522274] etnaviv-gpu 40080000.gpu: with PIPE 2D
+[    4.522279] etnaviv-gpu 40080000.gpu: dma mask: 0xffffffff
+[    4.522283] etnaviv-gpu 40080000.gpu: PHYS_OFFSET: 0x0
+[    4.522288] etnaviv-gpu 40080000.gpu: gpu memory base: 0x80000000
+[    4.523862] ehci-platform 40060000.ehci: USB 2.0 started, EHCI 1.00
+[    4.524799] hub 4-0:1.0: USB hub found
+[    4.524835] hub 4-0:1.0: 3 ports detected
+[    4.526171] [drm] Initialized etnaviv 1.2.0 20151214 for etnaviv on minor 1
+[    4.535026] ohci_hcd: USB 1.1 'Open' Host Controller (OHCI) Driver
+[    4.538604] ohci-platform: OHCI generic platform driver
+[    4.538865] ohci-platform 40070000.ohci: Generic Platform OHCI controller
+[    4.538901] ohci-platform 40070000.ohci: new USB bus registered, assigned bus number 5
+[    4.605413] hub 5-0:1.0: USB hub found
+[    4.606863] [drm] Cannot find any crtc or sizes
+[    4.831764] XFS (sda3): Mounting V5 Filesystem
+[    5.136793] XFS (sda3): Ending clean mount
+[    5.462933] systemd[1]: System time before build time, advancing clock.
+[    5.494888] systemd[1]: systemd 241 running in system mode.
+[    5.495691] systemd[1]: Detected architecture loongarch64.
+[    5.501339] systemd[1]: Set hostname to <loongson>.
+[    5.941815] systemd[1]: Configuration file /etc/systemd/system/loongnix_gpu_driver.service is marked executable. Please remove executable permission bits. Proceeding anyway.
+[    7.521913] loongson-audio 400d0000.hda: no codecs found!
+[    8.250147] XFS (sda5): Mounting V5 Filesystem
+[    8.348289] XFS (sda5): Ending clean mount
+[    8.371571] Adding 1401840k swap on /dev/sda4.
+[    9.003913] FAT-fs (sda2): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
+[   11.724284] IPv6: ADDRCONF(NETDEV_UP): eth0: link is not ready
+[   11.731240] Generic PHY stmmac-0:00: attached PHY driver [Generic PHY]
+[   11.882119] IPv6: ADDRCONF(NETDEV_UP): eth1: link is not ready
+[   11.890361] Generic PHY stmmac-1:00: attached PHY driver [Generic PHY]
+[   11.995581] stmmaceth 40050000.ethernet: Failed to reset the dma
+[   12.001698] stmmaceth 40050000.ethernet eth1: stmmac_hw_setup: DMA engine initialization failed
+[   12.010573] stmmaceth 40050000.ethernet eth1: stmmac_open: Hw setup failed
+[   14.649527] [drm] Cannot find any crtc or sizes
+[   17.892294] stmmaceth 40040000.ethernet eth0: Link is Up - 1Gbps/Full - flow control rx/tx
+
+==== journalctl -b --no-pager ====
+Hint: You are currently not seeing messages from other users and the system.
+      Users in the 'systemd-journal' group can see all messages. Pass -q to
+      turn off this notice.
+No journal files were opened due to insufficient permissions.
+[COMMAND_FAILED] journalctl -b --no-pager
+

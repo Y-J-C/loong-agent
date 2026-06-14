@@ -14,7 +14,7 @@ const { createDiffRenderer } = require('./diff');
 const ENABLE_MODIFIED_KEYS = '\x1b[>4;2m';
 const DISABLE_MODIFIED_KEYS = '\x1b[>4;0m';
 
-function runTui(config, options) {
+async function runTui(config, options) {
   options = options || {};
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
@@ -24,7 +24,7 @@ function runTui(config, options) {
   }
 
   const state = createTuiState(config);
-  const diffRenderer = createDiffRenderer();
+  const diffRenderer = createDiffRenderer({ initialClear: false });
   let activeConfig = config;
   let agentSession = createAgentSession(config, { command: 'tui' });
   let unsubscribe = null;
@@ -125,7 +125,7 @@ function runTui(config, options) {
     if (stopped) return;
     try {
       const size = terminalSize(output);
-      const lines = renderTui(state, size).split('\n');
+      const lines = renderTui(state, size, { bodyAlign: 'top', fullHistory: true }).split('\n');
       output.write(diffRenderer.render(lines, size));
     } catch (error) {
       try {
@@ -177,6 +177,23 @@ function runTui(config, options) {
       const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
       return !query || haystack.indexOf(query) >= 0;
     });
+  }
+
+  function filteredPanelItems() {
+    const panel = state.activePanel;
+    if (!panel) return [];
+    const query = panel.query ? String(panel.query).toLowerCase() : '';
+    return (panel.items || []).filter((item) => {
+      const haystack = `${item.label || ''} ${item.value || ''} ${item.description || ''}`.toLowerCase();
+      return !query || haystack.indexOf(query) >= 0;
+    });
+  }
+
+  function closePanel() {
+    state.mode = 'idle';
+    state.activePanel = null;
+    state.settingsMenu = null;
+    state.modelSelector = null;
   }
 
   async function executeSessionAction(action, selected) {
@@ -438,6 +455,64 @@ function runTui(config, options) {
     }
   }
 
+  function handlePanelKey(key) {
+    const panel = state.activePanel;
+    if (!panel) {
+      closePanel();
+      return;
+    }
+    const items = filteredPanelItems();
+    if (key.type === 'escape') {
+      closePanel();
+      return;
+    }
+    if (key.type === 'up' || key.type === 'ctrl_p') {
+      panel.selectedIndex = Math.max(0, (panel.selectedIndex || 0) - 1);
+      return;
+    }
+    if (key.type === 'down' || key.type === 'ctrl_n') {
+      panel.selectedIndex = Math.min(Math.max(0, items.length - 1), (panel.selectedIndex || 0) + 1);
+      return;
+    }
+    if (panel.type === 'settings' && (key.type === 'left' || key.type === 'right')) {
+      const item = items[panel.selectedIndex || 0];
+      if (item && item.onCycle) {
+        item.onCycle(state, key.type === 'left' ? -1 : 1);
+        applySettingsSelection();
+      }
+      return;
+    }
+    if (panel.type === 'model') {
+      if (key.type === 'backspace') {
+        panel.query = String(panel.query || '').slice(0, -1);
+        panel.selectedIndex = 0;
+        return;
+      }
+      if (key.type === 'text' && key.text !== '\t') {
+        panel.query = `${panel.query || ''}${key.text}`;
+        panel.selectedIndex = 0;
+        return;
+      }
+    }
+    if (key.type === 'enter') {
+      const item = items[panel.selectedIndex || 0];
+      if (panel.type === 'settings') {
+        if (item && item.onSelect) item.onSelect(state);
+        applySettingsSelection();
+        closePanel();
+        addMessage(state, { type: 'system', text: item ? `设置已更新: ${item.label} = ${item.value()}` : '设置已更新' });
+        return;
+      }
+      if (panel.type === 'model') {
+        if (item && item.model) {
+          applyModelSelection(item.model);
+          addMessage(state, { type: 'system', text: `模型已切换 / Model set: ${activeConfig.model || '(env)'}` });
+        }
+        closePanel();
+      }
+    }
+  }
+
   async function onData(buffer) {
     const key = parseKey(buffer);
     // 记录原始按键序列
@@ -448,6 +523,11 @@ function runTui(config, options) {
     });
     if (state.recentKeys.length > 30) state.recentKeys = state.recentKeys.slice(-30);
 
+    if (state.mode === 'panel') {
+      handlePanelKey(key);
+      render();
+      return;
+    }
     if (state.mode === 'session_selector') {
       await handleSelectorKey(key);
       render();
@@ -569,9 +649,9 @@ function runTui(config, options) {
   subscribe(agentSession);
   input.setRawMode(true);
   input.resume();
+  output.write(ENABLE_MODIFIED_KEYS);
   input.on('data', onData);
   output.on('resize', render);
-  output.write(ENABLE_MODIFIED_KEYS);
   render();
   refreshBoardStatus(activeConfig);
 

@@ -1,0 +1,240 @@
+==== FIRST_STAGE_READONLY_ENV_COLLECTION ====
+说明：本次只执行只读采集，不安装、不升级、不修改配置、不修复分区、不写盘。
+
+==== date ====
+2026年 06月 09日 星期二 17:40:36 CST
+
+==== whoami ====
+loongson
+
+==== hostname ====
+loongson
+
+==== uptime ====
+ 17:40:36 up 4 days, 20:18,  0 users,  load average: 0.68, 0.55, 0.49
+
+==== uname -a ====
+Linux loongson 4.19.0-18-loongson-2k #1 SMP pkg_lne10_4.19.190.7.9 Tue Aug 1 12:04:19 UTC 2023 loongarch64 loongarch64 loongarch64 GNU/Linux
+
+==== cat /etc/os-release ====
+PRETTY_NAME="Loongnix-Embedded GNU/Linux 20 (DaoXiangHu)"
+NAME="Loongnix-Embedded GNU/Linux"
+VERSION_ID="20"
+VERSION="20 (DaoXiangHu)"
+VERSION_CODENAME=DaoXiangHu
+ID=Loongnix-Embedded
+HOME_URL="https://www.loongnix.cn/"
+SUPPORT_URL="https://www.loongnix.cn/"
+BUG_REPORT_URL="http://www.loongnix.cn/"
+
+==== cat /proc/cpuinfo ====
+system type		: generic-loongson-machine
+processor		: 0
+package			: 0
+core			: 0
+cpu family		: Loongson-64bit
+model name		: 
+CPU Revision		: 0x00
+FPU Revision		: 0x00
+CPU MHz			: 1000.00
+BogoMIPS		: 2000.00
+TLB entries		: 64
+Address sizes		: 40 bits physical, 40 bits virtual
+isa			: loongarch32 loongarch64
+features		: cpucfg lam fpu lsx crc32 lbt_mips
+hardware watchpoint	: yes, iwatch count: 4, dwatch count: 2
+
+processor		: 1
+package			: 0
+core			: 1
+cpu family		: Loongson-64bit
+model name		: 
+CPU Revision		: 0x00
+FPU Revision		: 0x00
+CPU MHz			: 1000.00
+BogoMIPS		: 2000.00
+TLB entries		: 64
+Address sizes		: 40 bits physical, 40 bits virtual
+isa			: loongarch32 loongarch64
+features		: cpucfg lam fpu lsx crc32 lbt_mips
+hardware watchpoint	: yes, iwatch count: 4, dwatch count: 2
+
+
+==== lscpu ====
+Architecture:        loongarch64
+Byte Order:          Little Endian
+CPU(s):              2
+On-line CPU(s) list: 0,1
+Thread(s) per core:  1
+Core(s) per socket:  2
+Socket(s):           1
+CPU family:          Loongson-64bit
+BogoMIPS:            2000.00
+L1d cache:           32K
+L1i cache:           32K
+L2 cache:            1024K
+Flags:               cpucfg lam fpu lsx crc32 lbt_mips
+
+==== free -h ====
+              total        used        free      shared  buff/cache   available
+Mem:          1.4Gi       530Mi       223Mi        20Mi       649Mi       635Mi
+Swap:         1.3Gi       8.0Mi       1.3Gi
+
+==== cat /proc/meminfo ====
+MemTotal:        1436592 kB
+MemFree:          228480 kB
+MemAvailable:     651248 kB
+Buffers:            1312 kB
+Cached:           566176 kB
+SwapCached:         1136 kB
+Active:           390928 kB
+Inactive:         448752 kB
+Active(anon):     133888 kB
+Inactive(anon):   139184 kB
+Active(file):     257040 kB
+Inactive(file):   309568 kB
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:       1401840 kB
+SwapFree:        1393648 kB
+Dirty:                 0 kB
+Writeback:             0 kB
+AnonPages:        270928 kB
+Mapped:           105856 kB
+Shmem:             20864 kB
+Slab:             180048 kB
+SReclaimable:      97168 kB
+SUnreclaim:        82880 kB
+KernelStack:        4144 kB
+PageTables:        10272 kB
+Quicklists:        82016 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:     2120128 kB
+Committed_AS:    1562560 kB
+VmallocTotal:   528416735 kB
+VmallocUsed:           0 kB
+VmallocChunk:          0 kB
+Percpu:             1472 kB
+AnonHugePages:         0 kB
+ShmemHugePages:        0 kB
+ShmemPmdMapped:        0 kB
+CmaTotal:              0 kB
+CmaFree:               0 kB
+HugePages_Total:       0
+HugePages_Free:        0
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:      32768 kB
+Hugetlb:               0 kB
+
+==== df -h ====
+文件系统        容量  已用  可用 已用% 挂载点
+udev            688M     0  688M    0% /dev
+tmpfs           141M   18M  123M   13% /run
+/dev/sda3       5.0G  3.1G  1.9G   63% /
+tmpfs           702M     0  702M    0% /dev/shm
+tmpfs           5.0M     0  5.0M    0% /run/lock
+tmpfs           702M     0  702M    0% /sys/fs/cgroup
+/dev/sda5       8.1G  3.6G  4.5G   45% /data
+/dev/sda1       276M   38M  225M   15% /boot
+/dev/sda2       286M  4.0K  286M    1% /boot/efi
+tmpfs           141M   48K  141M    1% /run/user/112
+tmpfs           141M     0  141M    0% /run/user/1000
+
+==== lsblk -f ====
+NAME   FSTYPE LABEL UUID                                 FSAVAIL FSUSE% MOUNTPOINT
+sda                                                                     
+├─sda1 ext2         7b00deba-eb2a-4e9f-9b08-bf07fba2d3d4  224.4M    14% /boot
+├─sda2 vfat         5BBC-25CC                             285.4M     0% /boot/efi
+├─sda3 xfs          cdec6021-84f5-4152-8f50-9b7e6bf9951f    1.9G    62% /
+├─sda4 swap         3daea960-0393-464f-8b2b-e92f4490b940                [SWAP]
+└─sda5 xfs          3807ebc9-cfd7-42c1-9f5e-5f81904a9a6c    4.5G    44% /data
+
+==== mount ====
+sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+udev on /dev type devtmpfs (rw,nosuid,relatime,size=704256k,nr_inodes=44016,mode=755)
+devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)
+tmpfs on /run type tmpfs (rw,nosuid,noexec,relatime,size=143664k,mode=755)
+/dev/sda3 on / type xfs (rw,relatime,attr2,inode64,noquota)
+securityfs on /sys/kernel/security type securityfs (rw,nosuid,nodev,noexec,relatime)
+tmpfs on /dev/shm type tmpfs (rw,nosuid,nodev)
+tmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k)
+tmpfs on /sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,mode=755)
+cgroup2 on /sys/fs/cgroup/unified type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)
+cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,name=systemd)
+bpf on /sys/fs/bpf type bpf (rw,nosuid,nodev,noexec,relatime,mode=700)
+cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls,net_prio)
+cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+cgroup on /sys/fs/cgroup/rdma type cgroup (rw,nosuid,nodev,noexec,relatime,rdma)
+cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpu,cpuacct)
+cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)
+cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+systemd-1 on /proc/sys/fs/binfmt_misc type autofs (rw,relatime,fd=30,pgrp=1,timeout=0,minproto=5,maxproto=5,direct)
+debugfs on /sys/kernel/debug type debugfs (rw,relatime)
+hugetlbfs on /dev/hugepages type hugetlbfs (rw,relatime,pagesize=32M)
+mqueue on /dev/mqueue type mqueue (rw,relatime)
+configfs on /sys/kernel/config type configfs (rw,relatime)
+/dev/sda5 on /data type xfs (rw,relatime,attr2,inode64,noquota)
+/dev/sda5 on /opt type xfs (rw,relatime,attr2,inode64,noquota)
+/dev/sda5 on /var type xfs (rw,relatime,attr2,inode64,noquota)
+/dev/sda5 on /home type xfs (rw,relatime,attr2,inode64,noquota)
+/dev/sda5 on /root type xfs (rw,relatime,attr2,inode64,noquota)
+/dev/sda1 on /boot type ext2 (rw,relatime,errors=continue,user_xattr,acl)
+/dev/sda2 on /boot/efi type vfat (rw,relatime,fmask=0022,dmask=0022,codepage=936,iocharset=cp936,shortname=mixed,utf8,errors=remount-ro)
+tmpfs on /run/user/112 type tmpfs (rw,nosuid,nodev,relatime,size=143648k,mode=700,uid=112,gid=120)
+tmpfs on /run/user/1000 type tmpfs (rw,nosuid,nodev,relatime,size=143648k,mode=700,uid=1000,gid=1000)
+
+==== findmnt ====
+TARGET                                SOURCE           FSTYPE     OPTIONS
+/                                     /dev/sda3        xfs        rw,relatime,attr2,inode64,noquota
+├─/sys                                sysfs            sysfs      rw,nosuid,nodev,noexec,relatime
+│ ├─/sys/kernel/security              securityfs       securityfs rw,nosuid,nodev,noexec,relatime
+│ ├─/sys/fs/cgroup                    tmpfs            tmpfs      ro,nosuid,nodev,noexec,mode=755
+│ │ ├─/sys/fs/cgroup/unified          cgroup2          cgroup2    rw,nosuid,nodev,noexec,relatime,nsdelegate
+│ │ ├─/sys/fs/cgroup/systemd          cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,xattr,name=systemd
+│ │ ├─/sys/fs/cgroup/net_cls,net_prio cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,net_cls,net_prio
+│ │ ├─/sys/fs/cgroup/cpuset           cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,cpuset
+│ │ ├─/sys/fs/cgroup/devices          cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,devices
+│ │ ├─/sys/fs/cgroup/blkio            cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,blkio
+│ │ ├─/sys/fs/cgroup/rdma             cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,rdma
+│ │ ├─/sys/fs/cgroup/cpu,cpuacct      cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,cpu,cpuacct
+│ │ ├─/sys/fs/cgroup/freezer          cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,freezer
+│ │ ├─/sys/fs/cgroup/hugetlb          cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,hugetlb
+│ │ ├─/sys/fs/cgroup/pids             cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,pids
+│ │ ├─/sys/fs/cgroup/perf_event       cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,perf_event
+│ │ └─/sys/fs/cgroup/memory           cgroup           cgroup     rw,nosuid,nodev,noexec,relatime,memory
+│ ├─/sys/fs/bpf                       bpf              bpf        rw,nosuid,nodev,noexec,relatime,mode=700
+│ ├─/sys/kernel/debug                 debugfs          debugfs    rw,relatime
+│ └─/sys/kernel/config                configfs         configfs   rw,relatime
+├─/proc                               proc             proc       rw,nosuid,nodev,noexec,relatime
+│ └─/proc/sys/fs/binfmt_misc          systemd-1        autofs     rw,relatime,fd=30,pgrp=1,timeout=0,minproto=5,maxproto=5,direct
+├─/dev                                udev             devtmpfs   rw,nosuid,relatime,size=704256k,nr_inodes=44016,mode=755
+│ ├─/dev/pts                          devpts           devpts     rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000
+│ ├─/dev/shm                          tmpfs            tmpfs      rw,nosuid,nodev
+│ ├─/dev/hugepages                    hugetlbfs        hugetlbfs  rw,relatime,pagesize=32M
+│ └─/dev/mqueue                       mqueue           mqueue     rw,relatime
+├─/run                                tmpfs            tmpfs      rw,nosuid,noexec,relatime,size=143664k,mode=755
+│ ├─/run/lock                         tmpfs            tmpfs      rw,nosuid,nodev,noexec,relatime,size=5120k
+│ ├─/run/user/1000                    tmpfs            tmpfs      rw,nosuid,nodev,relatime,size=143648k,mode=700,uid=1000,gid=1000
+│ └─/run/user/112                     tmpfs            tmpfs      rw,nosuid,nodev,relatime,size=143648k,mode=700,uid=112,gid=120
+├─/data                               /dev/sda5        xfs        rw,relatime,attr2,inode64,noquota
+├─/opt                                /dev/sda5[/opt]  xfs        rw,relatime,attr2,inode64,noquota
+├─/var                                /dev/sda5[/var]  xfs        rw,relatime,attr2,inode64,noquota
+├─/home                               /dev/sda5[/home] xfs        rw,relatime,attr2,inode64,noquota
+├─/root                               /dev/sda5[/root] xfs        rw,relatime,attr2,inode64,noquota
+└─/boot                               /dev/sda1        ext2       rw,relatime,errors=continue,user_xattr,acl
+  └─/boot/efi                         /dev/sda2        vfat       rw,relatime,fmask=0022,dmask=0022,codepage=936,iocharset=cp936,shortname=mixed,utf8,errors=remount-ro
+
+==== cat /proc/cmdline ====
+earlycon root=UUID=cdec6021-84f5-4152-8f50-9b7e6bf9951f ro quiet  nokaslr
+
+==== cat /proc/device-tree/model ====
+loongson,LS2K1000_PAI_UDB_V1_5

@@ -32,6 +32,42 @@ test('renderer includes header input and status bar', () => {
   assert(plain.indexOf('mock/m') >= 0, 'missing model status');
 });
 
+test('renderer can place startup intro directly below the launch command', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  const output = renderTui(state, { columns: 80, rows: 16 }, { bodyAlign: 'top' });
+  const rows = output.split('\n').map(stripAnsi);
+  assert(rows[0].indexOf('loong-agent v0.x') === 0, 'startup intro should be first rendered row');
+  assert(rows[rows.length - 3].indexOf('loong>') >= 0, 'input prompt should remain pinned near bottom');
+  assert(rows[rows.length - 1].indexOf('mock/m') >= 0, 'status bar should remain at bottom');
+});
+
+test('startup intro scrolls with message history instead of staying fixed', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 30; index += 1) {
+    state.messages.push({ type: 'system', text: `history line ${index}` });
+  }
+  const output = renderTui(state, { columns: 80, rows: 12 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('loong-agent v0.x') < 0, 'startup intro stayed fixed at top');
+  assert(plain.indexOf('history line 29') >= 0, 'latest history line missing');
+  assert(plain.indexOf('loong>') >= 0, 'input area missing');
+});
+
+test('full history mode keeps startup intro and old messages in the rendered stream', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 30; index += 1) {
+    state.messages.push({ type: 'system', text: `history line ${index}` });
+  }
+  const output = renderTui(state, { columns: 80, rows: 12 }, { bodyAlign: 'top', fullHistory: true });
+  const plain = stripAnsi(output);
+  const rows = output.split('\n');
+  assert(rows.length > 12, 'full history mode should return more than one viewport when history is long');
+  assert(plain.indexOf('loong-agent v0.x') >= 0, 'startup intro should remain in full history stream');
+  assert(plain.indexOf('history line 0') >= 0, 'oldest history line should remain in full history stream');
+  assert(plain.indexOf('history line 29') >= 0, 'latest history line missing from full history stream');
+  assert(plain.indexOf('loong>') >= 0, 'input area missing from full history stream');
+});
+
 test('renderer does not expose api key-like text from state', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.apiKey = 'secret-key';
@@ -188,6 +224,44 @@ test('slash autocomplete keeps all commands selectable and prioritizes settings 
   assert(commands.length >= 30, `autocomplete pool was truncated: ${commands.length}`);
 });
 
+test('renderer displays focused settings and model panels', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'deepseek-v4-flash' });
+  state.mode = 'panel';
+  state.activePanel = {
+    type: 'settings',
+    title: '设置 / Settings',
+    hint: '← → 切换值 - Enter 确认 - Esc 返回',
+    selectedIndex: 0,
+    items: [
+      { label: '主题 / Theme', group: 'Display', value: () => 'loong-dark' },
+      { label: '语言 / Language', group: 'Display', value: () => 'zh' },
+    ],
+  };
+  let output = renderTui(state, { columns: 90, rows: 20 });
+  assert(output.indexOf('设置 / Settings') >= 0, 'settings panel title missing');
+  assert(output.indexOf('主题 / Theme') >= 0, 'settings panel item missing');
+  assert(output.indexOf('loong>') >= 0, 'input area missing while panel is open');
+
+  state.activePanel = {
+    type: 'model',
+    title: '模型选择 / Model Selector',
+    hint: '输入筛选 - 上下选择 - Enter 使用 - Esc 取消',
+    query: '',
+    selectedIndex: 0,
+    items: [
+      {
+        label: 'DeepSeek V4 Flash',
+        value: 'deepseek-v4-flash',
+        description: 'openai-compatible / deepseek',
+        model: { id: 'deepseek-v4-flash' },
+      },
+    ],
+  };
+  output = renderTui(state, { columns: 90, rows: 20 });
+  assert(output.indexOf('模型选择 / Model Selector') >= 0, 'model panel title missing');
+  assert(output.indexOf('<- 当前') >= 0, 'current model marker missing');
+});
+
 test('renderer displays multiline input with continuation prompt', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.inputBuffer = '第一行\n第二行';
@@ -203,8 +277,41 @@ test('diff renderer only rewrites changed rows after first frame', () => {
   const second = renderer.render(['alpha', 'gamma'], { columns: 20, rows: 4 });
   assert(first.indexOf('\x1b[2J') >= 0, 'first frame did not clear screen');
   assert(second.indexOf('\x1b[2J') < 0, 'second frame unexpectedly cleared screen');
-  assert(second.indexOf('\x1b[2;1H') >= 0, 'second frame did not move to changed row');
+  assert(second.indexOf('\x1b[2K') >= 0, 'second frame did not clear changed row');
   assert(second.indexOf('gamma') >= 0, 'second frame missing changed content');
+});
+
+test('diff renderer can append first frame without clearing the shell command', () => {
+  const renderer = createDiffRenderer({ initialClear: false });
+  const first = renderer.render(['alpha', 'beta'], { columns: 20, rows: 4 });
+  const second = renderer.render(['alpha', 'gamma'], { columns: 20, rows: 4 });
+  assert(first.indexOf('\x1b[2J') < 0, 'append mode should not clear whole screen');
+  assert(first.indexOf('\x1b[H') < 0, 'append mode should not jump to terminal home');
+  assert(first.indexOf('\x1b[s') < 0, 'append mode should not save cursor as a fixed anchor');
+  assert(first.indexOf('\x1b[u') < 0, 'append mode should not restore cursor from a fixed anchor');
+  assert(first.indexOf('alpha') >= 0 && first.indexOf('beta') >= 0, 'append mode first frame missing content');
+  assert(second.indexOf('\x1b[u') < 0, 'append mode second frame should not restore cursor');
+  assert(second.indexOf('\x1b[2K') >= 0, 'append mode second frame should clear changed row');
+  assert(second.indexOf('gamma') >= 0, 'append mode second frame missing changed content');
+});
+
+test('diff renderer resets with a full clear when terminal width changes', () => {
+  const renderer = createDiffRenderer({ initialClear: false });
+  const first = renderer.render(['alpha', 'beta'], { columns: 50, rows: 12 });
+  const second = renderer.render(['alpha', 'beta'], { columns: 60, rows: 12 });
+  assert(first.indexOf('\x1b[2J') < 0, 'first append frame should not clear');
+  assert(second.indexOf('\x1b[2J') >= 0, 'width change should trigger full clear');
+  assert(second.indexOf('\x1b[H') >= 0, 'width change should home cursor for full redraw');
+});
+
+test('diff renderer appends inserted history without restore-cursor anchors', () => {
+  const renderer = createDiffRenderer({ initialClear: false });
+  renderer.render(['header', '', 'loong>', 'status'], { columns: 50, rows: 12 });
+  const second = renderer.render(['header', 'message one', '', 'loong>', 'status'], { columns: 50, rows: 12 });
+  assert(second.indexOf('\x1b[2J') < 0, 'history append should not clear whole screen');
+  assert(second.indexOf('\x1b[s') < 0 && second.indexOf('\x1b[u') < 0, 'history append should not use fixed cursor anchors');
+  assert(second.indexOf('message one') >= 0, 'history append did not render inserted message');
+  assert(second.indexOf('loong>') >= 0, 'history append should keep input in rendered stream');
 });
 
 test('selector clamps filtered selected index and fits narrow width', () => {

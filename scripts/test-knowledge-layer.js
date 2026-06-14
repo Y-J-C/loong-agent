@@ -60,12 +60,20 @@ test('knowledge skeleton contains required topic files and metadata', () => {
   assert(fs.existsSync(path.join(ROOT, 'kb', 'raw', 'README.md')), 'missing kb/raw README');
 });
 
-test('readTopic parses topic metadata and draft warning inputs', () => {
+test('readTopic parses measured topic metadata without draft warning', () => {
   const loaded = readTopic(config(), 'board_profile');
   assert(loaded.ok === true, 'board_profile should load');
-  assert(loaded.record.status, 'missing status');
-  assert(loaded.record.confidence, 'missing confidence');
-  assert(loaded.warning === 'Knowledge topic exists but content is still draft/unknown.', 'missing draft warning');
+  assert(loaded.record.status === 'measured', 'board_profile should be measured');
+  assert(loaded.record.confidence === 'medium', 'board_profile confidence should be medium');
+  assert(/Loongson 2K1000/.test(loaded.record.content), 'missing adapted board content');
+  assert(!loaded.warning, 'measured board profile should not warn');
+});
+
+test('readTopic preserves unknown topic uncertainty warnings', () => {
+  const loaded = readTopic(config(), 'unknowns');
+  assert(loaded.ok === true, 'unknowns should load');
+  assert(loaded.record.status === 'unknown', 'unknowns should remain unknown');
+  assert(loaded.warnings.some((item) => /draft\/unknown/.test(item)), 'missing unknown status warning');
 });
 
 testAsync('kb_topic reads existing topic and returns evidence', async () => {
@@ -73,9 +81,11 @@ testAsync('kb_topic reads existing topic and returns evidence', async () => {
   const result = await registry.execute(config(), 'kb_topic', { topic: 'board_profile' });
   assert(result.ok === true, 'kb_topic failed');
   assert(result.data.topic === 'board_profile', 'wrong topic');
+  assert(result.data.status === 'measured', 'wrong topic status');
+  assert(/Loongson 2K1000/.test(result.data.content), 'missing adapted topic content');
   assert(result.evidence.length === 1, 'missing evidence');
   assert(result.evidence[0].source === 'kb', 'evidence source mismatch');
-  assert(result.warnings.length >= 1, 'draft topic should warn');
+  assert(result.warnings.length === 0, 'measured topic should not warn');
 });
 
 testAsync('kb_topic reports unknown topic as stable envelope error', async () => {

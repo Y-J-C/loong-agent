@@ -10,19 +10,16 @@ const { createDefaultToolRegistry } = require('../tool-registry');
 const { runReadonlyCommand } = require('../tools');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
 const { addMessage, clearMessages } = require('./state');
+const {
+  findSlashCommand,
+  getKnownModels,
+  listSlashCommands,
+  parseSlashInput,
+  suggestSlashCommands,
+} = require('./slash-commands');
 const { collectTuiStats, fileSize, formatBranchInfo, formatStats } = require('./stats');
 const { hasTheme, listThemes } = require('./theme');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
-
-const UNSUPPORTED = new Set([
-  '/login',
-  '/logout',
-  '/share',
-  '/import',
-  '/trust',
-  '/changelog',
-  '/scoped-models',
-]);
 
 function formatTree(nodes, depth) {
   const lines = [];
@@ -131,11 +128,13 @@ function writeDebugFile(config, state) {
 }
 
 function helpText() {
+  const commands = listSlashCommands()
+    .filter((command) => !command.unsupported)
+    .map((command) => `/${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ''}`)
+    .join(' ');
   return [
     '命令:',
-    '/exit /clear /new /name /theme /health /project /sessions /tree',
-    '/session /audit /lineage /fork /resume /clone /branch /stats /demo /export',
-    '/copy /reload /debug /debug keys /settings /model /compact /goto /more',
+    commands,
     '! <只读命令>',
     '',
     '换行: Ctrl+Enter(终端支持时)/Alt+Enter(推荐)/\\+Enter(通用)',
@@ -162,7 +161,192 @@ function selectedSessionRequired(state) {
   addMessage(state, { type: 'error', text: 'No selected session. 未选择会话。先运行 /sessions 或 /tree 选择会话, 再使用 selected。' });
 }
 
+function settingChoice(list, current, dir) {
+  const idx = list.indexOf(current);
+  const safe = idx >= 0 ? idx : 0;
+  return list[(((safe + dir) % list.length) + list.length) % list.length];
+}
+
+function createSettingsPanel(state) {
+  const items = [
+    {
+      key: 't',
+      label: '主题 / Theme',
+      group: 'Display',
+      value: () => state.theme || 'loong-dark',
+      onCycle: (s, dir) => { s.theme = settingChoice(['loong-dark', 'plain'], s.theme || 'loong-dark', dir); },
+    },
+    {
+      key: 'l',
+      label: '语言 / Language',
+      group: 'Display',
+      value: () => state.settingsLanguage || 'zh',
+      onCycle: (s, dir) => { s.settingsLanguage = settingChoice(['zh', 'en', 'mixed'], s.settingsLanguage || 'zh', dir); },
+    },
+    {
+      key: 'd',
+      label: '工具详情 / Tool detail',
+      group: 'Runtime',
+      value: () => state.settingsToolDetail || 'collapsed',
+      onCycle: (s, dir) => {
+        s.settingsToolDetail = dir > 0 ? 'expanded' : 'collapsed';
+        s.expandedTools = s.settingsToolDetail === 'expanded';
+      },
+    },
+    {
+      key: 's',
+      label: '流式 / Streaming',
+      group: 'Runtime',
+      value: () => state.settingsStreaming ? '开启/on' : '关闭/off',
+      onCycle: (s, dir) => { s.settingsStreaming = dir > 0; },
+    },
+    {
+      key: 'k',
+      label: '思考层级 / Thinking level',
+      group: 'Model',
+      value: () => state.thinkingLevel || 'off',
+      onCycle: (s, dir) => { s.thinkingLevel = settingChoice(['off', 'high', 'max'], s.thinkingLevel || 'off', dir); },
+    },
+    {
+      key: 'c',
+      label: '上下文预算 / Context budget',
+      group: 'Model',
+      value: () => String(state.contextBudget || 1800),
+      onCycle: (s, dir) => {
+        const next = settingChoice(['800', '1800', '3200', '6400', '12800'], String(s.contextBudget || 1800), dir);
+        s.contextBudget = Number(next);
+      },
+    },
+  ];
+  return {
+    type: 'settings',
+    title: '设置 / Settings',
+    hint: '← → 切换值 - Enter 确认 - Esc 返回',
+    items,
+    selectedIndex: 0,
+  };
+}
+
+function openSettingsPanel(state) {
+  const panel = createSettingsPanel(state);
+  state.mode = 'panel';
+  state.activePanel = panel;
+  state.settingsMenu = panel;
+}
+
+function createModelPanel(config, state) {
+  const known = getKnownModels(config, state);
+  const currentModel = known.currentModel;
+  const selectedIndex = Math.max(0, known.models.findIndex((model) => model.id === currentModel));
+  const items = known.models.map((model) => ({
+    label: model.label || model.id || '来自环境变量 / From env',
+    value: model.id,
+    description: model.fromEnv ? 'env' : `${model.provider || ''}${model.providerProfile ? ` / ${model.providerProfile}` : ''}`,
+    model,
+  }));
+  return {
+    type: 'model',
+    title: '模型选择 / Model Selector',
+    hint: '输入筛选 - 上下选择 - Enter 使用 - Esc 取消',
+    query: '',
+    items,
+    models: known.models,
+    selectedIndex,
+  };
+}
+
+function openModelPanel(config, state) {
+  const panel = createModelPanel(config, state);
+  state.mode = 'panel';
+  state.activePanel = panel;
+  state.modelSelector = panel;
+}
+
+function applyModelChoice(context, model) {
+  if (!model) return null;
+  let nextConfig;
+  if (model.fromEnv) {
+    nextConfig = loadConfig();
+  } else {
+    nextConfig = Object.assign({}, context.config, {
+      model: model.id,
+      provider: model.provider || context.config.provider,
+      providerProfile: model.providerProfile || context.config.providerProfile,
+      baseUrl: model.baseUrl || context.config.baseUrl,
+    });
+  }
+  context.config = nextConfig;
+  context.state.model = nextConfig.model || '';
+  context.state.provider = nextConfig.provider || context.state.provider;
+  context.state.cwd = nextConfig.workspace || context.state.cwd;
+  if (context.reloadConfig) context.reloadConfig(nextConfig);
+  if (context.replaceAgentSession) context.replaceAgentSession(createAgentSession(nextConfig, { command: 'tui' }));
+  if (context.refreshBoardStatus) context.refreshBoardStatus(nextConfig);
+  return nextConfig;
+}
+
+async function dispatchSlashCommand(context, parsed) {
+  const state = context.state;
+  const command = findSlashCommand(parsed.name);
+  if (!command) {
+    const suggestions = suggestSlashCommands(parsed.name);
+    const hint = suggestions.length ? `\n相近命令: ${suggestions.join(', ')}` : '\n运行 /help 查看可用命令。';
+    addMessage(state, { type: 'error', text: `Unknown command: /${parsed.name}${hint}` });
+    return;
+  }
+  if (command.unsupported) {
+    addMessage(state, {
+      type: 'system',
+      text: `/${command.name} 已识别, 但当前 Loong Node 14 TUI 子集 not implemented。\n说明: 为保持板端稳健和自主可控, 该能力暂未开放。`,
+    });
+    return;
+  }
+  if (command.name === 'settings') {
+    openSettingsPanel(state);
+    return;
+  }
+  if (command.name === 'model') {
+    if (!parsed.args.length) {
+      openModelPanel(context.config, state);
+      return;
+    }
+    const requested = parsed.args[0];
+    const known = getKnownModels(context.config, state).models;
+    const model = known.find((item) => item.id === requested || `${item.provider}/${item.id}` === requested);
+    if (!model) {
+      addMessage(state, { type: 'error', text: `Unknown model: ${requested}` });
+      return;
+    }
+    const nextConfig = applyModelChoice(context, model);
+    addMessage(state, { type: 'system', text: `模型已切换 / Model set: ${nextConfig && nextConfig.model ? nextConfig.model : '(env)'}` });
+    return;
+  }
+  if (command.name === 'theme') {
+    const next = parsed.args[0] || '';
+    if (!next) {
+      addMessage(state, { type: 'system', text: `当前主题 / Current theme: ${state.theme || 'loong-dark'}\nAvailable: ${listThemes().join(', ')}` });
+      return;
+    }
+    if (!hasTheme(next)) {
+      addMessage(state, { type: 'error', text: `Unknown theme: ${next}\nAvailable: ${listThemes().join(', ')}` });
+      return;
+    }
+    state.theme = next;
+    addMessage(state, { type: 'system', text: `主题已切换 / Theme set: ${next}` });
+    return;
+  }
+  const legacyName = command.name === 'quit' ? 'exit' : command.name;
+  const legacyText = `/${legacyName}${parsed.argsText ? ` ${parsed.argsText}` : ''}`;
+  return runSlashCommandLegacy(context, legacyText);
+}
+
 async function runSlashCommand(context, text) {
+  const parsed = parseSlashInput(text);
+  if (!parsed) return false;
+  return dispatchSlashCommand(context, parsed);
+}
+
+async function runSlashCommandLegacy(context, text) {
   const config = context.config;
   const state = context.state;
   const manager = createSessionManager(config);
@@ -171,14 +355,6 @@ async function runSlashCommand(context, text) {
 
   if (name === '/help') {
     addMessage(state, { type: 'system', text: helpText() });
-    return;
-  }
-
-  if (UNSUPPORTED.has(name)) {
-    addMessage(state, {
-      type: 'system',
-      text: `${name} 已识别, 但当前 Loong Node 14 TUI 子集 not implemented。\n说明: 为保持板端稳健和自主可控, 该能力暂未开放。`,
-    });
     return;
   }
 

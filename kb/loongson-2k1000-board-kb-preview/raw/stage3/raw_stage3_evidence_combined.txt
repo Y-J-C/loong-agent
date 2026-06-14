@@ -1,0 +1,965 @@
+===== package_management_v0.3.txt =====
+第三阶段 v0.3 包管理证据链（纯文本版）
+
+证据来源：
+1. third_stage_readonly_software_stack_20260610.txt
+2. third_stage_v0_3_evidence_readonly_20260613.txt
+3. third_stage_v0_3_dpkg_evidence_readonly_20260613.txt
+
+判定口径：
+installed = dpkg-query 或 apt-cache policy 显示已安装。
+runtime available = which 和版本命令可运行。
+apt candidate exists = 未安装，但 apt-cache policy 显示候选版本。
+missing = dpkg-query 未安装且运行时命令 not found。
+unknown = raw 中没有足够证据。
+
+包管理现状：
+架构：loongarch64
+证据命令：dpkg --print-architecture
+
+软件源：
+deb http://pkg.loongnix.cn/loongnix DaoXiangHu-stable main contrib non-free
+证据命令：cat /etc/apt/sources.list
+
+apt policy：
+DaoXiangHu-stable/main contrib non-free 优先级 500。
+/var/lib/dpkg/status 优先级 100。
+证据命令：apt policy
+
+sources.list.d：
+空目录。
+证据命令：ls -al /etc/apt/sources.list.d/
+
+软件：g++
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 g++ 相匹配的软件包
+apt candidate：exists，4:8.3.0-1+nmu1
+version：candidate 4:8.3.0-1+nmu1
+runtime 证据：g++ --version: not found
+dependency risk：medium
+install cost：medium，direct deps 为 cpp、gcc、g++-8、gcc-8
+recommendation：C++ 编译能力缺失；进入 C++ 项目前需单独评估安装窗口。
+verification command：g++ --version
+
+软件：clang
+installed 状态：not installed
+dpkg 证据：dpkg-query clang not installed
+apt candidate：exists，1:8.0-48.1-lnd.2
+version：candidate 1:8.0-48.1-lnd.2
+runtime 证据：clang --version: not found
+dependency risk：medium
+install cost：medium，direct dep 为 clang-8；实际 LLVM 体量需安装前再核算。
+recommendation：非必要不作为默认编译器；优先 GCC。
+verification command：clang --version
+
+软件：build-essential
+installed 状态：not installed
+dpkg 证据：build-essential unknown ok not-installed
+apt candidate：exists，12.6.lnd.1+nmu1
+version：candidate 12.6.lnd.1+nmu1
+runtime 证据：无单一运行时命令
+dependency risk：medium
+install cost：medium，direct deps 为 libc6-dev、gcc、g++、make、dpkg-dev
+recommendation：当前不具备完整 Debian C/C++ 构建元包；需要 C++/源码构建时再评估。
+verification command：dpkg-query -W build-essential
+
+软件：rsync
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 rsync 相匹配的软件包
+apt candidate：exists，3.1.3-6.1.lnd.1
+version：candidate 3.1.3-6.1.lnd.1
+runtime 证据：rsync --version: not found
+dependency risk：low
+install cost：low-medium，direct deps 约 7 个，建议 openssh。
+recommendation：文件同步工具缺失；可用 scp 替代只读拉取。
+verification command：rsync --version
+
+软件：pip3 / python3-pip
+installed 状态：installed
+dpkg 证据：python3-pip install ok installed 18.1-5.1.lnd.1
+apt candidate：exists，18.1-5.1.lnd.1
+version：dpkg 18.1；runtime pip 24.0 from /home/loongson/.local/lib/python3.7/site-packages
+runtime 证据：which pip3 -> /usr/bin/pip3；pip3 --version 可运行；pip 不在 PATH。
+dependency risk：low
+install cost：none，already installed
+recommendation：使用 python3 -m pip，避免旧 wrapper 警告；文档中不得写 pip 全缺失。
+verification command：python3 -m pip --version
+
+软件：npm
+installed 状态：not installed
+dpkg 证据：npm unknown ok not-installed
+apt candidate：exists，7.5.2+ds-2.lnd.5
+version：candidate 7.5.2+ds-2.lnd.5
+runtime 证据：npm -v: not found；npx -v: not found
+dependency risk：high
+install cost：high，apt-cache depends npm 显示大量 node-* 依赖。
+recommendation：Node runtime 可用但 npm 工具链不可用；不要把 Node.js 误判为完整前端环境。
+verification command：npm -v
+
+软件：nodejs
+installed 状态：installed
+dpkg 证据：nodejs install ok installed 14.16.1~dfsg-1.lnd.11
+apt candidate：exists，same
+version：dpkg 14.16.1~dfsg-1.lnd.11；runtime v14.16.1
+runtime 证据：which node -> /usr/bin/node；node -p process.arch -> loong64
+dependency risk：low
+install cost：none，already installed
+recommendation：可运行 Node 脚本；包管理缺 npm。
+verification command：node -v
+
+软件：curl
+installed 状态：installed
+dpkg 证据：curl install ok installed 7.64.0-4+deb10u2.lnd.4
+apt candidate：exists，same
+version：runtime curl 7.64.0
+runtime 证据：curl --version lists HTTP/HTTPS/SFTP 等协议
+dependency risk：low
+install cost：none，already installed
+recommendation：可作为网络访问工具。
+verification command：curl --version
+
+软件：wget
+installed 状态：installed
+dpkg 证据：wget install ok installed 1.20.1-1.1.lne.2
+apt candidate：exists，installed version；repo also has 1.20.1-1.1.lnd.2
+version：runtime GNU Wget 1.20.1
+runtime 证据：wget --version 可运行
+dependency risk：low
+install cost：none，already installed
+recommendation：可作为下载/HTTP 只读探测工具。
+verification command：wget --version
+
+软件：openssh-client
+installed 状态：installed
+dpkg 证据：openssh-client install ok installed 1:7.9p1-10+deb10u2.lne.4
+apt candidate：exists，installed version；repo has lnd.7
+version：runtime OpenSSH_7.9p1
+runtime 证据：ssh -V 可运行；scp 属于 openssh-client
+dependency risk：low
+install cost：none，already installed
+recommendation：SSH/SCP 客户端可用；scp -V 只是不支持该选项，会打印 usage。
+verification command：ssh -V；scp -V
+
+软件：openssh-server
+installed 状态：installed
+dpkg 证据：openssh-server install ok installed 1:7.9p1-10+deb10u2.lne.4
+apt candidate：exists，installed version；repo has lnd.7
+version：package 1:7.9p1-10+deb10u2.lne.4
+runtime 证据：本会话通过 SSH 连接，raw 中 SSH_CONNECTION 存在。
+dependency risk：low
+install cost：none，already installed
+recommendation：不修改服务配置；仅记录服务端已安装。
+verification command：dpkg-query -W openssh-server
+
+软件：sqlite3
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 sqlite3 相匹配的软件包
+apt candidate：exists，3.27.2-3.1.lnd.1
+version：candidate 3.27.2-3.1.lnd.1
+runtime 证据：sqlite3 --version: not found；Python sqlite3 3.27.2 模块可导入。
+dependency risk：low
+install cost：low，direct deps 为 libc6、libreadline7、zlib1g、libsqlite3-0
+recommendation：CLI 缺失；Python 内置 sqlite3 可用于轻量脚本。
+verification command：sqlite3 --version；python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
+
+软件：redis / redis-server
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 redis-server 相匹配的软件包
+apt candidate：exists，5:5.0.14-1+deb10u2.lnd.5
+version：candidate 5:5.0.14-1+deb10u2.lnd.5
+runtime 证据：redis-server --version: not found
+dependency risk：medium
+install cost：medium，service 包，direct deps 为 lsb-base、redis-tools。
+recommendation：不作为默认依赖；需要服务治理评估。
+verification command：redis-server --version
+
+软件：postgresql
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 postgresql 相匹配的软件包
+apt candidate：exists，11+200+deb10u3+nmu1
+version：candidate 11+200+deb10u3+nmu1
+runtime 证据：psql --version: not found
+dependency risk：high
+install cost：high，meta depends postgresql-11，数据库服务栈。
+recommendation：当前不具备 PostgreSQL 环境；优先外部数据库或 SQLite。
+verification command：psql --version
+
+软件：docker.io
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 docker.io 相匹配的软件包
+apt candidate：none，候选：(无)
+version：none
+runtime 证据：docker --version: not found
+dependency risk：high
+install cost：unavailable from current apt source
+recommendation：当前源不提供 Docker；不要规划本机 Docker 方案。
+verification command：apt-cache policy docker.io
+
+软件：podman
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 podman 相匹配的软件包
+apt candidate：no package evidence；apt-cache depends podman -> 没有发现匹配的软件包
+version：none
+runtime 证据：podman --version: not found
+dependency risk：high
+install cost：unavailable from current apt source
+recommendation：当前源不提供 Podman；容器开发不可作为板上默认路径。
+verification command：apt-cache policy podman；podman --version
+
+软件：rustc
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 rustc 相匹配的软件包
+apt candidate：exists，1.41.1+dfsg1-1~deb10u1.lnd.4+b1.1
+version：candidate 1.41.1+dfsg1-1~deb10u1.lnd.4+b1.1
+runtime 证据：rustc --version: not found
+dependency risk：medium
+install cost：medium-high，deps 为 libstd-rust-dev、gcc、libc-dev、binutils，推荐 cargo。
+recommendation：Rust 工具链缺失；如需使用需先评估存储和依赖。
+verification command：rustc --version
+
+软件：cargo
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 cargo 相匹配的软件包
+apt candidate：exists，0.43.1-3.lnd.3
+version：candidate 0.43.1-3.lnd.3
+runtime 证据：cargo --version: not found
+dependency risk：high
+install cost：high，depends rustc、编译器、libgit/libssh/libssl 等。
+recommendation：Cargo 缺失；不可直接构建 Rust 项目。
+verification command：cargo --version
+
+软件：go / golang
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 golang 相匹配的软件包
+apt candidate：exists，2:1.15~1.lnd.2
+version：candidate 2:1.15~1.lnd.2
+runtime 证据：go version: not found
+dependency risk：medium
+install cost：medium-high，direct deps 为 golang-1.15、golang-doc、golang-go、golang-src。
+recommendation：Go runtime/toolchain 缺失；不要写成可用。
+verification command：go version
+
+软件：java / openjdk-11-jdk
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 openjdk-11-jdk 相匹配的软件包
+apt candidate：exists，11.0.20+8-11.7.0.lnd.1
+version：candidate 11.0.20+8-11.7.0.lnd.1
+runtime 证据：java -version: not found；javac -version: not found
+dependency risk：high
+install cost：high，depends JRE/JDK headless，推荐 GUI 相关开发包。
+recommendation：Java 工具链缺失；不建议板上默认 Java 开发。
+verification command：java -version；javac -version
+
+软件：ffmpeg
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 ffmpeg 相匹配的软件包
+apt candidate：exists，7:4.4.2-1.lnd.3
+version：candidate 7:4.4.2-1.lnd.3
+runtime 证据：ffmpeg -version: not found
+dependency risk：medium
+install cost：medium-high，direct deps 多个 libav*、SDL、swscale。
+recommendation：多媒体处理工具缺失；安装前评估空间和运行负载。
+verification command：ffmpeg -version
+
+软件：opencv / libopencv-dev
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 libopencv-dev 相匹配的软件包
+apt candidate：exists，3.2.0+dfsg-6.1
+version：candidate 3.2.0+dfsg-6.1
+runtime 证据：pkg-config --modversion opencv/opencv4 failed
+dependency risk：high
+install cost：high，direct deps 大量 libopencv-* dev/runtime 包。
+recommendation：OpenCV 开发环境缺失；不得标记为可用。
+verification command：pkg-config --modversion opencv4
+
+软件：qt / qtbase5-dev
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 qtbase5-dev 相匹配的软件包
+apt candidate：exists，5.15.2+dfsg-lnd.8
+version：candidate 5.15.2+dfsg-lnd.8
+runtime 证据：which qmake -> /usr/bin/qmake；qmake --version fails: missing /usr/lib/qt5/bin/qmake
+dependency risk：high
+install cost：high，direct deps Qt5/Mesa/X11/qmake/dev-tools。
+recommendation：Qt 开发环境不可用；qmake wrapper 存在但目标缺失。
+verification command：qmake --version
+
+软件：gtk / libgtk-3-dev
+installed 状态：not installed
+dpkg 证据：dpkg-query: 没有找到与 libgtk-3-dev 相匹配的软件包
+apt candidate：exists，2:3.24.5-1.lnd.1
+version：candidate 2:3.24.5-1.lnd.1
+runtime 证据：pkg-config --modversion gtk+-3.0 failed
+dependency risk：high
+install cost：high，direct deps 大量 GTK/GLib/Pango/X11/Wayland dev 包。
+recommendation：GTK 开发环境缺失；不要作为当前可用 GUI dev 方案。
+verification command：pkg-config --modversion gtk+-3.0
+
+
+===== software_stack_v0.3.txt =====
+第三阶段 v0.3 软件栈画像（纯文本版）
+
+证据来源：
+1. third_stage_readonly_software_stack_20260610.txt
+2. third_stage_v0_3_evidence_readonly_20260613.txt
+3. third_stage_v0_3_dpkg_evidence_readonly_20260613.txt
+4. third_stage_v0_3_shell_scp_evidence_readonly_20260613.txt
+
+基础上下文：
+用户：loongson
+证据：whoami
+
+架构：loongarch64
+证据：uname -a；dpkg --print-architecture
+
+系统：Loongnix-Embedded GNU/Linux 20 (DaoXiangHu)
+证据：cat /etc/os-release
+
+板卡模型：loongson,LS2K1000_PAI_UDB_V1_5
+证据：cat /proc/device-tree/model
+
+PATH：/usr/local/bin:/usr/bin:/bin:/usr/games
+证据：echo "$PATH"
+
+C/C++ 与构建工具：
+
+工具：gcc
+runtime available：yes
+version / not found 证据：gcc --version -> 8.3.0
+package 证据：gcc install ok installed 4:8.3.0-1+nmu1
+说明：C 编译器可用。
+
+工具：cc
+runtime available：yes
+version / not found 证据：cc --version -> 8.3.0
+package 证据：由 GCC 工具链提供
+说明：C 编译入口可用。
+
+工具：g++
+runtime available：no
+version / not found 证据：g++ --version -> not found
+package 证据：g++ not installed；candidate exists
+说明：C++ 编译器缺失。
+
+工具：c++
+runtime available：no
+version / not found 证据：c++ --version -> not found
+package 证据：与 g++ 缺失一致
+说明：C++ 通用入口缺失。
+
+工具：clang
+runtime available：no
+version / not found 证据：clang --version -> not found
+package 证据：clang not installed；candidate exists
+说明：Clang 缺失。
+
+工具：make
+runtime available：yes
+version / not found 证据：make --version -> 4.2.1
+package 证据：make install ok installed 4.2.1-1.3
+说明：Make 可用。
+
+工具：cmake
+runtime available：yes
+version / not found 证据：cmake --version -> 3.13.4
+package 证据：cmake install ok installed 3.13.4-1.lnd.2
+说明：CMake 可用但版本偏旧。
+
+工具：ld / as / ar / objdump
+runtime available：yes
+version / not found 证据：GNU Binutils for Loongnix-Embedded 2.31.1-system.20190122
+package 证据：binutils 在 dpkg -l 中已安装
+说明：基础二进制工具可用。
+
+工具：pkg-config
+runtime available：yes
+version / not found 证据：pkg-config --version -> 0.29
+package 证据：runtime raw 证据
+说明：可用于探测已安装 dev 包。
+
+Python 栈：
+
+工具：python
+runtime available：yes
+version / not found 证据：Python 2.7.16；/usr/bin/python
+package 证据：python install ok installed 2.7.16-1.1
+说明：Python 2 存在，已过时。
+
+工具：python3
+runtime available：yes
+version / not found 证据：Python 3.7.3；/usr/bin/python3
+package 证据：python3 install ok installed 3.7.3-1.1
+说明：Python 3 可用但版本偏旧。
+
+工具：pip
+runtime available：no
+version / not found 证据：pip --version -> not found；which pip failed
+package 证据：~/.local/bin/pip 存在但不在 PATH
+说明：不能写成 pip 命令可用。
+
+工具：pip3
+runtime available：yes
+version / not found 证据：pip3 --version -> pip 24.0，并有 old script wrapper warning
+package 证据：python3-pip install ok installed 18.1-5.1.lnd.1
+说明：推荐用 python3 -m pip。
+
+工具：python3 -m pip
+runtime available：yes
+version / not found 证据：pip 24.0 from /home/loongson/.local/lib/python3.7/site-packages
+package 证据：python3-pip installed
+说明：实际加载用户目录 pip 24.0。
+
+能力：venv module
+runtime available：yes
+version / not found 证据：import venv -> venv available
+package 证据：python3-venv package not installed
+说明：模块可导入，但包状态不是 installed。
+
+能力：sqlite3 module
+runtime available：yes
+version / not found 证据：sqlite3 3.27.2
+package 证据：sqlite3 CLI package not installed
+说明：Python 可用，CLI 不可用。
+
+能力：ssl module
+runtime available：yes
+version / not found 证据：OpenSSL 1.1.1d 10 Sep 2019
+package 证据：Python runtime 证据
+说明：TLS 能力存在。
+
+Node.js 栈：
+
+工具：node
+runtime available：yes
+version / not found 证据：node -v -> v14.16.1；process.arch -> loong64
+package 证据：nodejs install ok installed 14.16.1~dfsg-1.lnd.11
+说明：Node runtime 可用。
+
+工具：npm
+runtime available：no
+version / not found 证据：npm -v -> not found；which npm failed
+package 证据：npm unknown ok not-installed；candidate exists
+说明：Node 包管理缺失。
+
+工具：npx
+runtime available：no
+version / not found 证据：npx -v -> not found；which npx failed
+package 证据：随 npm 工具链缺失
+说明：不可直接运行 npx 工作流。
+
+Shell 与常用工具：
+
+工具：bash
+runtime available：yes
+version / not found 证据：bash --version -> 5.0.3
+package 证据：runtime raw 证据
+说明：可用于脚本。
+
+工具：sh
+runtime available：yes
+version / not found 证据：sh -c "echo sh-runtime-ok" 成功；/bin/sh -> dash
+package 证据：dash 0.5.10.2-5.1 installed
+说明：sh --version 返回 Illegal option -- 是 dash 不支持该选项，不是 shell 异常。
+
+工具：git
+runtime available：yes
+version / not found 证据：git version 2.20.1
+package 证据：git install ok installed 1:2.20.1...
+说明：可用但版本偏旧。
+
+工具：ssh
+runtime available：yes
+version / not found 证据：OpenSSH_7.9p1
+package 证据：openssh-client install ok installed
+说明：SSH 客户端可用。
+
+工具：scp
+runtime available：yes
+version / not found 证据：/usr/bin/scp exists；scp -V 打印 usage
+package 证据：openssh-client: /usr/bin/scp
+说明：scp -V 是不支持 -V 选项，不是 scp 不可用。
+
+工具：rsync
+runtime available：no
+version / not found 证据：rsync --version -> not found
+package 证据：rsync not installed；candidate exists
+说明：缺失。
+
+工具：curl
+runtime available：yes
+version / not found 证据：curl 7.64.0
+package 证据：curl install ok installed
+说明：可用。
+
+工具：wget
+runtime available：yes
+version / not found 证据：GNU Wget 1.20.1
+package 证据：wget install ok installed
+说明：可用。
+
+工具：tar
+runtime available：yes
+version / not found 证据：GNU tar 1.30
+package 证据：runtime raw 证据
+说明：可用。
+
+工具：gzip
+runtime available：yes
+version / not found 证据：gzip UNKNOWN
+package 证据：runtime raw 证据
+说明：可用，版本字符串非标准。
+
+工具：xz
+runtime available：yes
+version / not found 证据：XZ Utils 5.2.4
+package 证据：runtime raw 证据
+说明：可用。
+
+工具：unzip
+runtime available：yes
+version / not found 证据：UnZip 6.00
+package 证据：runtime raw 证据
+说明：可用。
+
+工具：zip
+runtime available：yes
+version / not found 证据：Zip 3.0
+package 证据：runtime raw 证据
+说明：可用。
+
+工具：file
+runtime available：yes
+version / not found 证据：file-5.35
+package 证据：runtime raw 证据
+说明：可用。
+
+工具：ldd
+runtime available：yes
+version / not found 证据：glibc 2.28
+package 证据：runtime raw 证据
+说明：可用。
+
+服务 / 数据库 / 多媒体 / GUI / 容器工具：
+
+工具：sqlite3 CLI
+runtime available：no
+version / not found 证据：sqlite3 --version -> not found
+package 证据：candidate 3.27.2-3.1.lnd.1
+说明：CLI 缺失。
+
+工具：redis-server
+runtime available：no
+version / not found 证据：redis-server --version -> not found
+package 证据：candidate 5:5.0.14...
+说明：缺失。
+
+工具：psql / PostgreSQL
+runtime available：no
+version / not found 证据：psql --version -> not found
+package 证据：postgresql candidate exists
+说明：缺失。
+
+工具：docker
+runtime available：no
+version / not found 证据：docker --version -> not found
+package 证据：docker.io candidate none
+说明：当前源不可用。
+
+工具：podman
+runtime available：no
+version / not found 证据：podman --version -> not found
+package 证据：no package match
+说明：当前源不可用。
+
+工具：rustc
+runtime available：no
+version / not found 证据：rustc --version -> not found
+package 证据：candidate exists
+说明：缺失。
+
+工具：cargo
+runtime available：no
+version / not found 证据：cargo --version -> not found
+package 证据：candidate exists
+说明：缺失。
+
+工具：go
+runtime available：no
+version / not found 证据：go version -> not found
+package 证据：golang candidate exists
+说明：缺失。
+
+工具：java / javac
+runtime available：no
+version / not found 证据：java -version and javac -version -> not found
+package 证据：openjdk-11-jdk candidate exists
+说明：缺失。
+
+工具：ffmpeg
+runtime available：no
+version / not found 证据：ffmpeg -version -> not found
+package 证据：candidate exists
+说明：缺失。
+
+工具：OpenCV dev
+runtime available：no
+version / not found 证据：pkg-config opencv/opencv4 failed
+package 证据：libopencv-dev candidate exists
+说明：dev 环境缺失。
+
+工具：Qt dev
+runtime available：no usable runtime
+version / not found 证据：which qmake exists, but qmake --version cannot exec /usr/lib/qt5/bin/qmake
+package 证据：qtbase5-dev not installed；candidate exists
+说明：qmake wrapper 残留/不完整，不可视为 Qt dev 可用。
+
+工具：GTK dev
+runtime available：no
+version / not found 证据：pkg-config gtk+-3.0 failed
+package 证据：libgtk-3-dev candidate exists
+说明：dev 环境缺失。
+
+
+===== development_environment_v0.3.txt =====
+第三阶段 v0.3 开发环境决策表（纯文本版）
+
+证据来源：
+1. third_stage_readonly_software_stack_20260610.txt
+2. third_stage_v0_3_evidence_readonly_20260613.txt
+3. third_stage_v0_3_dpkg_evidence_readonly_20260613.txt
+4. third_stage_v0_3_shell_scp_evidence_readonly_20260613.txt
+
+开发方式：C
+是否可行：可行
+约束：适合小型 C 程序、系统探测、轻量本地构建。
+风险：中
+推荐等级：推荐
+原因（基于 raw）：gcc --version 为 8.3.0；cc --version 可用；make 4.2.1、cmake 3.13.4、binutils 可用；内存约 1.4GiB，根分区可用约 1.9G。
+
+开发方式：C/C++
+是否可行：受限，不可直接构建 C++。
+约束：g++ 和 c++ 缺失；build-essential 未安装。
+风险：高
+推荐等级：暂不推荐
+原因（基于 raw）：g++ --version 和 c++ --version 均 not found；g++、build-essential 仅有 apt candidate，不等于可用。
+
+开发方式：Python
+是否可行：可行
+约束：Python 3.7.3 偏旧；pip 命令不在 PATH；应使用 python3 -m pip。
+风险：中
+推荐等级：推荐用于脚本和轻量服务
+原因（基于 raw）：python3 --version 为 3.7.3；python3 -m pip --version 为 pip 24.0；venv、sqlite3、ssl 模块可导入；pip --version not found。
+
+开发方式：Node.js
+是否可行：仅 runtime 可行
+约束：node 可运行，但 npm/npx 缺失。
+风险：中-高
+推荐等级：谨慎
+原因（基于 raw）：node -v 为 v14.16.1；process.arch 为 loong64；npm -v、npx -v 均 not found；不能作为完整 Node 包开发环境。
+
+开发方式：Shell
+是否可行：可行
+约束：/bin/sh 是 dash，不支持 sh --version；复杂脚本优先 bash。
+风险：低
+推荐等级：推荐
+原因（基于 raw）：bash --version 为 5.0.3；sh -c "echo sh-runtime-ok" 成功；/bin/sh -> dash；sh --version 的 Illegal option 不是 shell 异常。
+
+开发方式：System scripting
+是否可行：部分可行
+约束：systemd 存在失败服务；当前用户 journal 权限受限；不修改服务配置。
+风险：中
+推荐等级：谨慎
+原因（基于 raw）：systemctl --version 为 241；systemctl --failed 有 nftables.service、systemd-modules-load.service；journalctl 对普通用户返回权限不足。
+
+开发方式：Network tools
+是否可行：可行但不完整
+约束：curl/wget/ssh/scp 可用，rsync 缺失；仓库 DNS 可解析但 ping 丢包。
+风险：中
+推荐等级：推荐 curl/wget/ssh/scp，避免依赖 rsync。
+原因（基于 raw）：curl 7.64.0、wget 1.20.1、ssh OpenSSH_7.9p1；scp 在 /usr/bin/scp，scp -V 打印 usage；rsync not found；getent hosts pkg.loongnix.cn 成功，ping 100% loss。
+
+开发方式：Container development
+是否可行：不可行
+约束：Docker/Podman runtime 缺失；当前 apt 源无 docker.io candidate，podman 无匹配包。
+风险：高
+推荐等级：不推荐
+原因（基于 raw）：docker --version、podman --version 均 not found；docker.io apt candidate 为 (无)；apt-cache depends podman 显示没有匹配包。
+
+
+===== compatibility_matrix_v0.3.txt =====
+第三阶段 v0.3 工程兼容性矩阵（纯文本版）
+
+证据来源：
+1. third_stage_readonly_software_stack_20260610.txt
+2. third_stage_v0_3_evidence_readonly_20260613.txt
+3. third_stage_v0_3_dpkg_evidence_readonly_20260613.txt
+4. third_stage_v0_3_shell_scp_evidence_readonly_20260613.txt
+
+tool：gcc
+status：installed/runtime
+version：dpkg 4:8.3.0-1+nmu1；runtime 8.3.0
+source：dpkg-query gcc；gcc --version
+dependency risk：low
+install cost：none
+recommendation：可用于 C 构建。
+verification command：gcc --version
+
+tool：g++
+status：missing
+version：candidate 4:8.3.0-1+nmu1
+source：dpkg-query g++ not installed；apt-cache policy g++；g++ --version not found
+dependency risk：medium
+install cost：medium
+recommendation：C++ 前需补工具链评估。
+verification command：g++ --version
+
+tool：clang
+status：missing
+version：candidate 1:8.0-48.1-lnd.2
+source：dpkg-query clang not installed；clang --version not found
+dependency risk：medium
+install cost：medium
+recommendation：非默认路径。
+verification command：clang --version
+
+tool：make
+status：installed/runtime
+version：4.2.1-1.3；runtime 4.2.1
+source：dpkg-query make；make --version
+dependency risk：low
+install cost：none
+recommendation：可用。
+verification command：make --version
+
+tool：cmake
+status：installed/runtime
+version：3.13.4-1.lnd.2；runtime 3.13.4
+source：dpkg-query cmake；cmake --version
+dependency risk：low
+install cost：none
+recommendation：可用但偏旧。
+verification command：cmake --version
+
+tool：python
+status：installed/runtime
+version：2.7.16-1.1；runtime 2.7.16
+source：dpkg-query python；python --version
+dependency risk：low
+install cost：none
+recommendation：仅兼容旧脚本。
+verification command：python --version
+
+tool：python3
+status：installed/runtime
+version：3.7.3-1.1；runtime 3.7.3
+source：dpkg-query python3；python3 --version
+dependency risk：low
+install cost：none
+recommendation：推荐脚本 runtime。
+verification command：python3 --version
+
+tool：pip
+status：missing
+version：no PATH command；.local/bin/pip not in PATH
+source：pip --version not found；ls ~/.local/bin shows pip outside PATH
+dependency risk：low
+install cost：no install conclusion
+recommendation：使用 python3 -m pip。
+verification command：pip --version
+
+tool：pip3
+status：installed/runtime
+version：dpkg python3-pip 18.1；runtime pip 24.0
+source：dpkg-query python3-pip；pip3 --version；python3 -m pip --version
+dependency risk：low
+install cost：none
+recommendation：用 python3 -m pip。
+verification command：python3 -m pip --version
+
+tool：node
+status：installed/runtime
+version：14.16.1~dfsg-1.lnd.11；runtime v14.16.1
+source：dpkg-query nodejs；node -v
+dependency risk：low
+install cost：none
+recommendation：可运行 JS。
+verification command：node -v
+
+tool：npm
+status：missing
+version：candidate 7.5.2+ds-2.lnd.5
+source：dpkg-query npm not installed；npm -v not found；apt-cache depends npm large
+dependency risk：high
+install cost：high
+recommendation：不可直接做 npm 项目。
+verification command：npm -v
+
+tool：curl
+status：installed/runtime
+version：7.64.0-4+deb10u2.lnd.4；runtime 7.64.0
+source：dpkg-query curl；curl --version
+dependency risk：low
+install cost：none
+recommendation：可用。
+verification command：curl --version
+
+tool：wget
+status：installed/runtime
+version：dpkg 1.20.1-1.1.lne.2；runtime 1.20.1
+source：dpkg-query wget；wget --version
+dependency risk：low
+install cost：none
+recommendation：可用。
+verification command：wget --version
+
+tool：ssh
+status：installed/runtime
+version：package openssh-client 1:7.9p1...；runtime OpenSSH_7.9p1
+source：ssh -V；apt-cache policy openssh-client
+dependency risk：low
+install cost：none
+recommendation：可用。
+verification command：ssh -V
+
+tool：scp
+status：installed/runtime
+version：package openssh-client 1:7.9p1...
+source：which scp；dpkg -S /usr/bin/scp；scp -V usage output
+dependency risk：low
+install cost：none
+recommendation：可用；-V 不支持，不视为异常。
+verification command：scp -V
+
+tool：rsync
+status：missing
+version：candidate 3.1.3-6.1.lnd.1
+source：dpkg-query rsync not installed；rsync --version not found
+dependency risk：low
+install cost：low-medium
+recommendation：用 scp 替代，安装前评估。
+verification command：rsync --version
+
+tool：sqlite CLI
+status：missing
+version：candidate 3.27.2-3.1.lnd.1
+source：sqlite3 --version not found；apt-cache policy sqlite3
+dependency risk：low
+install cost：low
+recommendation：CLI 缺失；Python sqlite 可用。
+verification command：sqlite3 --version
+
+tool：sqlite Python module
+status：runtime
+version：3.27.2
+source：python3 -c "import sqlite3"
+dependency risk：low
+install cost：none
+recommendation：Python 内嵌轻量数据可用。
+verification command：python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
+
+tool：redis
+status：missing
+version：candidate 5:5.0.14-1+deb10u2.lnd.5
+source：redis-server --version not found；apt-cache policy redis-server
+dependency risk：medium
+install cost：medium
+recommendation：不默认启用服务栈。
+verification command：redis-server --version
+
+tool：postgresql
+status：missing
+version：candidate 11+200+deb10u3+nmu1
+source：psql --version not found；apt-cache policy postgresql
+dependency risk：high
+install cost：high
+recommendation：优先外部数据库/SQLite。
+verification command：psql --version
+
+tool：docker
+status：missing
+version：no candidate
+source：docker --version not found；apt-cache policy docker.io candidate none
+dependency risk：high
+install cost：unavailable
+recommendation：不使用板上 Docker。
+verification command：apt-cache policy docker.io
+
+tool：podman
+status：missing
+version：no package match
+source：podman --version not found；apt-cache depends podman no match
+dependency risk：high
+install cost：unavailable
+recommendation：不使用板上 Podman。
+verification command：podman --version
+
+tool：rust / rustc
+status：missing
+version：candidate 1.41.1+dfsg1...
+source：rustc --version not found；apt-cache policy rustc
+dependency risk：medium
+install cost：medium-high
+recommendation：不作为默认语言栈。
+verification command：rustc --version
+
+tool：cargo
+status：missing
+version：candidate 0.43.1-3.lnd.3
+source：cargo --version not found；apt-cache policy cargo
+dependency risk：high
+install cost：high
+recommendation：Rust 构建不可用。
+verification command：cargo --version
+
+tool：go
+status：missing
+version：golang candidate 2:1.15~1.lnd.2
+source：go version not found；apt-cache policy golang
+dependency risk：medium
+install cost：medium-high
+recommendation：Go 工具链缺失。
+verification command：go version
+
+tool：java
+status：missing
+version：openjdk-11-jdk candidate 11.0.20+8-11.7.0.lnd.1
+source：java -version and javac -version not found
+dependency risk：high
+install cost：high
+recommendation：Java 开发不可用。
+verification command：java -version
+
+tool：ffmpeg
+status：missing
+version：candidate 7:4.4.2-1.lnd.3
+source：ffmpeg -version not found；apt-cache policy ffmpeg
+dependency risk：medium
+install cost：medium-high
+recommendation：多媒体处理缺失。
+verification command：ffmpeg -version
+
+tool：opencv
+status：missing
+version：libopencv-dev candidate 3.2.0+dfsg-6.1
+source：pkg-config opencv/opencv4 failed；package not installed
+dependency risk：high
+install cost：high
+recommendation：OpenCV dev 不可用。
+verification command：pkg-config --modversion opencv4
+
+tool：qt
+status：missing
+version：qtbase5-dev candidate 5.15.2+dfsg-lnd.8
+source：qmake wrapper exists but qmake --version cannot exec target；package not installed
+dependency risk：high
+install cost：high
+recommendation：Qt dev 不可用。
+verification command：qmake --version
+
+tool：gtk
+status：missing
+version：libgtk-3-dev candidate 2:3.24.5-1.lnd.1
+source：pkg-config gtk+-3.0 failed；package not installed
+dependency risk：high
+install cost：high
+recommendation：GTK dev 不可用。
+verification command：pkg-config --modversion gtk+-3.0

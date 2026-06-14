@@ -1,0 +1,4 @@
+apt policy 摘要：
+500 http://pkg.loongnix.cn/loongnix DaoXiangHu-stable/main loongarch64 Packages
+500 http://pkg.loongnix.cn/loongnix DaoXiangHu-stable/contrib loongarch64 Packages
+500 http://pkg.loongnix.cn/loongnix DaoXiangHu-stable/non-free loongarch64 Packages

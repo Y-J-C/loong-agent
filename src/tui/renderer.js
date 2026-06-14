@@ -246,7 +246,7 @@ function renderInput(state, width, theme) {
 
 function renderAutocomplete(state, width, theme) {
   const items = state.autoItems || [];
-  if (!items.length || state.mode === 'session_selector') return [];
+  if (!items.length || state.mode === 'session_selector' || state.activePanel) return [];
   const lines = [];
   const maxShow = Math.min(items.length, 6);
   const selectedIndex = Math.max(0, Math.min(items.length - 1, state.autoIndex >= 0 ? state.autoIndex : 0));
@@ -259,15 +259,61 @@ function renderAutocomplete(state, width, theme) {
     const prefix = selected ? '> ' : '  ';
     const item = items[index];
     const command = typeof item === 'string' ? item : item.command || '';
+    const hint = typeof item === 'string' ? '' : item.argumentHint || '';
     const description = typeof item === 'string' ? '' : item.description || '';
+    const label = hint && command.indexOf(' ') < 0 ? `${command} ${hint}` : command;
     const text = fitLine(
       width < 58 || !description
-        ? `${prefix}${command}`
-        : `${prefix}${padRight(command, 18)} ${description}`,
+        ? `${prefix}${label}`
+        : `${prefix}${padRight(label, 28)} ${description}`,
       width
     );
     lines.push(selected ? paint(theme, 'selector', padRight(text, width)) : text);
   }
+  return lines;
+}
+
+function renderPanel(state, width, theme) {
+  const panel = state.activePanel || state.settingsMenu || state.modelSelector;
+  if (!panel) return [];
+  const query = panel.query ? String(panel.query).toLowerCase() : '';
+  const items = (panel.items || []).filter((item) => {
+    const haystack = `${item.label || ''} ${item.value || ''} ${item.description || ''}`.toLowerCase();
+    return !query || haystack.indexOf(query) >= 0;
+  });
+  if ((panel.selectedIndex || 0) >= items.length) panel.selectedIndex = Math.max(0, items.length - 1);
+  const lines = [
+    paint(theme, 'header', fitLine(panel.title || 'Panel', width)),
+    paint(theme, 'dim', fitLine(panel.hint || '上下选择 - Enter 确认 - Esc 返回', width)),
+  ];
+  if (panel.type === 'model') {
+    lines.push(paint(theme, 'dim', fitLine(`filter: ${panel.query || ''}`, width)));
+  }
+  lines.push('');
+  if (!items.length) {
+    lines.push(paint(theme, 'dim', fitLine('No matching items.', width)));
+    return lines;
+  }
+  let lastGroup = '';
+  items.slice(0, 14).forEach((item, index) => {
+    if (panel.type === 'settings' && item.group && item.group !== lastGroup) {
+      lastGroup = item.group;
+      lines.push(paint(theme, 'dim', fitLine(`  ${lastGroup}`, width)));
+    }
+    const selected = index === (panel.selectedIndex || 0);
+    const prefix = selected ? '> ' : '  ';
+    const value = item.value ? (typeof item.value === 'function' ? item.value() : item.value) : '';
+    const description = item.description ? `  ${item.description}` : '';
+    const current =
+      panel.type === 'model' && item.model && item.model.id === (state.model || '')
+        ? ' <- 当前'
+        : '';
+    const text =
+      panel.type === 'settings'
+        ? `${prefix}${item.label}: ${value}`
+        : `${prefix}${item.label || value}${current}${description}`;
+    lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
+  });
   return lines;
 }
 
@@ -327,6 +373,7 @@ function renderSelector(state, width, theme) {
 function renderSettingsMenu(state, width, theme) {
   const menu = state.settingsMenu;
   if (!menu) return [];
+  if (menu.type === 'settings') return renderPanel(state, width, theme);
   const items = menu.items || [];
   const lines = [
     paint(theme, 'header', fitLine('设置 / Settings', width)),
@@ -346,6 +393,7 @@ function renderSettingsMenu(state, width, theme) {
 function renderModelSelector(state, width, theme) {
   const sel = state.modelSelector;
   if (!sel) return [];
+  if (sel.type === 'model') return renderPanel(state, width, theme);
   const models = sel.models || [];
   const lines = [
     paint(theme, 'header', fitLine('模型选择 / Model Selector', width)),
@@ -363,24 +411,27 @@ function renderModelSelector(state, width, theme) {
   return lines;
 }
 
-function renderTui(state, size) {
+function renderTui(state, size, options) {
+  const opts = options || {};
   const width = Math.max(40, size.columns || 100);
   const height = Math.max(12, size.rows || 32);
   const theme = getTheme(state.theme || 'loong-dark');
-  const header = renderHeader(width, height, theme);
   const input = renderInput(state, width, theme);
   const autocomplete = renderAutocomplete(state, width, theme);
   const status = [renderStatusBar(state, width)];
-  const available = Math.max(1, height - header.length - input.length - autocomplete.length - status.length);
+  const available = Math.max(1, height - input.length - autocomplete.length - status.length);
   let body = [];
-  if (state.selector) {
+  if (state.activePanel) {
+    body = renderPanel(state, width, theme);
+  } else if (state.selector) {
     body = renderSelector(state, width, theme);
   } else if (state.settingsMenu) {
     body = renderSettingsMenu(state, width, theme);
   } else if (state.modelSelector) {
     body = renderModelSelector(state, width, theme);
   }
-  if (!state.selector && !state.settingsMenu && !state.modelSelector) {
+  if (!state.activePanel && !state.selector && !state.settingsMenu && !state.modelSelector) {
+    body.push(...renderHeader(width, height, theme));
     let prevType = '';
     for (const message of state.messages) {
       const sep = renderTurnSeparator(prevType, message.type, width, theme);
@@ -394,9 +445,18 @@ function renderTui(state, size) {
     }
   }
   const end = Math.max(0, body.length - (state.scrollOffset || 0));
+  if (opts.fullHistory && !(state.scrollOffset > 0)) {
+    const fullBody = body.slice();
+    while (fullBody.length < available) fullBody.push('');
+    const lines = fullBody.concat(input, autocomplete, status);
+    return lines.map((line) => padRight(fitLine(line, width), width)).join('\n');
+  }
   const visibleBody = body.slice(Math.max(0, end - available), end);
-  while (visibleBody.length < available) visibleBody.unshift('');
-  const lines = header.concat(visibleBody, input, autocomplete, status).slice(0, height);
+  while (visibleBody.length < available) {
+    if (opts.bodyAlign === 'top') visibleBody.push('');
+    else visibleBody.unshift('');
+  }
+  const lines = visibleBody.concat(input, autocomplete, status).slice(0, height);
   return lines.map((line) => padRight(fitLine(line, width), width)).join('\n');
 }
 

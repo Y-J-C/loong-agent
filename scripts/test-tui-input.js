@@ -122,3 +122,16 @@ test('slash autocomplete fuzzy matches commands', () => {
   assert(state.autoItems.length > 0, 'autocomplete missing results');
   assert(state.autoItems[0].command === '/health', `expected /health, got ${state.autoItems[0].command}`);
 });
+
+test('slash autocomplete supports command arguments', () => {
+  const state = createTuiState({});
+  setInput(state, '/model ');
+  updateAutocomplete(state);
+  assert(state.autoItems.some((item) => item.command === '/model deepseek-v4-flash'), 'missing model argument completion');
+  setInput(state, '/theme ');
+  updateAutocomplete(state);
+  assert(state.autoItems.some((item) => item.command === '/theme loong-dark'), 'missing theme argument completion');
+  setInput(state, '/session ');
+  updateAutocomplete(state);
+  assert(state.autoItems.some((item) => item.command === '/session latest'), 'missing session target completion');
+});

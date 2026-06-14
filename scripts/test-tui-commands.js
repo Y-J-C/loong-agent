@@ -127,12 +127,22 @@ test('new name clone more debug copy compact reload and unsupported commands wor
   assert(text.indexOf('Session name set') >= 0, 'missing name command');
   assert(text.indexOf('Cloned session') >= 0, 'missing clone command');
   assert(text.indexOf('TUI debug snapshot written') >= 0, 'missing debug command');
-  assert(context.state.mode === 'model_selector', 'model selector did not open');
+  assert(context.state.mode === 'panel', 'model selector did not open as focused panel');
+  assert(context.state.activePanel && context.state.activePanel.type === 'model', 'active model panel missing');
   assert(context.state.modelSelector.models[0].id === 'deepseek-v4-flash', 'missing official flash model');
   assert(context.state.modelSelector.models[1].id === 'deepseek-v4-pro', 'missing official pro model');
   assert(context.state.modelSelector.models[0].label.indexOf('V3') < 0, 'old V3 label should not be used');
   assert(context.state.modelSelector.models[1].label.indexOf('R1') < 0, 'old R1 label should not be used');
   assert(text.indexOf('not implemented') >= 0, 'missing unsupported command');
+});
+
+test('model command can switch directly by id', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/model deepseek-v4-pro');
+  assert(context.state.model === 'deepseek-v4-pro', 'direct model switch did not update state');
+  const text = context.state.messages.map((message) => message.text).join('\n');
+  assert(text.indexOf('Model set: deepseek-v4-pro') >= 0, 'direct model switch message missing');
 });
 
 test('settings thinking level cycles through off high max only', async () => {

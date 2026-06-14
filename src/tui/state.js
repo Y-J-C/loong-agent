@@ -1,84 +1,14 @@
 'use strict';
 
-const SLASH_COMMAND_DEFINITIONS = [
-  { command: '/help', description: '命令总览' },
-  { command: '/hotkeys', description: '快捷键说明' },
-  { command: '/exit', description: '退出 TUI' },
-  { command: '/clear', description: '清空当前屏幕记录' },
-  { command: '/new', description: '新建 Agent 会话' },
-  { command: '/name', description: '设置当前会话名称' },
-  { command: '/theme', description: '查看或切换主题' },
-  { command: '/health', description: '运行时健康检查' },
-  { command: '/project', description: '读取项目结构摘要' },
-  { command: '/sessions', description: '打开最近会话列表' },
-  { command: '/tree', description: '打开会话分支树' },
-  { command: '/session', description: '查看会话 trace' },
-  { command: '/audit', description: '审计会话记录' },
-  { command: '/lineage', description: '查看会话 lineage' },
-  { command: '/fork', description: '从 latest 创建分支' },
-  { command: '/clone', description: '克隆 latest 会话' },
-  { command: '/resume', description: '基于历史会话继续分析' },
-  { command: '/branch', description: '查看当前分支信息' },
-  { command: '/stats', description: '查看 TUI 统计信息' },
-  { command: '/demo', description: '生成板端演示摘要' },
-  { command: '/export', description: '导出 HTML 审计报告' },
-  { command: '/copy', description: '显示最近助手回复' },
-  { command: '/reload', description: '重载配置' },
-  { command: '/debug', description: '写入 TUI 调试快照' },
-  { command: '/compact', description: '查看会话摘要占位' },
-  { command: '/goto', description: '按 entry id 定位事件' },
-  { command: '/more', description: '展开/折叠工具细节' },
-  { command: '/model', description: '切换模型' },
-  { command: '/settings', description: '打开设置面板' },
-  { command: '/login', description: '暂未实现: 登录' },
-  { command: '/logout', description: '暂未实现: 登出' },
-  { command: '/share', description: '暂未实现: 分享' },
-  { command: '/import', description: '暂未实现: 导入' },
-  { command: '/trust', description: '暂未实现: 信任策略' },
-  { command: '/changelog', description: '暂未实现: 更新记录' },
-  { command: '/scoped-models', description: '暂未实现: 作用域模型' },
-];
+const {
+  autocompleteCommand,
+  completeSlashInput,
+  scoreSlashCommand,
+  slashCommandDefinitions,
+} = require('./slash-commands');
 
+const SLASH_COMMAND_DEFINITIONS = slashCommandDefinitions();
 const SLASH_COMMANDS = SLASH_COMMAND_DEFINITIONS.map((item) => item.command);
-
-const COMMAND_USAGE_PRIORITY = {
-  '/settings': 0,
-  '/model': 1,
-  '/help': 2,
-  '/hotkeys': 3,
-  '/clear': 4,
-  '/new': 5,
-  '/name': 6,
-  '/theme': 7,
-  '/health': 8,
-  '/project': 9,
-  '/sessions': 10,
-  '/tree': 11,
-  '/session': 12,
-  '/audit': 13,
-  '/more': 14,
-  '/debug': 15,
-  '/export': 16,
-  '/resume': 17,
-  '/fork': 18,
-  '/clone': 19,
-  '/lineage': 20,
-  '/branch': 21,
-  '/stats': 22,
-  '/demo': 23,
-  '/copy': 24,
-  '/reload': 25,
-  '/compact': 26,
-  '/goto': 27,
-  '/exit': 28,
-};
-
-function commandPriority(command, order) {
-  if (Object.prototype.hasOwnProperty.call(COMMAND_USAGE_PRIORITY, command)) {
-    return COMMAND_USAGE_PRIORITY[command];
-  }
-  return 1000 + order;
-}
 
 function createTuiState(config) {
   return {
@@ -128,6 +58,7 @@ function createTuiState(config) {
     settingsToolDetail: 'collapsed',
     settingsStreaming: true,
     // 设置/模型选择器
+    activePanel: null,
     settingsMenu: null,
     modelSelector: null,
     // 输入增强
@@ -213,23 +144,7 @@ function updateAutocomplete(state) {
     return;
   }
 
-  const query = input.toLowerCase();
-  state.autoItems = SLASH_COMMAND_DEFINITIONS
-    .map((item, index) => {
-      const score = scoreSlashCommand(item.command, query);
-      const unsupportedPenalty = String(item.description || '').indexOf('暂未实现') >= 0 ? 20 : 0;
-      return score === null ? null : Object.assign({
-        score: score + unsupportedPenalty,
-        order: index,
-        priority: commandPriority(item.command, index),
-      }, item);
-    })
-    .filter(Boolean)
-    .sort((left, right) => {
-      if (left.score !== right.score) return left.score - right.score;
-      if (left.priority !== right.priority) return left.priority - right.priority;
-      return left.order - right.order;
-    });
+  state.autoItems = completeSlashInput(input, { state });
   if (!state.autoItems.length) {
     state.autoIndex = -1;
   } else if (state.autoIndex < 0) {
@@ -237,38 +152,6 @@ function updateAutocomplete(state) {
   } else {
     state.autoIndex = Math.min(state.autoIndex, state.autoItems.length - 1);
   }
-}
-
-function scoreSlashCommand(command, query) {
-  const target = String(command || '').toLowerCase();
-  const needle = String(query || '').toLowerCase();
-  if (!needle || needle === '/') return 0;
-  if (target === needle) return 0;
-  if (target.indexOf(needle) === 0) return 1 + (target.length - needle.length) * 0.01;
-  const compactNeedle = needle[0] === '/' ? needle.slice(1) : needle;
-  const compactTarget = target[0] === '/' ? target.slice(1) : target;
-  if (!compactNeedle) return 0;
-  const subIndex = compactTarget.indexOf(compactNeedle);
-  if (subIndex >= 0) return 10 + subIndex + (compactTarget.length - compactNeedle.length) * 0.01;
-
-  let position = 0;
-  let gaps = 0;
-  let first = -1;
-  let last = -1;
-  for (const ch of compactNeedle) {
-    const found = compactTarget.indexOf(ch, position);
-    if (found < 0) return null;
-    if (first < 0) first = found;
-    gaps += Math.max(0, found - position);
-    last = found;
-    position = found + 1;
-  }
-  const span = last - first + 1;
-  return 30 + gaps + span * 0.1 + first * 0.01 + compactTarget.length * 0.001;
-}
-
-function autocompleteCommand(item) {
-  return typeof item === 'string' ? item : item && item.command ? item.command : '';
 }
 
 module.exports = {
