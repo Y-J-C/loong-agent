@@ -39,12 +39,21 @@ Each topic must also include:
 
 Draft and unknown topics are allowed. They must not be treated as confirmed facts.
 
+`kb/index.json` is a lightweight, hand-maintained manifest for search. It is not an automatic ingestion pipeline. It may list:
+
+- `kind: "topic"` for the 8 root agent topics
+- `kind: "maintenance"` for repository-level knowledge maintenance docs
+- `kind: "preview_doc"` for copied preview Markdown files
+- `kind: "raw"` for copied raw evidence files
+
+Each manifest entry must point to a workspace-local file and must not escape the workspace.
+
 ## Tools
 
 Default read-only knowledge tools:
 
 - `kb_topic`: read one topic and return metadata, content, unknowns, and evidence.
-- `kb_search`: lightweight keyword search across local Markdown topics.
+- `kb_search`: lightweight keyword search across local topics and indexed knowledge files.
 - `risk_lookup`: return risk and unknowns context relevant to a query.
 - `command_reference`: return allowed read-only commands from `READONLY_COMMAND_METADATA` with optional local notes.
 
@@ -73,6 +82,16 @@ Evidence entries must include:
 }
 ```
 
+`kb_search` may return mixed result kinds:
+
+```text
+topic | maintenance | preview_doc | raw
+```
+
+Topic results keep the topic metadata. Indexed file results return file-level evidence with `path`, `topic` as the manifest id, `stage`, and `sourceType`.
+
+Raw evidence is not searched by default. It is searched only when the query asks for raw/evidence/log material such as `raw`, `evidence`, `证据`, `日志`, `dmesg`, or `原始`, or when the caller passes `includeRaw: true`. Passing `includeRaw: false` forces raw evidence to be excluded.
+
 ## Prepare Next Turn
 
 The default `prepareNextTurn` chain returns structured context updates instead of mutating
@@ -92,9 +111,11 @@ The knowledge hook:
 
 - uses lightweight keyword matching only
 - reads local `kb/` topics
+- may use indexed search matches from `kb/index.json` for troubleshooting, preview docs, and raw evidence
 - returns compact summaries as `contextAdditions`
 - returns source metadata as `knowledgeEvidence`
 - returns freshness, source, confidence, draft, unknown, and 待确认 warnings
+- includes at most bounded topic and search-match context so it remains within the configured budget
 - never calls a model
 - never executes tools
 - never reads outside the workspace
@@ -104,6 +125,14 @@ Agent Loop records structured updates as `context_update` session events and inj
 `loong_env_check` results should trigger `compatibility_matrix`, `risk_list`, and relevant environment knowledge for the next turn.
 
 Knowledge prompt injection must include a caution that draft, unknown, low-confidence, and `待确认` entries are uncertain.
+
+For Loong board answers, the prompt should steer the model toward:
+
+```text
+结论 / 证据 / 风险 / 待确认 / 下一步只读排查
+```
+
+Current-state questions should prefer `loong_env_check`. Historical evidence and documentation questions should use `kb_search`, with `includeRaw: true` when raw evidence is requested. Risk, install, repair, boot/storage, network modification, and peripheral-operation questions should use `risk_lookup` or `command_reference` before answering.
 
 ## Context Budget
 
@@ -122,6 +151,14 @@ The prompt builder must preserve evidence metadata and warnings before long topi
 `kb/command_reference.md` is human documentation only.
 
 The authoritative command allowlist is `READONLY_COMMAND_METADATA`. If Markdown notes and structured metadata disagree, structured metadata wins.
+
+`command_reference` returns command groups for:
+
+- L0: low-risk read-only commands from `READONLY_COMMAND_METADATA`
+- L1: medium-risk read-only commands from `READONLY_COMMAND_METADATA`
+- forbiddenExamples: documented operation families that must not be presented as executable agent commands
+
+`risk_lookup` returns a structured risk envelope with `riskLevel`, `forbiddenOperations`, `readOnlyAlternatives`, and `pendingConfirmations`. It is advisory context only; tool execution remains controlled by the safety policy and read-only allowlist.
 
 ## Safety
 

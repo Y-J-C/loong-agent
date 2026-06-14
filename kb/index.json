@@ -1,0 +1,371 @@
+[
+  {
+    "id": "topic.board_profile",
+    "kind": "topic",
+    "path": "kb/board_profile.md",
+    "title": "板卡画像",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "topic.environment_report",
+    "kind": "topic",
+    "path": "kb/environment_report.md",
+    "title": "环境报告",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "topic.software_stack",
+    "kind": "topic",
+    "path": "kb/software_stack.md",
+    "title": "软件栈",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "topic.compatibility_matrix",
+    "kind": "topic",
+    "path": "kb/compatibility_matrix.md",
+    "title": "兼容性矩阵",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "topic.risk_list",
+    "kind": "topic",
+    "path": "kb/risk_list.md",
+    "title": "风险清单",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "topic.command_reference",
+    "kind": "topic",
+    "path": "kb/command_reference.md",
+    "title": "命令参考",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "topic.source_index",
+    "kind": "topic",
+    "path": "kb/source_index.md",
+    "title": "来源索引",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "topic.unknowns",
+    "kind": "topic",
+    "path": "kb/unknowns.md",
+    "title": "待确认事项",
+    "stage": "adapted",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "maintenance.readme",
+    "kind": "maintenance",
+    "path": "kb/README.md",
+    "title": "知识库入口",
+    "stage": "p0",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "maintenance.troubleshooting",
+    "kind": "maintenance",
+    "path": "kb/troubleshooting.md",
+    "title": "故障排查",
+    "stage": "p1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "maintenance.stage_status",
+    "kind": "maintenance",
+    "path": "kb/stage_status.md",
+    "title": "仓库知识库阶段状态",
+    "stage": "p1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "maintenance.scripts",
+    "kind": "maintenance",
+    "path": "kb/scripts/README.md",
+    "title": "只读采集脚本说明",
+    "stage": "p1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.readme",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/README.md",
+    "title": "preview 总入口",
+    "stage": "preview",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.docs_index",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/docs_index.md",
+    "title": "preview 文档索引",
+    "stage": "preview",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.stage_status",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/stage_status.md",
+    "title": "preview 阶段状态",
+    "stage": "preview",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.board_profile",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/board_profile.md",
+    "title": "板卡总画像",
+    "stage": "stage1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.environment_report",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/environment_report.md",
+    "title": "环境报告",
+    "stage": "stage1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.hardware_profile",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/hardware_profile.md",
+    "title": "硬件画像",
+    "stage": "stage2",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.system_profile",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/system_profile.md",
+    "title": "系统画像",
+    "stage": "stage2",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.storage_boot_profile",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md",
+    "title": "启动与存储画像",
+    "stage": "stage2",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.network_profile",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/network_profile.md",
+    "title": "网络画像",
+    "stage": "stage2",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.peripheral_profile",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md",
+    "title": "外设画像",
+    "stage": "stage2",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.software_stack",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/software_stack.md",
+    "title": "软件栈画像",
+    "stage": "stage3",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.package_management",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/package_management.md",
+    "title": "包管理画像",
+    "stage": "stage3",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.development_environment",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/development_environment.md",
+    "title": "开发环境判断",
+    "stage": "stage3",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.compatibility_matrix",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/compatibility_matrix.md",
+    "title": "软件兼容性矩阵",
+    "stage": "stage3",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.risk_list",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/risk_list.md",
+    "title": "风险清单",
+    "stage": "stage1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.unknowns",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/unknowns.md",
+    "title": "未闭环问题",
+    "stage": "stage1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.source_index",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/source_index.md",
+    "title": "资料来源索引",
+    "stage": "stage1",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.changelog",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/changelog.md",
+    "title": "变更记录",
+    "stage": "preview",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.scripts",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/scripts/README.md",
+    "title": "preview 脚本说明",
+    "stage": "preview",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.raw.readme",
+    "kind": "preview_doc",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/README.md",
+    "title": "raw 原始证据说明",
+    "stage": "preview",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "preview.raw.stage1.apt_policy",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_apt_policy_20260609.txt",
+    "title": "stage1 apt policy raw",
+    "stage": "stage1",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage1.dmesg",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_dmesg_20260609.txt",
+    "title": "stage1 dmesg raw",
+    "stage": "stage1",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage1.env_report",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt",
+    "title": "stage1 environment raw",
+    "stage": "stage1",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage1.journalctl_boot",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_journalctl_boot_20260610.txt",
+    "title": "stage1 journalctl boot raw",
+    "stage": "stage1",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage1.network_software_peripherals",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_network_software_peripherals_20260609.txt",
+    "title": "stage1 network software peripherals raw",
+    "stage": "stage1",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage1.pip_status",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_pip_status_20260610.txt",
+    "title": "stage1 pip status raw",
+    "stage": "stage1",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage1.systemd_failed",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_systemd_failed_detail_20260610.txt",
+    "title": "stage1 systemd failed raw",
+    "stage": "stage1",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage2.readonly_collection",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt",
+    "title": "stage2 readonly collection raw",
+    "stage": "stage2",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "preview.raw.stage3.evidence_combined",
+    "kind": "raw",
+    "path": "kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt",
+    "title": "stage3 evidence combined raw",
+    "stage": "stage3",
+    "sourceType": "raw",
+    "defaultSearch": false
+  }
+]

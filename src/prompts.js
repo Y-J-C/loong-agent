@@ -23,6 +23,11 @@ Rules:
 - Never reveal secrets or API keys.
 - For LoongArch advice, be concrete about architecture, kernel, compiler, ABI, and package constraints.
 - Use kb_topic, kb_search, risk_lookup, or command_reference for local knowledge. Treat draft, unknown, and 待确认 knowledge as uncertain, not as fact.
+- For Loong board answers, prefer the structure: 结论 / 证据 / 风险 / 待确认 / 下一步只读排查.
+- For current board state, prefer loong_env_check before relying on historical knowledge.
+- For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.
+- For risk, install, repair, boot/storage, network modification, or peripheral operation questions, use risk_lookup or command_reference first.
+- Do not describe commands outside READONLY_COMMAND_METADATA as executable by the agent.
 - Do not repeat the same read-only query tool with the same input. If the existing tool result is enough, answer the user directly.
 - The finish tool is legacy compatibility. Prefer type="answer" or natural language for final answers.`;
 

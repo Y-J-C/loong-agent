@@ -28,6 +28,7 @@ P1 维护入口：
 - `troubleshooting.md`：常见问题、证据、只读排查、禁止操作和待确认项。
 - `stage_status.md`：仓库知识库阶段状态，区分 preview 原始状态和当前适配状态。
 - `scripts/README.md`：未来正式只读采集脚本的说明和约束。
+- `index.json`：P2 轻量知识索引，记录 topic、维护文档、preview Markdown 和 raw 证据的路径与类型。
 
 ## Agent 可读 Topic
 
@@ -67,6 +68,20 @@ raw/stage3/
 
 `kb/loongson-2k1000-board-kb-preview/checksums.md` 用于确认 preview 包内文件未被误改。若整理版 topic 与 raw 证据冲突，应以 raw 证据为优先，并在后续修正 topic。
 
+## P2 轻量全文检索
+
+`kb/index.json` 是手工维护的轻量 manifest。它不是自动采集索引，也不是向量库。
+
+`kb_search` 的 P2 行为：
+
+1. 优先搜索根目录 8 个 agent topic；
+2. 补充搜索 `index.json` 中 `defaultSearch: true` 的维护文档和 preview Markdown；
+3. raw `.txt` 默认不搜索；
+4. 当查询包含 `raw`、`evidence`、`证据`、`日志`、`dmesg`、`原始`，或调用方显式传入 `includeRaw: true` 时，才搜索 raw 证据；
+5. 调用方显式传入 `includeRaw: false` 时，强制排除 raw 证据。
+
+P2 仍然不使用 RAG、embedding、向量库、外部抓取或自动 ingestion。搜索结果只是本地关键词命中，需要结合 `status`、`confidence`、`stage` 和 `sourceType` 判断可信度。
+
 ## 验证方式
 
 固定验证命令：
@@ -82,6 +97,7 @@ node scripts/test-knowledge-layer.js
 - topic `sources` 中本地路径的存在性。
 - preview 包 `checksums.md` 与实际文件 hash。
 - preview 包内 raw 引用是否仍可追溯。
+- `kb/index.json` manifest 路径、搜索范围和 raw 按需检索。
 - knowledge context 注入和 context budget 行为。
 
 ## 安全边界
@@ -102,4 +118,4 @@ P1 已补齐仓库层第四阶段维护入口。后续重点：
 
 - 实现并人工验收真实只读采集脚本。
 - 将 `troubleshooting.md` 是否纳入 agent topic 列表作为单独决策。
-- 规划 preview 子目录全文检索和轻量 manifest。
+- 根据 P2 检索效果决定是否扩展更细的 topic 或文档评分规则。

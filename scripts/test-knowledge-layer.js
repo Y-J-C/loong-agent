@@ -6,8 +6,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { createDefaultToolRegistry } = require('../src/tool-registry');
 const { createHookRunner, knowledgeContextHook } = require('../src/hooks');
-const { listTopics, readTopic } = require('../src/kb');
-const { buildMessagesFromTurnContext, buildTurnContext } = require('../src/prompts');
+const { listTopics, readKnowledgeIndex, readTopic, searchKnowledge } = require('../src/kb');
+const { buildMessagesFromTurnContext, buildSystemPrompt, buildTurnContext } = require('../src/prompts');
 const { READONLY_COMMAND_METADATA } = require('../src/tools');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -262,6 +262,98 @@ test('P1 stage status separates preview history from repository adaptation', () 
   });
 });
 
+test('P2 knowledge index lists existing workspace-local knowledge files', () => {
+  const indexPath = path.join(ROOT, 'kb', 'index.json');
+  assert(fs.existsSync(indexPath), 'missing kb index');
+  const entries = readKnowledgeIndex(config());
+  assert(entries.length >= 30, 'knowledge index should include topics, docs, and raw evidence');
+  const counts = entries.reduce((acc, entry) => {
+    acc[entry.kind] = (acc[entry.kind] || 0) + 1;
+    return acc;
+  }, {});
+  assert(counts.topic >= 8, 'knowledge index missing topic entries');
+  assert(counts.preview_doc >= 10, 'knowledge index missing preview Markdown entries');
+  assert(counts.raw >= 5, 'knowledge index missing raw entries');
+  entries.forEach((entry) => {
+    assert(entry.id, 'index entry missing id');
+    assert(entry.path && entry.path.indexOf('..') < 0, `index path must not escape workspace: ${entry.id}`);
+    assert(isInsideRoot(entry.filePath), `index entry escapes workspace: ${entry.id}`);
+    assert(fs.existsSync(entry.filePath), `index entry path is missing: ${entry.id}`);
+  });
+});
+
+test('P2 kb_search returns topic and preview document matches by default', () => {
+  const results = searchKnowledge(config(), 'eth1 DMA', { limit: 8 });
+  assert(results.some((item) => item.kind === 'topic'), 'expected topic search result');
+  assert(
+    results.some((item) => item.kind === 'preview_doc' && /network_profile|environment_report/.test(item.path)),
+    'expected preview network or environment document result'
+  );
+  results.forEach((item) => {
+    assert(item.evidence && item.evidence.source, `missing evidence source: ${item.topic}`);
+    assert(item.evidence.path, `missing evidence path: ${item.topic}`);
+    assert(item.evidence.topic, `missing evidence topic: ${item.topic}`);
+    assert(item.evidence.confidence, `missing evidence confidence: ${item.topic}`);
+  });
+});
+
+test('P2 raw evidence is excluded by default unless requested', () => {
+  const defaultResults = searchKnowledge(config(), 'stage2 readonly collection', { limit: 10 });
+  assert(defaultResults.every((item) => item.kind !== 'raw'), 'raw result should not be included by default');
+
+  const rawQueryResults = searchKnowledge(config(), 'dmesg eth1 证据', { limit: 10 });
+  assert(rawQueryResults.some((item) => item.kind === 'raw'), 'raw result should be included for evidence query');
+
+  const forcedRawResults = searchKnowledge(config(), 'stage2 readonly collection', { limit: 10, includeRaw: true });
+  assert(forcedRawResults.some((item) => item.kind === 'raw'), 'raw result should be included when includeRaw=true');
+
+  const forcedNoRawResults = searchKnowledge(config(), 'dmesg eth1 证据', { limit: 10, includeRaw: false });
+  assert(forcedNoRawResults.every((item) => item.kind !== 'raw'), 'raw result should be excluded when includeRaw=false');
+});
+
+test('P3 knowledgeContextHook injects troubleshooting search matches for eth1 questions', () => {
+  const state = {
+    turn: 2,
+    observations: [],
+    messages: [
+      { role: 'user', content: 'eth1 为什么不能用？' },
+    ],
+  };
+  const result = knowledgeContextHook({
+    config: config(),
+    state,
+    action: { tool: 'kb_search', input: { query: 'eth1 为什么不能用？' } },
+    result: { summary: 'search requested' },
+  });
+  assert(result.contextAdditions.some((item) => item.source === 'knowledge_search'), 'missing knowledge search context');
+  assert(
+    result.knowledgeEvidence.some((item) => /maintenance\.troubleshooting|preview\.network_profile/.test(item.topic || '')),
+    'missing troubleshooting or network evidence'
+  );
+  assert(
+    result.data.searchMatches.some((item) => /maintenance\.troubleshooting|preview\.network_profile/.test(item.topic || '')),
+    'missing troubleshooting or network search match'
+  );
+});
+
+test('P3 knowledgeContextHook includes raw evidence for evidence queries', () => {
+  const state = {
+    turn: 2,
+    observations: [],
+    messages: [
+      { role: 'user', content: '看 dmesg eth1 证据' },
+    ],
+  };
+  const result = knowledgeContextHook({
+    config: config(),
+    state,
+    action: { tool: 'kb_search', input: { query: '看 dmesg eth1 证据' } },
+    result: { summary: 'search requested' },
+  });
+  assert(result.knowledgeEvidence.some((item) => item.sourceType === 'raw'), 'missing raw evidence');
+  assert(result.data.searchMatches.some((item) => item.kind === 'raw'), 'missing raw search match');
+});
+
 test('readTopic parses measured topic metadata without draft warning', () => {
   const loaded = readTopic(config(), 'board_profile');
   assert(loaded.ok === true, 'board_profile should load');
@@ -306,6 +398,17 @@ testAsync('kb_search returns local markdown matches with evidence', async () => 
   assert(result.evidence.length > 0, 'missing search evidence');
 });
 
+testAsync('kb_search supports includeRaw for raw evidence lookup', async () => {
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config(), 'kb_search', {
+    query: 'stage2 readonly collection',
+    limit: 10,
+    includeRaw: true,
+  });
+  assert(result.ok === true, 'kb_search includeRaw failed');
+  assert(result.matches.some((item) => item.kind === 'raw'), 'missing raw evidence match');
+});
+
 testAsync('risk_lookup returns risk and unknowns topics', async () => {
   const registry = createDefaultToolRegistry();
   const result = await registry.execute(config(), 'risk_lookup', { query: 'package install risk' });
@@ -313,6 +416,24 @@ testAsync('risk_lookup returns risk and unknowns topics', async () => {
   assert(result.risks && result.risks.topic === 'risk_list', 'missing risks topic');
   assert(result.unknowns && result.unknowns.topic === 'unknowns', 'missing unknowns topic');
   assert(result.evidence.length >= 2, 'missing risk evidence');
+});
+
+testAsync('P3 risk_lookup classifies forbidden system changes', async () => {
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config(), 'risk_lookup', { query: 'apt upgrade 修复环境' });
+  assert(result.ok === true, 'risk_lookup failed');
+  assert(result.data.riskLevel === 'forbidden', 'apt upgrade should be forbidden');
+  assert(result.data.forbiddenOperations.length > 0, 'missing forbidden operations');
+  assert(result.data.readOnlyAlternatives.length > 0, 'missing read-only alternatives');
+  assert(result.warnings.some((item) => /Forbidden operation/.test(item)), 'missing forbidden warning');
+});
+
+testAsync('P3 risk_lookup classifies package installation as caution', async () => {
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config(), 'risk_lookup', { query: 'npm 能不能安装' });
+  assert(result.ok === true, 'risk_lookup failed');
+  assert(result.data.riskLevel === 'caution', 'npm install question should be caution');
+  assert(result.data.pendingConfirmations.length > 0, 'missing pending confirmations');
 });
 
 testAsync('command_reference uses READONLY_COMMAND_METADATA as authoritative source', async () => {
@@ -324,6 +445,23 @@ testAsync('command_reference uses READONLY_COMMAND_METADATA as authoritative sou
   result.commands.forEach((item) => {
     assert(READONLY_COMMAND_METADATA.some((meta) => meta.command === item.command), `command not from metadata: ${item.command}`);
   });
+});
+
+testAsync('P3 command_reference reports forbidden examples for non-allowlisted commands', async () => {
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config(), 'command_reference', { query: 'apt upgrade' });
+  assert(result.ok === true, 'command_reference failed');
+  assert(result.commands.length === 0, 'apt upgrade should not be allowlisted');
+  assert(result.warnings.some((item) => /No allowed command matched query/.test(item)), 'missing no-match warning');
+  assert(result.data.riskLevels.forbiddenExamples.some((item) => /apt upgrade/.test(item)), 'missing forbidden apt upgrade example');
+});
+
+testAsync('P3 command_reference groups L0 and L1 read-only commands', async () => {
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config(), 'command_reference', { query: 'node' });
+  assert(result.ok === true, 'command_reference failed');
+  assert(result.data.riskLevels.L0.some((item) => item.command === 'node -v'), 'missing node -v in L0');
+  assert(result.data.riskLevels.L1.some((item) => item.command === 'dmesg | tail -n 80'), 'missing dmesg in L1');
 });
 
 test('knowledgeContextHook returns cautious structured knowledge context', () => {
@@ -389,4 +527,11 @@ test('turn context applies knowledge budget and keeps metadata', () => {
   assert(turnContext.kbSummary.indexOf('risk_list') >= 0, 'kb summary missing evidence topic');
   assert(messages[1].content.indexOf('Controlled context / knowledge additions') >= 0, 'prompt missing controlled context');
   assert(messages[1].content.indexOf('待确认') >= 0, 'prompt missing pending confirmation warning');
+});
+
+test('P3 system prompt includes knowledge-driven answer and command safety rules', () => {
+  const prompt = buildSystemPrompt();
+  assert(prompt.indexOf('结论 / 证据 / 风险 / 待确认 / 下一步只读排查') >= 0, 'prompt missing Loong board answer structure');
+  assert(prompt.indexOf('READONLY_COMMAND_METADATA') >= 0, 'prompt missing command metadata authority');
+  assert(prompt.indexOf('includeRaw=true') >= 0, 'prompt missing raw evidence guidance');
 });

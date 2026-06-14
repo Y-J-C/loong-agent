@@ -9,9 +9,15 @@ const TOPIC_HINTS = [
   { topic: 'command_reference', pattern: /command|shell|readonly|allowlist|命令|白名单|诊断/i },
   { topic: 'board_profile', pattern: /board|loong|loongarch|hardware|板|龙芯|架构/i },
   { topic: 'environment_report', pattern: /environment|node|runtime|os|kernel|环境|运行时/i },
-  { topic: 'software_stack', pattern: /software|stack|npm|commonjs|compiler|g\+\+|软件|依赖/i },
+  { topic: 'software_stack', pattern: /software|stack|npm|commonjs|compiler|g\+\+|docker|podman|pip|软件|依赖/i },
   { topic: 'compatibility_matrix', pattern: /compat|node 14|compatibility|兼容/i },
 ];
+
+const TROUBLESHOOTING_PATTERN =
+  /eth1|npm|g\+\+|pip|docker|podman|\/boot\/efi|gpt|audio|no codecs|crtc|display|gpio|i2c|spi|uart|故障|排查|不能用|不可用/i;
+const RAW_EVIDENCE_PATTERN = /(?:\braw\b|\bevidence\b|证据|日志|dmesg|原始)/i;
+const MAX_TOPIC_CONTEXT = 3;
+const MAX_SEARCH_CONTEXT = 3;
 
 function contextText(context) {
   const action = context && context.action ? context.action : {};
@@ -42,7 +48,52 @@ function chooseTopics(text, action) {
   if (!selected.length && text) {
     selected.push('risk_list', 'unknowns');
   }
-  return selected.slice(0, 3);
+  return selected.slice(0, MAX_TOPIC_CONTEXT);
+}
+
+function includeRawEvidence(text) {
+  return RAW_EVIDENCE_PATTERN.test(String(text || ''));
+}
+
+function searchLimit(text) {
+  return TROUBLESHOOTING_PATTERN.test(String(text || '')) || includeRawEvidence(text)
+    ? 10
+    : 2;
+}
+
+function formatSearchMatch(match) {
+  return [
+    `${match.title || match.topic}: ${summarize(match.summary || '', 360)}`,
+    match.stage ? `Stage: ${match.stage}` : '',
+    match.path ? `Path: ${match.path}` : '',
+    match.unknowns ? `Unknowns: ${summarize(match.unknowns, 220)}` : '',
+    match.warnings && match.warnings.length ? `Warnings: ${match.warnings.join('; ')}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function selectSearchContextMatches(matches, text) {
+  const selected = [];
+  const seen = {};
+  function add(match) {
+    if (!match || !match.topic || seen[match.topic] || selected.length >= MAX_SEARCH_CONTEXT) return;
+    seen[match.topic] = true;
+    selected.push(match);
+  }
+  if (TROUBLESHOOTING_PATTERN.test(String(text || ''))) {
+    (matches || [])
+      .filter((match) => match.topic === 'maintenance.troubleshooting')
+      .forEach(add);
+  }
+  if (includeRawEvidence(text)) {
+    (matches || [])
+      .filter((match) => match.kind === 'raw')
+      .forEach(add);
+  }
+  (matches || [])
+    .filter((match) => match.kind === 'preview_doc' || match.kind === 'maintenance')
+    .forEach(add);
+  (matches || []).forEach(add);
+  return selected;
 }
 
 function knowledgeContextHook(context) {
@@ -57,7 +108,10 @@ function knowledgeContextHook(context) {
     const envelope = buildTopicEnvelope(config, topic);
     if (envelope.ok) topicResults.push(envelope);
   }
-  const searchResults = searchKnowledge(config, text, { limit: 2 });
+  const searchResults = selectSearchContextMatches(searchKnowledge(config, text, {
+    limit: searchLimit(text),
+    includeRaw: includeRawEvidence(text),
+  }), text);
   const evidence = [];
   const unknowns = [];
   const warnings = [];
@@ -88,6 +142,12 @@ function knowledgeContextHook(context) {
     if (!match || !match.evidence) continue;
     if (!evidence.some((item) => item.topic === match.evidence.topic)) evidence.push(match.evidence);
     if (match.warnings && match.warnings.length) warnings.push.apply(warnings, match.warnings);
+    contextAdditions.push({
+      source: 'knowledge_search',
+      title: `Knowledge match: ${match.title || match.topic}`,
+      topic: match.topic,
+      content: formatSearchMatch(match),
+    });
   }
   if (!summaries.length && !evidence.length) return;
   warnings.push('Knowledge context is supporting evidence only. Treat draft, unknown, and 待确认 entries as uncertain.');
@@ -99,6 +159,15 @@ function knowledgeContextHook(context) {
       topics,
       summary: summarize(summaries.join('\n'), 900),
       unknowns,
+      searchMatches: searchResults.map((match) => ({
+        kind: match.kind,
+        topic: match.topic,
+        path: match.path,
+        title: match.title,
+        stage: match.stage,
+        sourceType: match.sourceType,
+        score: match.score,
+      })),
     },
   };
 }
