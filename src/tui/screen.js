@@ -16,6 +16,8 @@ const ANSI = {
   brightBlue: '\x1b[94m',
   cyan: '\x1b[36m',
   inverse: '\x1b[7m',
+  userBg: '\x1b[38;5;255m\x1b[48;5;237m',
+  finalAnswerBg: '\x1b[38;5;16m\x1b[48;5;250m',
 };
 
 function color(code, text) {

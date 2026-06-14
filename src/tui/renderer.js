@@ -39,6 +39,7 @@ function renderBlock(text, width, theme, token, options) {
   const opts = options || {};
   const maxLines = opts.maxLines || MAX_MESSAGE_LINES;
   const prefix = opts.prefix || '';
+  const fill = Boolean(opts.fill);
   const clean = redactSensitive(sanitize(text || ''));
   const sourceLines = String(clean).split(/\n/);
   let output = [];
@@ -49,7 +50,7 @@ function renderBlock(text, width, theme, token, options) {
   }
   if (!output.length) output = [''];
   output = clampLines(output.map((line) => fitLine(line, width)), maxLines, width, theme);
-  return output.map((line) => paint(theme, token, line));
+  return output.map((line) => paint(theme, token, fill ? padRight(line, width) : line));
 }
 
 // 将扁平 cursor 索引映射到多行输入中的 (行, 列)
@@ -92,18 +93,18 @@ function renderUser(message, width, theme) {
   const clean = sanitize(text);
   const sourceLines = clean.split('\n');
   const lines = [];
-  // Header: ╭─ 你
-  const headerW = Math.max(2, width - 6);
-  lines.push(paint(theme, 'userBorder', fitLine(`╭─ 你${' ─'.repeat(Math.floor(headerW / 2))}`, width)));
-  // Content with │ prefix
-  const indent = '│ ';
+  const indent = '  ';
   const contentW = Math.max(1, width - 2);
+  lines.push(paint(theme, 'user', padRight('', width)));
   for (const source of sourceLines) {
     const wrapped = wrapToWidth(source || '', contentW - 2);
     for (const wLine of (wrapped.length ? wrapped : [''])) {
-      lines.push(paint(theme, 'user', fitLine(`${indent}${truncateToWidth(wLine, contentW - 2)}`, width)));
+      const line = fitLine(`${indent}${truncateToWidth(wLine, contentW - 2)}`, width);
+      lines.push(paint(theme, 'user', padRight(line, width)));
     }
   }
+  lines.push(paint(theme, 'user', padRight('', width)));
+  lines.push('');
   return lines;
 }
 
@@ -112,6 +113,24 @@ function renderAssistant(message, width, theme) {
   if (!String(text).trim()) return [];
   // 自然文本流，无前缀
   return renderBlock(text, width, theme, 'assistant');
+}
+
+function renderFinalAnswer(message, width, theme) {
+  const text = message.text || '';
+  if (!String(text).trim()) return [];
+  const lines = String(text).split(/\n/);
+  const meta = lines.slice(0, 2).join('\n');
+  const answer = lines.slice(2).join('\n');
+  const output = [];
+  if (meta.trim()) output.push(...renderBlock(meta, width, theme, 'assistant'));
+  if (answer.trim()) {
+    output.push('');
+    output.push(paint(theme, 'finalAnswer', padRight('', width)));
+    output.push(...renderBlock(answer, width, theme, 'finalAnswer', { fill: true }));
+    output.push(paint(theme, 'finalAnswer', padRight('', width)));
+    output.push('');
+  }
+  return output;
 }
 
 function renderTool(message, width, expanded, theme) {
@@ -155,10 +174,10 @@ function renderTool(message, width, expanded, theme) {
 
 function renderTurnSeparator(prevType, nextType, width, theme) {
   if (!prevType || !nextType) return [];
-  if (prevType === 'user' && (nextType === 'assistant' || nextType === 'tool')) return [];
-  if (prevType === 'assistant' && nextType === 'tool') return [];
-  if (prevType === 'tool' && nextType === 'assistant') return [];
-  if ((prevType === 'tool' || prevType === 'assistant') && nextType === 'user') {
+  if (prevType === 'user' && (nextType === 'assistant' || nextType === 'assistant_final' || nextType === 'tool')) return [];
+  if ((prevType === 'assistant' || prevType === 'assistant_final') && nextType === 'tool') return [];
+  if (prevType === 'tool' && (nextType === 'assistant' || nextType === 'assistant_final')) return [];
+  if ((prevType === 'tool' || prevType === 'assistant' || prevType === 'assistant_final') && nextType === 'user') {
     return [paint(theme, 'turnSeparator', fitLine('·'.repeat(Math.max(2, width - 2)), width))];
   }
   if (nextType === 'user') {
@@ -170,6 +189,7 @@ function renderTurnSeparator(prevType, nextType, width, theme) {
 function renderMessage(message, width, expandedTools, theme) {
   if (message.type === 'user') return renderUser(message, width, theme);
   if (message.type === 'assistant') return renderAssistant(message, width, theme);
+  if (message.type === 'assistant_final') return renderFinalAnswer(message, width, theme);
   if (message.type === 'tool') return renderTool(message, width, expandedTools, theme);
   if (message.type === 'error') return renderBlock(message.text || '', width, theme, 'error');
   if (message.type === 'system') return renderBlock(message.text || '', width, theme, 'system');

@@ -5,13 +5,16 @@ const { resolveProviderCapabilities } = require('./provider-registry');
 
 const SYSTEM_PROMPT = `You are Loong Pi Agent, a lightweight coding and diagnostics agent for LoongArch developer boards.
 
-You must respond with strict JSON only. The response must be a valid json object. Do not wrap JSON in markdown.
-
 Available tools:
 {{TOOLS}}
 
-Response format:
-{"tool":"tool_name","input":{...},"reason":"short reason"}
+Response protocol:
+- To call a tool, return strict JSON only:
+  {"type":"tool","tool":"tool_name","input":{...},"reason":"short reason"}
+- Legacy tool JSON is still accepted:
+  {"tool":"tool_name","input":{...},"reason":"short reason"}
+- To answer the user, return either natural language or strict JSON:
+  {"type":"answer","answer":"final answer","status":"ok","evidence":[]}
 
 Rules:
 - Prefer board_profile before giving board-specific advice.
@@ -20,7 +23,8 @@ Rules:
 - Never reveal secrets or API keys.
 - For LoongArch advice, be concrete about architecture, kernel, compiler, ABI, and package constraints.
 - Use kb_topic, kb_search, risk_lookup, or command_reference for local knowledge. Treat draft, unknown, and 待确认 knowledge as uncertain, not as fact.
-- When enough evidence has been gathered, call finish.`;
+- Do not repeat the same read-only query tool with the same input. If the existing tool result is enough, answer the user directly.
+- The finish tool is legacy compatibility. Prefer type="answer" or natural language for final answers.`;
 
 function buildSystemPrompt(tools) {
   return SYSTEM_PROMPT.replace('{{TOOLS}}', formatToolsForPrompt(tools || createDefaultTools()));
@@ -76,9 +80,21 @@ function summarizeMessages(messages) {
     .map((message) => {
       if (!message || message.internal) return '';
       if (message.role === 'user') return `User: ${message.content || ''}`;
-      if (message.role === 'assistant') return `Assistant tool JSON: ${message.content || ''}`;
+      if (message.role === 'assistant') return `Assistant response: ${message.content || ''}`;
       if (message.role === 'toolResult') {
-        return `Tool result (${message.tool || 'unknown'}): ${compactJson(message.content || {}, 1200)}`;
+        const content = message.content || {};
+        const parts = [
+          `Tool result (${message.tool || 'unknown'}): ${compactJson(content, 1200)}`,
+        ];
+        if (content.summary) parts.push(`Summary: ${content.summary}`);
+        if (content.repeat) parts.push(`Repeat: ${compactJson(content.repeat, 300)}`);
+        if (Array.isArray(content.evidence) && content.evidence.length) {
+          parts.push(`Evidence: ${compactJson(content.evidence, 500)}`);
+        }
+        if (Array.isArray(content.warnings) && content.warnings.length) {
+          parts.push(`Warnings: ${content.warnings.join('; ')}`);
+        }
+        return parts.join('\n');
       }
       return '';
     })
@@ -178,7 +194,7 @@ function buildMessagesFromTurnContext(turnContext) {
     parts.push([
       `Analysis depth hint: ${thinkingLevel}`,
       hints[thinkingLevel] || hints.medium,
-      'Do not reveal hidden chain-of-thought; return only the required strict JSON tool action.',
+      'Do not reveal hidden chain-of-thought; return only a tool action JSON or a final answer.',
     ].join('\n'));
   }
 

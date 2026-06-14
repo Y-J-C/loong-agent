@@ -33,6 +33,25 @@ function createLoopError(message, code) {
   return error;
 }
 
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => {
+    return `${JSON.stringify(key)}:${stableStringify(value[key])}`;
+  }).join(',')}}`;
+}
+
+function toolFingerprint(action) {
+  return `${action.tool}:${stableStringify(action.input || {})}`;
+}
+
+function looksLikeJsonAction(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  if (trimmed[0] === '{') return true;
+  return /"tool"\s*:|"type"\s*:|"answer"\s*:/.test(trimmed);
+}
+
 function parseToolCall(text) {
   const trimmed = String(text || '').trim();
   try {
@@ -53,6 +72,97 @@ function parseToolCall(text) {
     }
     throw new Error(`Model did not return JSON: ${trimmed.slice(0, 300)}`);
   }
+}
+
+function parseAgentResponse(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) {
+    return {
+      kind: 'invalid_action',
+      error: createLoopError('Model returned an empty response', 'empty_model_response'),
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = parseToolCall(trimmed);
+  } catch (error) {
+    if (looksLikeJsonAction(trimmed)) {
+      return {
+        kind: 'invalid_action',
+        error: createLoopError(errorMessage(error), error.code || 'invalid_model_json'),
+      };
+    }
+    return {
+      kind: 'final_answer',
+      answer: {
+        summary: trimmed,
+        status: 'ok',
+        evidence: [],
+      },
+    };
+  }
+
+  if (parsed && typeof parsed === 'object' && parsed.type === 'answer') {
+    if (typeof parsed.answer !== 'string' || !parsed.answer.trim()) {
+      return {
+        kind: 'invalid_action',
+        error: createLoopError('Model answer response must contain a non-empty answer string', 'invalid_answer_response'),
+      };
+    }
+    return {
+      kind: 'final_answer',
+      answer: {
+        summary: parsed.answer,
+        status: parsed.status || 'ok',
+        evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
+      },
+    };
+  }
+
+  if (parsed && typeof parsed === 'object' && parsed.type === 'tool') {
+    try {
+      return {
+        kind: 'tool_action',
+        action: validateAction(parsed),
+      };
+    } catch (error) {
+      return {
+        kind: 'invalid_action',
+        error,
+      };
+    }
+  }
+
+  if (parsed && typeof parsed === 'object' && typeof parsed.tool === 'string') {
+    try {
+      return {
+        kind: 'tool_action',
+        action: validateAction(parsed),
+      };
+    } catch (error) {
+      return {
+        kind: 'invalid_action',
+        error,
+      };
+    }
+  }
+
+  if (parsed && typeof parsed === 'object' && typeof parsed.answer === 'string' && parsed.answer.trim()) {
+    return {
+      kind: 'final_answer',
+      answer: {
+        summary: parsed.answer,
+        status: parsed.status || 'ok',
+        evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
+      },
+    };
+  }
+
+  return {
+    kind: 'invalid_action',
+    error: createLoopError('Model JSON must be a tool action or answer response', 'invalid_model_response'),
+  };
 }
 
 function balanceTrailingObjectBraces(text) {
@@ -101,6 +211,130 @@ function summarizeObservations(observations) {
     'Reached max loop limit; returning best available summary from collected observations.',
     ...latest,
   ].join('\n');
+}
+
+function summarizeToolResultForAnswer(toolName, result, resultSummary) {
+  if (!result || typeof result !== 'object') return resultSummary || '';
+  if (toolName === 'command_reference' && Array.isArray(result.commands)) {
+    const commands = result.commands.map((item) => item.command).filter(Boolean);
+    return [
+      `当前允许的只读命令共有 ${commands.length} 个，来源为 READONLY_COMMAND_METADATA。`,
+      commands.length ? `允许命令：${commands.join('、')}` : '',
+      resultSummary ? `摘要：${resultSummary}` : '',
+    ].filter(Boolean).join('\n');
+  }
+  return result.summary || resultSummary || JSON.stringify(result, null, 2);
+}
+
+function createRepeatGuardFallback(action, entry) {
+  const summary = summarizeToolResultForAnswer(
+    entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.tool : action.tool,
+    entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.result : null,
+    entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.resultSummary : ''
+  );
+  return [
+    `检测到模型重复调用 ${action.tool}，已停止继续调用相同工具。`,
+    summary || '已有工具结果足以回答当前问题，但没有可用的结构化摘要。',
+  ].join('\n');
+}
+
+function repeatPolicyForTool(tool) {
+  if (!tool) return '';
+  return tool.repeatPolicy || '';
+}
+
+function shouldGuardRepeatedTool(tool) {
+  if (!tool) return false;
+  const guardedNames = {
+    command_reference: true,
+    kb_topic: true,
+    kb_search: true,
+    risk_lookup: true,
+  };
+  return repeatPolicyForTool(tool) === 'answerable_once' || guardedNames[tool.name];
+}
+
+function ensureToolCallHistory(state) {
+  if (!state.toolCallHistory) state.toolCallHistory = {};
+  return state.toolCallHistory;
+}
+
+function evaluateRepeatPolicy(context, action) {
+  const tool = context.registry.get(action.tool);
+  if (!shouldGuardRepeatedTool(tool)) return { mode: 'allow' };
+  const history = ensureToolCallHistory(context.state);
+  const fingerprint = toolFingerprint(action);
+  const entry = history[fingerprint] || {
+    fingerprint,
+    tool: action.tool,
+    input: action.input || {},
+    count: 0,
+    firstTurn: context.turn,
+    lastTurn: context.turn,
+    lastSuccessfulResult: null,
+  };
+  entry.count += 1;
+  entry.lastTurn = context.turn;
+  history[fingerprint] = entry;
+  if (entry.count >= 3) {
+    return { mode: 'fallback', entry, fingerprint, tool };
+  }
+  if (entry.count === 2) {
+    return { mode: 'block', entry, fingerprint, tool };
+  }
+  return { mode: 'allow', entry, fingerprint, tool };
+}
+
+function rememberToolExecution(context, action, execution, repeatDecision) {
+  if (!repeatDecision || !repeatDecision.entry) return;
+  repeatDecision.entry.lastResult = {
+    tool: action.tool,
+    input: action.input || {},
+    result: execution.result,
+    resultSummary: execution.resultSummary,
+    isError: execution.isError,
+    errorType: execution.errorType,
+    turn: context.turn,
+  };
+  if (!execution.isError) {
+    repeatDecision.entry.lastSuccessfulResult = repeatDecision.entry.lastResult;
+  }
+}
+
+function createRepeatBlockedExecution(action, repeatDecision) {
+  const previous = repeatDecision && repeatDecision.entry
+    ? repeatDecision.entry.lastSuccessfulResult || repeatDecision.entry.lastResult
+    : null;
+  const previousSummary = previous ? summarizeToolResultForAnswer(action.tool, previous.result, previous.resultSummary) : '';
+  const message = [
+    `Repeated tool call blocked: ${action.tool} was already called with the same input.`,
+    'Use the existing tool result to answer the user. Do not call this tool again for the same input.',
+    previousSummary ? `Previous result:\n${previousSummary}` : '',
+  ].filter(Boolean).join('\n');
+  return {
+    errorType: 'policy_blocked',
+    isError: true,
+    result: {
+      ok: false,
+      blocked: true,
+      policy: 'repeat_tool_call',
+      error: message,
+      summary: message,
+      repeat: {
+        tool: action.tool,
+        input: action.input || {},
+        count: repeatDecision && repeatDecision.entry ? repeatDecision.entry.count : 2,
+        fingerprint: repeatDecision && repeatDecision.fingerprint ? repeatDecision.fingerprint : '',
+      },
+      previousResult: previous ? previous.result : null,
+      evidence: previous && previous.result && Array.isArray(previous.result.evidence)
+        ? previous.result.evidence
+        : [],
+      warnings: ['Repeated tool call blocked; summarize the existing result instead.'],
+    },
+    resultSummary: message,
+    toolCallId: '',
+  };
 }
 
 function safeProviderCapabilities(config) {
@@ -328,12 +562,17 @@ async function emitStreamingAssistantMessage(context, messages, chatCompletion) 
     },
   });
   if (!emittedUpdate) {
-    await emitAssistantMessage(context, content);
-    return content;
+    return {
+      content,
+      emitted: false,
+    };
   }
   await endAssistantMessage(context, content, { streaming: emittedUpdate });
   context.assistantMessageOpen = false;
-  return content;
+  return {
+    content,
+    emitted: true,
+  };
 }
 
 function validateAction(action) {
@@ -353,7 +592,7 @@ function validateAction(action) {
   });
 }
 
-async function executeToolCall(context, action) {
+async function executeToolCall(context, action, repeatDecision) {
   const registry = context.registry;
   const config = context.config;
   const emit = context.emit;
@@ -380,40 +619,50 @@ async function executeToolCall(context, action) {
   let resultSummary = '';
   let errorType = '';
 
-  const beforeDecision = await runBeforeToolCall(context, action, tool, toolCallId);
-  if (beforeDecision) {
-    result = beforeDecision.result;
-    isError = true;
-    errorType = beforeDecision.errorType;
-    resultSummary = beforeDecision.resultSummary;
+  if (repeatDecision && repeatDecision.mode === 'block') {
+    const blocked = createRepeatBlockedExecution(action, repeatDecision);
+    result = blocked.result;
+    isError = blocked.isError;
+    errorType = blocked.errorType;
+    resultSummary = blocked.resultSummary;
   } else {
-    try {
-      result = await registry.execute(config, action.tool, action.input);
-      const executedTool = registry.get(action.tool);
-      resultSummary =
-        executedTool && executedTool.renderResult ? executedTool.renderResult(result) : '';
-    } catch (error) {
+    const beforeDecision = await runBeforeToolCall(context, action, tool, toolCallId);
+    if (beforeDecision) {
+      result = beforeDecision.result;
       isError = true;
-      errorType = error && error.code ? error.code : 'tool_execution_error';
-      result = {
-        error: errorMessage(error),
-      };
-      resultSummary =
-        tool && tool.renderError ? tool.renderError(error) : result.error;
+      errorType = beforeDecision.errorType;
+      resultSummary = beforeDecision.resultSummary;
+    } else {
+      try {
+        result = await registry.execute(config, action.tool, action.input);
+        const executedTool = registry.get(action.tool);
+        resultSummary =
+          executedTool && executedTool.renderResult ? executedTool.renderResult(result) : '';
+      } catch (error) {
+        isError = true;
+        errorType = error && error.code ? error.code : 'tool_execution_error';
+        result = {
+          error: errorMessage(error),
+        };
+        resultSummary =
+          tool && tool.renderError ? tool.renderError(error) : result.error;
+      }
     }
   }
 
-  const afterDecision = await runAfterToolCall(context, action, tool, toolCallId, {
-    errorType,
-    isError,
-    result,
-    resultSummary,
-  });
-  if (afterDecision) {
-    result = afterDecision.result;
-    isError = afterDecision.isError;
-    errorType = afterDecision.errorType;
-    resultSummary = afterDecision.resultSummary;
+  if (!(repeatDecision && repeatDecision.mode === 'block')) {
+    const afterDecision = await runAfterToolCall(context, action, tool, toolCallId, {
+      errorType,
+      isError,
+      result,
+      resultSummary,
+    });
+    if (afterDecision) {
+      result = afterDecision.result;
+      isError = afterDecision.isError;
+      errorType = afterDecision.errorType;
+      resultSummary = afterDecision.resultSummary;
+    }
   }
 
   await emit({
@@ -427,15 +676,22 @@ async function executeToolCall(context, action) {
     status: isError ? 'error' : 'ok',
     errorType,
     durationMs: elapsedMs(startedAt),
+    repeat: repeatDecision && repeatDecision.entry ? {
+      count: repeatDecision.entry.count,
+      fingerprint: repeatDecision.fingerprint,
+      policy: repeatPolicyForTool(tool),
+    } : undefined,
   });
 
-  return {
+  const execution = {
     errorType,
     isError,
     result,
     resultSummary,
     toolCallId,
   };
+  rememberToolExecution(context, action, execution, repeatDecision);
+  return execution;
 }
 
 async function runBeforeToolCall(context, action, tool, toolCallId) {
@@ -704,6 +960,7 @@ async function runAgentLoop(options) {
     pendingMessages = [];
 
     let content;
+    let assistantAlreadyEmitted = false;
     let modelMetadata = null;
     const modelCallbacks = {
       onMetadata: (metadata) => {
@@ -721,9 +978,11 @@ async function runAgentLoop(options) {
       if (config.streaming === false) {
         content = await chatCompletion(config, messages, modelCallbacks);
       } else {
-        content = await emitStreamingAssistantMessage(turnContext, messages, (cfg, msgs, callbacks) => {
+        const streamed = await emitStreamingAssistantMessage(turnContext, messages, (cfg, msgs, callbacks) => {
           return chatCompletion(cfg, msgs, Object.assign({}, callbacks || {}, modelCallbacks));
         });
+        content = streamed.content;
+        assistantAlreadyEmitted = streamed.emitted;
       }
     } catch (error) {
       return failRun(turnContext, error, { code: 'model_request_error' });
@@ -731,21 +990,53 @@ async function runAgentLoop(options) {
     if (isAborted()) {
       return failRun(turnContext, createLoopError('Agent run aborted', 'aborted'));
     }
-    if (config.streaming === false) {
-      await emitAssistantMessage(turnContext, content);
+    const response = parseAgentResponse(content);
+    if (!assistantAlreadyEmitted) {
+      const displayContent = response.kind === 'final_answer'
+        ? response.answer.summary
+        : content;
+      await emitAssistantMessage(turnContext, displayContent);
     }
+
     const usageEvent = createModelUsageEvent(config, turn, modelMetadata);
     addModelUsage(state, usageEvent);
     await emit(usageEvent);
 
-    let action;
-    try {
-      action = validateAction(parseToolCall(content));
+    if (response.kind === 'final_answer') {
       invalidJsonCount = 0;
-    } catch (error) {
+      await emitTurnEnd(turnContext, {
+        isError: response.answer.status === 'error',
+        status: response.answer.status || 'ok',
+        reason: 'model_answer',
+      });
+      const followUps = getFollowUpMessages();
+      if (followUps.length > 0) {
+        pendingMessages = followUps;
+        continue;
+      }
+      finishRun(state, response.answer.summary || '');
+      await emit({
+        type: 'agent_end',
+        summary: response.answer.summary || '',
+        observations: state.observations,
+        status: response.answer.status || 'ok',
+        turns: state.turn,
+        durationMs: elapsedMs(runStartedAt),
+        usageSummary: summarizeModelUsage(state),
+        completionSource: 'model_answer',
+        evidence: response.answer.evidence || [],
+      });
+      return {
+        summary: response.answer.summary || '',
+        observations: state.observations,
+        completionSource: 'model_answer',
+      };
+    }
+
+    if (response.kind === 'invalid_action') {
       invalidJsonCount += 1;
       const result = {
-        error: errorMessage(error),
+        error: errorMessage(response.error),
       };
       recordToolResult(state, {
         tool: 'model_response',
@@ -758,15 +1049,49 @@ async function runAgentLoop(options) {
         reason: 'invalid_model_json',
       });
       if (invalidJsonCount >= 2) {
-        return failRun(turnContext, error, { code: error.code || 'invalid_model_json' });
+        return failRun(turnContext, response.error, { code: response.error.code || 'invalid_model_response' });
       }
       pendingMessages.push({
-        content: 'Your previous response was not valid JSON. Return strict JSON with tool, input, and reason.',
+        content: 'Your previous response looked like a malformed tool or answer JSON object. Return either {"type":"tool","tool":"...","input":{},"reason":"..."} or {"type":"answer","answer":"...","status":"ok"}.',
         internal: true,
       });
       continue;
     }
-    const toolExecution = await executeToolCall(turnContext, action);
+
+    const action = response.action;
+    const repeatDecision = evaluateRepeatPolicy(turnContext, action);
+    if (repeatDecision.mode === 'fallback') {
+      const summary = createRepeatGuardFallback(action, repeatDecision.entry);
+      recordToolResult(state, action, {
+        ok: true,
+        repeatGuard: true,
+        summary,
+      });
+      await emitTurnEnd(turnContext, {
+        isError: false,
+        status: 'ok',
+        reason: 'repeat_guard_fallback',
+        toolName: action.tool,
+      });
+      finishRun(state, summary);
+      await emit({
+        type: 'agent_end',
+        summary,
+        observations: state.observations,
+        status: 'ok',
+        turns: state.turn,
+        durationMs: elapsedMs(runStartedAt),
+        usageSummary: summarizeModelUsage(state),
+        completionSource: 'repeat_guard_fallback',
+      });
+      return {
+        summary,
+        observations: state.observations,
+        completionSource: 'repeat_guard_fallback',
+      };
+    }
+
+    const toolExecution = await executeToolCall(turnContext, action, repeatDecision);
     const result = toolExecution.result;
     const isError = toolExecution.isError;
 
@@ -785,12 +1110,12 @@ async function runAgentLoop(options) {
       if (!pendingMessages.length) {
         if (consecutiveToolErrors >= 3) {
           pendingMessages.push({
-            content: `Tool ${action.tool} failed again: ${result.error}. Do not call more tools. Call finish now with a clear summary of what failed and what is known.`,
+            content: `Tool ${action.tool} failed again: ${result.error}. Do not call more tools. Return a final answer with what failed and what is known.`,
             internal: true,
           });
         } else {
           pendingMessages.push({
-            content: `Tool ${action.tool} failed: ${result.error}. Use another available tool or call finish with a clear summary.`,
+            content: `Tool ${action.tool} failed: ${result.error}. Use another available tool only if needed, otherwise return a final answer with a clear summary.`,
             internal: true,
           });
         }
@@ -816,10 +1141,12 @@ async function runAgentLoop(options) {
         turns: state.turn,
         durationMs: elapsedMs(runStartedAt),
         usageSummary: summarizeModelUsage(state),
+        completionSource: 'finish_tool',
       });
       return {
         summary: result.summary || '',
         observations: state.observations,
+        completionSource: 'finish_tool',
       };
     }
 
@@ -840,12 +1167,14 @@ async function runAgentLoop(options) {
     turns: state.turn,
     durationMs: elapsedMs(runStartedAt),
     usageSummary: summarizeModelUsage(state),
+    completionSource: 'max_loops_fallback',
   });
   return finalResult;
 }
 
 module.exports = {
   balanceTrailingObjectBraces,
+  parseAgentResponse,
   parseToolCall,
   runAgentLoop,
 };

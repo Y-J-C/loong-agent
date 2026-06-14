@@ -55,6 +55,32 @@ test('event adapter renders message_update and tool events', () => {
   assert(output.indexOf('done') >= 0, 'missing summary');
 });
 
+test('renderer highlights only user block and final answer rows', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ type: 'user', text: '你好' });
+  state.messages.push({ type: 'assistant', text: 'assistant -> tool: board_profile' });
+  state.messages.push({ type: 'assistant_final', text: '总结输出: 就绪 (ok)\nagent_end status=ok\n最终回答\n第二行' });
+  const output = renderTui(state, { columns: 60, rows: 24 });
+  assert(output.indexOf('\x1b[38;5;255m\x1b[48;5;237m  你好') >= 0, 'missing user content background');
+  assert(output.split('\n').every((line) => stripAnsi(line).trim() !== '你'), 'user label should not be rendered');
+  assert(output.indexOf('\x1b[38;5;255m\x1b[48;5;237massistant -> tool') < 0, 'assistant tool line used user background');
+  assert(output.indexOf('\x1b[38;5;16m\x1b[48;5;250m最终回答') >= 0, 'missing final answer background');
+  assert(output.indexOf('\x1b[38;5;16m\x1b[48;5;250m第二行') >= 0, 'missing multiline final answer background');
+  assert(output.indexOf('\x1b[38;5;16m\x1b[48;5;250m总结输出') < 0, 'metadata should not use final answer background');
+  const rows = output.split('\n');
+  const userRow = rows.findIndex((line) => line.indexOf('\x1b[38;5;255m\x1b[48;5;237m  你好') >= 0);
+  assert(userRow > 0, 'missing user row index');
+  assert(rows[userRow - 1].indexOf('\x1b[38;5;255m\x1b[48;5;237m') >= 0, 'missing user top background padding');
+  assert(rows[userRow + 1].indexOf('\x1b[38;5;255m\x1b[48;5;237m') >= 0, 'missing user bottom background padding');
+  assert(stripAnsi(rows[userRow + 2]).trim() === '', 'missing plain spacer after user block');
+  const finalRow = rows.findIndex((line) => line.indexOf('\x1b[38;5;16m\x1b[48;5;250m最终回答') >= 0);
+  assert(finalRow > 1, 'missing final answer row index');
+  assert(stripAnsi(rows[finalRow - 2]).trim() === '', 'missing plain spacer before final background block');
+  assert(rows[finalRow - 1].indexOf('\x1b[38;5;16m\x1b[48;5;250m') >= 0, 'missing final top background padding');
+  assert(rows[finalRow + 2].indexOf('\x1b[38;5;16m\x1b[48;5;250m') >= 0, 'missing final bottom background padding');
+  assert(stripAnsi(rows[finalRow + 3]).trim() === '', 'missing plain spacer after final background block');
+});
+
 test('renderer wraps long assistant messages instead of truncating final answer', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({

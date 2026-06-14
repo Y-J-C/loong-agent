@@ -166,7 +166,7 @@ function handleAgentEvent(state, event) {
       if (usage.contextBudget) state.contextBudget = usage.contextBudget;
     }
     addMessage(state, {
-      type: event.error || status !== 'ok' ? 'error' : 'assistant',
+      type: event.error || status !== 'ok' ? 'error' : 'assistant_final',
       text: [
         workflow(status === 'ok' ? 'report' : 'risk', `${statusLabel(status)} (${status})`),
         `agent_end status=${status}`,

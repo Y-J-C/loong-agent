@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createAgent } = require('../src/agent-runtime');
-const { parseToolCall } = require('../src/agent-loop');
+const { parseAgentResponse, parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
 const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
@@ -137,6 +137,60 @@ test('model usage marks supported provider without token report as pending confi
   assert(usage.usage.note === '待确认', 'usage should mark pending confirmation');
 });
 
+test('v2 tool response executes a tool action', async () => {
+  registerProvider({
+    name: 'test-v2-tool-action',
+    chatCompletion: async () => JSON.stringify({
+      type: 'tool',
+      tool: 'finish',
+      input: { summary: 'v2 tool ok' },
+      reason: 'done',
+    }),
+  });
+  const events = [];
+  const agent = createAgent(config('test-v2-tool-action'), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('v2 tool');
+  const end = events.find((event) => event.type === 'agent_end');
+  assert(result.summary === 'v2 tool ok', 'v2 tool action did not execute');
+  assert(end && end.completionSource === 'finish_tool', 'finish completion source missing');
+});
+
+test('v2 answer response ends without a finish tool', async () => {
+  registerProvider({
+    name: 'test-v2-answer',
+    chatCompletion: async () => JSON.stringify({
+      type: 'answer',
+      answer: '直接回答',
+      status: 'ok',
+      evidence: [{ source: 'model' }],
+    }),
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-v2-answer'), { streaming: false }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('answer');
+  const toolStart = events.find((event) => event.type === 'tool_execution_start');
+  const end = events.find((event) => event.type === 'agent_end');
+  assert(result.summary === '直接回答', 'v2 answer summary mismatch');
+  assert(!toolStart, 'v2 answer should not execute a tool');
+  assert(end && end.completionSource === 'model_answer', 'model answer completion source missing');
+  assert(end && end.evidence && end.evidence.length === 1, 'answer evidence missing');
+});
+
+test('plain text model response is treated as final answer', async () => {
+  registerProvider({
+    name: 'test-plain-answer',
+    chatCompletion: async () => '这是普通自然语言回答',
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-plain-answer'), { streaming: false }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('plain');
+  assert(result.summary === '这是普通自然语言回答', 'plain answer summary mismatch');
+  assert(events.find((event) => event.type === 'agent_end').completionSource === 'model_answer', 'plain answer source mismatch');
+});
+
 test('thinking level falls back to prompt hint when provider lacks native thinking', async () => {
   let prompt = '';
   registerProvider({
@@ -222,10 +276,21 @@ test('unknown tool records an error event and continues', async () => {
   assert(toolEnd && toolEnd.isError === true, 'missing tool_execution_end error event');
 });
 
-test('invalid model JSON fails clearly', async () => {
+test('plain non-json model response is accepted as final answer', async () => {
+  registerProvider({
+    name: 'test-non-json-answer',
+    chatCompletion: async () => 'not json',
+  });
+
+  const agent = createAgent(Object.assign(config('test-non-json-answer'), { streaming: false }), { session: null });
+  const result = await agent.prompt('plain');
+  assert(result.summary === 'not json', `unexpected plain answer: ${result.summary}`);
+});
+
+test('malformed action JSON still fails clearly after retry', async () => {
   registerProvider({
     name: 'test-invalid-json',
-    chatCompletion: async () => 'not json',
+    chatCompletion: async () => '{"tool":"finish","input":',
   });
 
   const agent = createAgent(config('test-invalid-json'), { session: null });
@@ -235,13 +300,26 @@ test('invalid model JSON fails clearly', async () => {
   } catch (error) {
     errorMessage = error.message;
   }
-  assert(/Model did not return JSON/.test(errorMessage), `unexpected error: ${errorMessage}`);
+  assert(/Unexpected end of JSON input|Model JSON|Model did not return JSON/.test(errorMessage), `unexpected error: ${errorMessage}`);
 });
 
 test('model JSON parser recovers a missing trailing object brace', () => {
   const action = parseToolCall('{"tool":"finish","input":{"summary":"ok","reason":"done"}');
   assert(action.tool === 'finish', 'parser did not recover tool');
   assert(action.input.summary === 'ok', 'parser did not recover input');
+});
+
+test('agent response classifier supports tools answers and plain text', () => {
+  const legacy = parseAgentResponse('{"tool":"finish","input":{"summary":"ok"}}');
+  const v2Tool = parseAgentResponse('{"type":"tool","tool":"finish","input":{"summary":"ok"}}');
+  const answer = parseAgentResponse('{"type":"answer","answer":"ok","status":"ok"}');
+  const plain = parseAgentResponse('你好');
+  const broken = parseAgentResponse('{"tool":"finish","input":');
+  assert(legacy.kind === 'tool_action' && legacy.action.tool === 'finish', 'legacy tool not classified');
+  assert(v2Tool.kind === 'tool_action' && v2Tool.action.tool === 'finish', 'v2 tool not classified');
+  assert(answer.kind === 'final_answer' && answer.answer.summary === 'ok', 'answer not classified');
+  assert(plain.kind === 'final_answer' && plain.answer.summary === '你好', 'plain text not classified');
+  assert(broken.kind === 'invalid_action', 'broken json should be invalid');
 });
 
 test('model failure is recorded as assistant error lifecycle', async () => {
@@ -734,6 +812,104 @@ test('max loop completion records max_loops status', async () => {
   assert(/Reached max loop limit/.test(result.summary), 'max loop summary missing');
   assert(agentEnd && agentEnd.status === 'max_loops', 'agent_end missing max_loops status');
   assert(agentEnd && agentEnd.turns === 1, 'agent_end missing turn count');
+});
+
+test('command_reference repeat guard blocks second identical call and falls back on third', async () => {
+  registerProvider({
+    name: 'test-command-reference-repeat',
+    chatCompletion: async () => JSON.stringify({
+      type: 'tool',
+      tool: 'command_reference',
+      input: {},
+      reason: 'show allowlist',
+    }),
+  });
+
+  const events = [];
+  const cfg = config('test-command-reference-repeat', process.cwd());
+  cfg.maxLoops = 6;
+  const agent = createAgent(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('你当前允许列表有什么');
+  const commandEnds = events.filter((event) => event.type === 'tool_execution_end' && event.toolName === 'command_reference');
+  const end = events.find((event) => event.type === 'agent_end');
+
+  assert(commandEnds.length === 2, `expected first execution and second blocked event, got ${commandEnds.length}`);
+  assert(commandEnds[0].isError === false, 'first command_reference should succeed');
+  assert(commandEnds[1].isError === true, 'second command_reference should be blocked');
+  assert(commandEnds[1].errorType === 'policy_blocked', 'repeat block should use policy_blocked');
+  assert(commandEnds[1].result && commandEnds[1].result.policy === 'repeat_tool_call', 'repeat block policy missing');
+  assert(end && end.status === 'ok', 'repeat fallback should finish ok');
+  assert(end && end.completionSource === 'repeat_guard_fallback', 'repeat fallback source missing');
+  assert(result.completionSource === 'repeat_guard_fallback', 'result source mismatch');
+  assert(result.summary.indexOf('重复调用 command_reference') >= 0, 'fallback summary missing repeat guard text');
+});
+
+test('repeat guard does not block same tool with different input', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-command-reference-different-input',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'command_reference',
+          input: { query: 'node' },
+          reason: 'node commands',
+        });
+      }
+      if (calls === 2) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'command_reference',
+          input: { query: 'git' },
+          reason: 'git commands',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '不同查询已完成',
+        status: 'ok',
+      });
+    },
+  });
+
+  const events = [];
+  const cfg = config('test-command-reference-different-input', process.cwd());
+  cfg.maxLoops = 5;
+  const agent = createAgent(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('查两个允许命令');
+  const blocked = events.find((event) => event.type === 'tool_execution_end' && event.errorType === 'policy_blocked');
+
+  assert(result.summary === '不同查询已完成', 'different input run did not finish with answer');
+  assert(!blocked, 'different command_reference inputs should not be repeat-blocked');
+});
+
+test('max_loops remains fallback for non-guarded repeated tools', async () => {
+  registerProvider({
+    name: 'test-max-loop-nonguarded',
+    chatCompletion: async () => JSON.stringify({
+      tool: 'list_directory',
+      input: { relative_path: '.' },
+      reason: 'keep inspecting',
+    }),
+  });
+
+  const workspace = tempWorkspace();
+  fs.writeFileSync(path.join(workspace, 'a.txt'), 'x', 'utf8');
+  const events = [];
+  const cfg = config('test-max-loop-nonguarded', workspace);
+  cfg.maxLoops = 2;
+  const agent = createAgent(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('max nonguarded');
+  const end = events.find((event) => event.type === 'agent_end');
+
+  assert(/Reached max loop limit/.test(result.summary), 'non-guarded max loop summary missing');
+  assert(end && end.status === 'max_loops', 'non-guarded run should still use max_loops');
+  assert(end && end.completionSource === 'max_loops_fallback', 'max loop fallback source missing');
 });
 
 test('agent rejects concurrent prompt calls', async () => {

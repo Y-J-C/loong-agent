@@ -32,6 +32,8 @@ function createTool(definition) {
     evidencePolicy: Object.assign({}, DEFAULT_EVIDENCE_POLICY, definition.evidencePolicy || {}),
     resultSchema: definition.resultSchema || {},
     executionMode: definition.executionMode || 'sequential',
+    repeatPolicy: definition.repeatPolicy || '',
+    answerHint: definition.answerHint || '',
     validate: definition.validate || ((input) => requireObject(input || {})),
     renderCall:
       definition.renderCall ||
@@ -88,6 +90,8 @@ function formatToolForPrompt(tool) {
   ];
   if (tool.promptSnippet) lines.push(`  Use: ${tool.promptSnippet}`);
   if (tool.promptGuidelines) lines.push(`  Guidance: ${tool.promptGuidelines}`);
+  if (tool.repeatPolicy) lines.push(`  Repeat policy: ${tool.repeatPolicy}`);
+  if (tool.answerHint) lines.push(`  Answer hint: ${tool.answerHint}`);
   return lines.join('\n');
 }
 

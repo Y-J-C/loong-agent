@@ -166,7 +166,9 @@ function createCommandReferenceToolDefinition() {
     },
     promptSnippet: 'Use command_reference before suggesting diagnostic shell commands.',
     promptGuidelines:
-      'The structured READONLY_COMMAND_METADATA allowlist is authoritative. Do not invent commands.',
+      'The structured READONLY_COMMAND_METADATA allowlist is authoritative. Do not invent commands. One successful command_reference result is enough to answer allowlist questions; summarize it instead of calling this tool again with the same input.',
+    repeatPolicy: 'answerable_once',
+    answerHint: 'Use this result to answer the user’s allowlist question directly.',
     validate: () => '',
     renderCall: (input) => input && input.query ? `query=${input.query}` : 'all readonly commands',
     renderResult: (result) => result && result.summary ? result.summary : summarize(result, 700),
