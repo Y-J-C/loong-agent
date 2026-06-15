@@ -16,6 +16,9 @@ const TOPIC_HINTS = [
 const TROUBLESHOOTING_PATTERN =
   /eth1|npm|g\+\+|pip|docker|podman|\/boot\/efi|gpt|audio|no codecs|crtc|display|gpio|i2c|spi|uart|故障|排查|不能用|不可用/i;
 const RAW_EVIDENCE_PATTERN = /(?:\braw\b|\bevidence\b|证据|日志|dmesg|原始)/i;
+const HISTORICAL_INTENT_PATTERN = /当时|之前|上次|刚才|那次|历史|记录|session|jsonl|previous|last time|earlier/i;
+const CURRENT_INTENT_PATTERN = /当前|现在|此刻|这台设备现在|current|now/i;
+const TOOLCHAIN_ENV_PATTERN = /node|npm|gcc|g\+\+|python|python3|git|curl|wget|环境|运行时|工具链/i;
 const MAX_TOPIC_CONTEXT = 3;
 const MAX_SEARCH_CONTEXT = 3;
 
@@ -37,16 +40,37 @@ function contextText(context) {
   ].filter(Boolean).join('\n');
 }
 
+function temporalIntent(text) {
+  const value = String(text || '');
+  if (HISTORICAL_INTENT_PATTERN.test(value)) return 'historical';
+  if (CURRENT_INTENT_PATTERN.test(value)) return 'current';
+  return 'unknown';
+}
+
+function addTopic(selected, topic) {
+  if (selected.indexOf(topic) < 0) selected.push(topic);
+}
+
 function chooseTopics(text, action) {
   const selected = [];
-  if (action && action.tool === 'loong_env_check') {
-    selected.push('compatibility_matrix', 'risk_list', 'environment_report');
+  const intent = temporalIntent(text);
+  if (intent === 'historical') {
+    addTopic(selected, 'environment_report');
+    if (TOOLCHAIN_ENV_PATTERN.test(String(text || ''))) addTopic(selected, 'software_stack');
+    addTopic(selected, 'source_index');
+    addTopic(selected, 'unknowns');
+  }
+  if (action && action.tool === 'loong_env_check' && intent !== 'historical') {
+    addTopic(selected, 'compatibility_matrix');
+    addTopic(selected, 'risk_list');
+    addTopic(selected, 'environment_report');
   }
   for (const hint of TOPIC_HINTS) {
-    if (hint.pattern.test(text) && selected.indexOf(hint.topic) < 0) selected.push(hint.topic);
+    if (hint.pattern.test(text)) addTopic(selected, hint.topic);
   }
   if (!selected.length && text) {
-    selected.push('risk_list', 'unknowns');
+    addTopic(selected, 'risk_list');
+    addTopic(selected, 'unknowns');
   }
   return selected.slice(0, MAX_TOPIC_CONTEXT);
 }
@@ -56,7 +80,7 @@ function includeRawEvidence(text) {
 }
 
 function searchLimit(text) {
-  return TROUBLESHOOTING_PATTERN.test(String(text || '')) || includeRawEvidence(text)
+  return TROUBLESHOOTING_PATTERN.test(String(text || '')) || includeRawEvidence(text) || temporalIntent(text) === 'historical'
     ? 10
     : 2;
 }
@@ -102,6 +126,7 @@ function knowledgeContextHook(context) {
   if (!text) return;
   const config = context.config || {};
   const action = context.action || {};
+  const intent = temporalIntent(text);
   const topics = chooseTopics(text, action);
   const topicResults = [];
   for (const topic of topics) {
@@ -151,12 +176,16 @@ function knowledgeContextHook(context) {
   }
   if (!summaries.length && !evidence.length) return;
   warnings.push('Knowledge context is supporting evidence only. Treat draft, unknown, and 待确认 entries as uncertain.');
+  if (intent === 'historical') {
+    warnings.push('Historical intent detected; do not treat current checks as historical evidence unless explicitly labeled as current re-check.');
+  }
   return {
     contextAdditions,
     knowledgeEvidence: evidence,
     warnings,
     data: {
       topics,
+      temporalIntent: intent,
       summary: summarize(summaries.join('\n'), 900),
       unknowns,
       searchMatches: searchResults.map((match) => ({
@@ -174,4 +203,5 @@ function knowledgeContextHook(context) {
 
 module.exports = {
   knowledgeContextHook,
+  temporalIntent,
 };

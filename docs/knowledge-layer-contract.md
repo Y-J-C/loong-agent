@@ -134,6 +134,29 @@ For Loong board answers, the prompt should steer the model toward:
 
 Current-state questions should prefer `loong_env_check`. Historical evidence and documentation questions should use `kb_search`, with `includeRaw: true` when raw evidence is requested. Risk, install, repair, boot/storage, network modification, and peripheral-operation questions should use `risk_lookup` or `command_reference` before answering.
 
+## Temporal Evidence
+
+The knowledge layer must distinguish current checks from historical evidence.
+
+- `loong_env_check` means current read-only measurement of the device.
+- `session_summary` means historical JSONL session evidence.
+- `kb_search` means repository knowledge, preview documentation, and raw historical evidence when requested.
+- `kb_topic` means fixed topic summaries with metadata.
+
+Questions containing temporal phrases such as `当时`, `之前`, `上次`, `刚才`, `那次`, `历史`, `session`, or `JSONL` are historical-state questions. They should prefer `session_summary` or `kb_search` before using `loong_env_check`.
+
+If a historical question does not specify a session id, the agent must not treat latest session as the board baseline by default, because latest sessions may be tests or recent interactions. For historical board environment or toolchain facts, it should default to the KB measured snapshot from `environment_report` and `software_stack`, and prefer `kb_topic` / `kb_search` over `session_summary` unless the user explicitly asks for latest/session evidence.
+
+For historical environment/toolchain facts, `kb_topic("environment_report")`, `kb_topic("software_stack")`, and related `kb_search` matches may include `facts.historicalEnvironment`. This structured object is the preferred evidence for Node, npm, gcc, g++, Python, git, curl, and wget history. Fields without explicit topic evidence must be `待确认`; the agent must not infer missing versions from unrelated text or model memory.
+
+If `loong_env_check` is used while answering a historical question, it must be labeled as `当前复测` / current re-check. It must not be presented as historical evidence.
+
+Historical-state answers should include:
+
+```text
+时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认
+```
+
 ## Context Budget
 
 Knowledge context injection is bounded by `LOONG_AGENT_CONTEXT_BUDGET`.

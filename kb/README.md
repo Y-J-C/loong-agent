@@ -68,6 +68,26 @@ raw/stage3/
 
 `kb/loongson-2k1000-board-kb-preview/checksums.md` 用于确认 preview 包内文件未被误改。若整理版 topic 与 raw 证据冲突，应以 raw 证据为优先，并在后续修正 topic。
 
+## 当前实测与历史证据
+
+`loong_env_check` 表示当前设备的实时只读检测结果，适合回答“当前 / 现在 / 此刻”的环境问题。
+
+`session_summary` 表示历史 JSONL session 证据，适合回答“当时 / 之前 / 上次 / 刚才 / 那次 / session 里”的问题。没有指定 session id 时，不能默认把 latest session 当作板端基线，因为 latest 可能是测试或刚刚的交互；应优先使用已有知识库和 raw 证据，或明确说明正在按 latest session 理解。
+
+`kb_search` 和 `kb_topic` 表示本地知识库整理结果。preview 包和 raw 文件是历史采集证据，不等同于当前状态。
+
+未指定 session id 的历史环境 / 工具链问题，默认使用 `kb/environment_report.md` 与 `kb/software_stack.md` 的 measured 快照。P5 起，`kb_topic` 和相关 `kb_search` 命中会附带结构化 `historicalEnvironment` facts，用于稳定回答 Node、npm、gcc、g++、Python、git、curl、wget 等历史状态问题。
+
+结构化 facts 只表达整理版 topic 已明确确认的事实。没有明确版本证据的字段必须写作 `待确认`，例如当前 `gcc` 可用但版本待确认，不能从上下文或模型记忆补全。
+
+回答历史状态问题时必须区分：
+
+```text
+时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认
+```
+
+如果为了复核又调用了 `loong_env_check`，必须标注为“当前复测”，不能把它写成历史证据。
+
 ## P2 轻量全文检索
 
 `kb/index.json` 是手工维护的轻量 manifest。它不是自动采集索引，也不是向量库。

@@ -6,7 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { createDefaultToolRegistry } = require('../src/tool-registry');
 const { createHookRunner, knowledgeContextHook } = require('../src/hooks');
-const { listTopics, readKnowledgeIndex, readTopic, searchKnowledge } = require('../src/kb');
+const { listTopics, readHistoricalEnvironmentFacts, readKnowledgeIndex, readTopic, searchKnowledge } = require('../src/kb');
 const { buildMessagesFromTurnContext, buildSystemPrompt, buildTurnContext } = require('../src/prompts');
 const { READONLY_COMMAND_METADATA } = require('../src/tools');
 
@@ -122,6 +122,36 @@ test('knowledge topic source paths exist when they reference local kb files', ()
     });
   });
   assert(localSourceCount >= 8, 'expected local source paths across knowledge topics');
+});
+
+test('P5 historical environment facts are structured and sourced', () => {
+  const facts = readHistoricalEnvironmentFacts(config());
+  assert(facts.nodeVersion === 'v14.16.1', `unexpected node version: ${facts.nodeVersion}`);
+  assert(facts.nodeStatus === 'available', `unexpected node status: ${facts.nodeStatus}`);
+  assert(facts.npmStatus === 'missing', `unexpected npm status: ${facts.npmStatus}`);
+  assert(facts.gppStatus === 'missing', `unexpected g++ status: ${facts.gppStatus}`);
+  assert(facts.pythonVersion === '3.7.3', `unexpected python version: ${facts.pythonVersion}`);
+  assert(facts.gccStatus === 'available', `unexpected gcc status: ${facts.gccStatus}`);
+  assert(facts.gccVersion === '待确认', `gcc version should remain pending: ${facts.gccVersion}`);
+  assert(facts.sourcePaths.indexOf('kb/environment_report.md') >= 0, 'missing environment_report source path');
+  assert(facts.sourcePaths.indexOf('kb/software_stack.md') >= 0, 'missing software_stack source path');
+  assert(facts.lastUpdated === '2026-06-14', `unexpected lastUpdated: ${facts.lastUpdated}`);
+  assert(facts.confidence === 'high', `unexpected confidence: ${facts.confidence}`);
+});
+
+testAsync('P5 kb_topic returns historical environment facts for environment topics', async () => {
+  const registry = createDefaultToolRegistry();
+  const env = await registry.execute(config(), 'kb_topic', { topic: 'environment_report' });
+  const software = await registry.execute(config(), 'kb_topic', { topic: 'software_stack' });
+  assert(env.data.facts.historicalEnvironment.nodeVersion === 'v14.16.1', 'environment_report missing historical facts');
+  assert(software.data.facts.historicalEnvironment.npmStatus === 'missing', 'software_stack missing historical facts');
+});
+
+test('P5 kb_search attaches historical environment facts to environment matches', () => {
+  const results = searchKnowledge(config(), 'Node v14.16.1 software stack', { limit: 8 });
+  const match = results.find((item) => item.facts && item.facts.historicalEnvironment);
+  assert(match, 'kb_search did not attach historical environment facts');
+  assert(match.facts.historicalEnvironment.nodeVersion === 'v14.16.1', 'kb_search facts missing node version');
 });
 
 test('preview package checksums match copied files', () => {
@@ -354,6 +384,45 @@ test('P3 knowledgeContextHook includes raw evidence for evidence queries', () =>
   assert(result.data.searchMatches.some((item) => item.kind === 'raw'), 'missing raw search match');
 });
 
+test('P4 knowledgeContextHook detects historical intent', () => {
+  const state = {
+    turn: 2,
+    observations: [],
+    messages: [
+      { role: 'user', content: '当时 Node 版本是多少？' },
+    ],
+  };
+  const result = knowledgeContextHook({
+    config: config(),
+    state,
+    action: { tool: 'session_summary', input: { session: 'latest' } },
+    result: { summary: 'historical session requested' },
+  });
+  assert(result.data.temporalIntent === 'historical', 'historical intent was not detected');
+  assert(result.warnings.some((item) => /Historical intent detected/.test(item)), 'missing historical warning');
+  assert(
+    result.knowledgeEvidence.some((item) => item.topic === 'environment_report' || item.topic === 'software_stack'),
+    'missing environment or software evidence for historical toolchain query'
+  );
+});
+
+test('P4 knowledgeContextHook detects current intent', () => {
+  const state = {
+    turn: 2,
+    observations: [],
+    messages: [
+      { role: 'user', content: '现在 Node 版本是多少？' },
+    ],
+  };
+  const result = knowledgeContextHook({
+    config: config(),
+    state,
+    action: { tool: 'loong_env_check', input: {} },
+    result: { summary: 'current environment requested' },
+  });
+  assert(result.data.temporalIntent === 'current', 'current intent was not detected');
+});
+
 test('readTopic parses measured topic metadata without draft warning', () => {
   const loaded = readTopic(config(), 'board_profile');
   assert(loaded.ok === true, 'board_profile should load');
@@ -464,6 +533,16 @@ testAsync('P3 command_reference groups L0 and L1 read-only commands', async () =
   assert(result.data.riskLevels.L1.some((item) => item.command === 'dmesg | tail -n 80'), 'missing dmesg in L1');
 });
 
+test('P4 session_summary metadata describes historical evidence use', () => {
+  const registry = createDefaultToolRegistry();
+  const tool = registry.get('session_summary');
+  assert(tool, 'missing session_summary tool');
+  assert(/当时|previous|session records/.test(tool.description), 'session_summary description missing historical use');
+  assert(/历史|historical/.test(tool.promptGuidelines), 'session_summary guidance missing historical evidence boundary');
+  assert(/loong_env_check/.test(tool.promptGuidelines), 'session_summary guidance missing current re-check note');
+  assert(/board baseline/.test(tool.promptGuidelines), 'session_summary guidance missing latest-session boundary');
+});
+
 test('knowledgeContextHook returns cautious structured knowledge context', () => {
   const state = {
     turn: 2,
@@ -534,4 +613,21 @@ test('P3 system prompt includes knowledge-driven answer and command safety rules
   assert(prompt.indexOf('结论 / 证据 / 风险 / 待确认 / 下一步只读排查') >= 0, 'prompt missing Loong board answer structure');
   assert(prompt.indexOf('READONLY_COMMAND_METADATA') >= 0, 'prompt missing command metadata authority');
   assert(prompt.indexOf('includeRaw=true') >= 0, 'prompt missing raw evidence guidance');
+});
+
+test('P4 system prompt includes temporal evidence rules', () => {
+  const prompt = buildSystemPrompt();
+  assert(prompt.indexOf('当时') >= 0, 'prompt missing historical Chinese cue');
+  assert(prompt.indexOf('session_summary') >= 0, 'prompt missing session_summary guidance');
+  assert(prompt.indexOf('当前复测') >= 0, 'prompt missing current re-check label');
+  assert(prompt.indexOf('时间点 / 来源 / 证据') >= 0, 'prompt missing historical answer structure');
+  assert(prompt.indexOf('board baseline') >= 0, 'prompt missing latest-session baseline warning');
+  assert(prompt.indexOf('Do not answer board environment/toolchain version questions from memory') >= 0, 'prompt missing tool-first version rule');
+});
+
+test('P5 system prompt includes structured historical environment facts rule', () => {
+  const prompt = buildSystemPrompt();
+  assert(prompt.indexOf('kb_topic environment_report') >= 0, 'prompt missing environment_report preference');
+  assert(prompt.indexOf('KB measured snapshot') >= 0, 'prompt missing KB measured snapshot default');
+  assert(prompt.indexOf('historicalEnvironment facts') >= 0, 'prompt missing structured historical facts rule');
 });

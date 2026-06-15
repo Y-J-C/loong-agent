@@ -46,6 +46,8 @@ function config(provider, workspace) {
   };
 }
 
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+
 test('finish event order includes turn_end', async () => {
   registerProvider({
     name: 'test-finish',
@@ -176,6 +178,176 @@ test('v2 answer response ends without a finish tool', async () => {
   assert(!toolStart, 'v2 answer should not execute a tool');
   assert(end && end.completionSource === 'model_answer', 'model answer completion source missing');
   assert(end && end.evidence && end.evidence.length === 1, 'answer evidence missing');
+});
+
+test('environment version answers require tool evidence before final answer', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-env-answer-evidence-guard',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当时 Node 版本是 v18.19.0',
+          status: 'ok',
+        });
+      }
+      if (calls === 2) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '根据工具证据，当时 Node.js 为 v18.19.0。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '根据 kb_search 的历史环境证据，当时 Node.js 为 v14.16.1。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const cfg = Object.assign(config('test-env-answer-evidence-guard', PROJECT_ROOT), {
+    maxLoops: 5,
+    streaming: false,
+  });
+  const agent = createAgent(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当时 Node 版本是多少？');
+  const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_historical_environment_evidence');
+  const consistencyRetry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_version_not_in_tool_evidence');
+  const toolStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
+  assert(retry, 'missing evidence guard retry');
+  assert(consistencyRetry, 'missing answer consistency retry');
+  assert(toolStart, 'evidence guard did not force kb_topic before final answer');
+  assert(!/v18\.19\.0/.test(result.summary), 'unsupported version answer was accepted');
+});
+
+test('historical node version can answer naturally from structured kb facts', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-historical-node-facts-natural',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当时 Node 版本我先确认历史证据。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '时间点：2026-06-14。来源：kb/environment_report.md 和 kb/software_stack.md。证据：结构化历史环境 facts 记录 Node.js 为 v14.16.1。当前复测是否参与：未参与。待确认：如需更精确时间点，请指定 session id 或 raw 证据文件。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-historical-node-facts-natural', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当时 Node 版本是多少？');
+  const toolStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
+  const fallbackEnd = events.find((event) => event.type === 'agent_end' && event.completionSource === 'evidence_guard_fallback');
+  assert(toolStart, 'historical node question did not collect kb_topic evidence');
+  assert(!fallbackEnd, 'correct structured fact answer should not fallback');
+  assert(/v14\.16\.1/.test(result.summary), 'historical node answer missing structured fact version');
+});
+
+test('current node version still requires loong_env_check instead of historical facts', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-node-still-current-check',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '现在 Node 版本是 v14.16.1。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '已基于当前只读检测回答。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-node-still-current-check', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  await agent.prompt('现在 Node 版本是多少？');
+  const loongEnv = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'loong_env_check');
+  const kbTopic = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
+  assert(loongEnv, 'current node question did not require loong_env_check');
+  assert(!kbTopic, 'current node question should not use historical kb_topic as the required evidence');
+});
+
+test('historical gcc version stays pending when structured facts lack version', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-historical-gcc-version-pending',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当时 gcc 版本是 12.2.0。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '当时 gcc 版本是 12.2.0。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-historical-gcc-version-pending', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当时 gcc 版本是多少？');
+  assert(/gcc 可用，但版本待确认/.test(result.summary), `gcc pending fallback mismatch: ${result.summary}`);
+  assert(!/12\.2\.0/.test(result.summary), 'unsupported gcc version was accepted');
+});
+
+test('historical npm availability uses structured missing fact', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-historical-npm-missing-fact',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当时 npm 可用。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '当时 npm 可用。',
+        status: 'ok',
+      });
+    },
+  });
+  const agent = createAgent(Object.assign(config('test-historical-npm-missing-fact', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  const result = await agent.prompt('当时 npm 可用吗？');
+  assert(/npm\/npx 不可用/.test(result.summary), `npm missing fallback mismatch: ${result.summary}`);
 });
 
 test('plain text model response is treated as final answer', async () => {

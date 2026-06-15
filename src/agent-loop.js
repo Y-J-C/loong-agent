@@ -238,6 +238,332 @@ function createRepeatGuardFallback(action, entry) {
   ].join('\n');
 }
 
+const TEMPORAL_HISTORICAL_PATTERN = /当时|之前|上次|刚才|那次|历史|记录|session|jsonl|previous|last time|earlier/i;
+const TEMPORAL_CURRENT_PATTERN = /当前|现在|此刻|这台设备现在|current|now/i;
+const BOARD_ENV_PATTERN = /node|npm|gcc|g\+\+|python|python3|git|curl|wget|环境|运行时|工具链|软件栈|系统环境/i;
+const VERSION_OR_STATUS_PATTERN = /版本|version|情况|状态|可用|available|installed/i;
+
+function temporalIntentForPrompt(text) {
+  const value = String(text || '');
+  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return 'historical';
+  if (TEMPORAL_CURRENT_PATTERN.test(value)) return 'current';
+  return 'unknown';
+}
+
+function isBoardEnvironmentQuestion(text) {
+  const value = String(text || '');
+  return BOARD_ENV_PATTERN.test(value) && VERSION_OR_STATUS_PATTERN.test(value);
+}
+
+function hasObservationFrom(state, toolNames) {
+  const names = {};
+  (toolNames || []).forEach((name) => {
+    names[name] = true;
+  });
+  return (state.observations || []).some((item) => item && names[item.tool]);
+}
+
+function hasKbTopicObservation(state, topic) {
+  return (state.observations || []).some((item) => {
+    return item &&
+      item.tool === 'kb_topic' &&
+      item.input &&
+      String(item.input.topic || '') === topic;
+  });
+}
+
+function extractSemanticVersions(text) {
+  const versions = [];
+  const pattern = /v?(\d+\.\d+\.\d+)/gi;
+  let match;
+  while ((match = pattern.exec(String(text || ''))) !== null) {
+    versions.push(match[1]);
+  }
+  return Array.from(new Set(versions));
+}
+
+function extractNodeVersions(text) {
+  const versions = [];
+  const value = String(text || '');
+  const patterns = [
+    /node(?:\.js|js)?[^\r\n]{0,160}?v?(\d+\.\d+\.\d+)/gi,
+    /v?(\d+\.\d+\.\d+)[^\r\n]{0,160}?node(?:\.js|js)?/gi,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(value)) !== null) {
+      versions.push(match[1]);
+    }
+  }
+  return Array.from(new Set(versions));
+}
+
+function extractRelevantVersions(text, prompt) {
+  if (/node/i.test(String(prompt || ''))) {
+    const nodeVersions = extractNodeVersions(text);
+    if (nodeVersions.length) return nodeVersions;
+  }
+  return extractSemanticVersions(text);
+}
+
+function normalizeVersion(value) {
+  const match = /v?(\d+\.\d+\.\d+)/i.exec(String(value || ''));
+  return match ? match[1] : '';
+}
+
+function isPendingFact(value) {
+  return !value || /待确认|unknown|pending/i.test(String(value));
+}
+
+function requestedEnvironmentItem(prompt) {
+  const value = String(prompt || '');
+  if (/g\+\+|c\+\+/i.test(value)) return 'gpp';
+  if (/\bnpm\b|npx/i.test(value)) return 'npm';
+  if (/\bgcc\b/i.test(value)) return 'gcc';
+  if (/python3?|Python/i.test(value)) return 'python';
+  if (/\bnode(?:\.js|js)?\b/i.test(value)) return 'node';
+  if (/\bgit\b/i.test(value)) return 'git';
+  if (/\bcurl\b/i.test(value)) return 'curl';
+  if (/\bwget\b/i.test(value)) return 'wget';
+  return '';
+}
+
+function factVersionForItem(facts, item) {
+  if (!facts) return '';
+  if (item === 'node') return normalizeVersion(facts.nodeVersion);
+  if (item === 'python') return normalizeVersion(facts.pythonVersion);
+  if (item === 'gcc') return normalizeVersion(facts.gccVersion);
+  return '';
+}
+
+function factStatusForItem(facts, item) {
+  if (!facts) return '';
+  const fields = {
+    node: 'nodeStatus',
+    npm: 'npmStatus',
+    gcc: 'gccStatus',
+    gpp: 'gppStatus',
+    python: 'pythonStatus',
+    git: 'gitStatus',
+    curl: 'curlStatus',
+    wget: 'wgetStatus',
+  };
+  return fields[item] ? String(facts[fields[item]] || '') : '';
+}
+
+function historicalEnvironmentFactsFromResult(result) {
+  const data = result && result.data ? result.data : {};
+  if (data.facts && data.facts.historicalEnvironment) return data.facts.historicalEnvironment;
+  const matches = []
+    .concat(Array.isArray(data.matches) ? data.matches : [])
+    .concat(Array.isArray(result && result.matches) ? result.matches : []);
+  for (const match of matches) {
+    if (match && match.facts && match.facts.historicalEnvironment) {
+      return match.facts.historicalEnvironment;
+    }
+  }
+  return null;
+}
+
+function historicalEnvironmentFactsFromState(state) {
+  for (const observation of (state && state.observations) || []) {
+    const facts = historicalEnvironmentFactsFromResult(observation && observation.result);
+    if (facts) return facts;
+  }
+  return null;
+}
+
+function answerSaysAvailable(text) {
+  const value = String(text || '');
+  if (/不(?:可用|存在)|未安装|没有|缺失|missing|not available|unavailable|not installed/i.test(value)) return false;
+  return /可用|存在|已安装|available|installed|present/i.test(value);
+}
+
+function answerSaysMissing(text) {
+  return /不(?:可用|存在)|未安装|没有|缺失|missing|not available|unavailable|not installed/i.test(String(text || ''));
+}
+
+function sourceTextForFacts(facts) {
+  return ((facts && facts.sourcePaths) || []).join('; ');
+}
+
+function versionWithPrefix(version) {
+  if (!version || isPendingFact(version)) return '待确认';
+  return /^v/i.test(String(version)) ? String(version) : `v${version}`;
+}
+
+function historicalEnvironmentFallbackSummary(prompt, facts, options) {
+  const item = requestedEnvironmentItem(prompt);
+  const status = factStatusForItem(facts, item);
+  const version = factVersionForItem(facts, item);
+  const label = {
+    node: 'Node.js',
+    npm: 'npm/npx',
+    gcc: 'gcc',
+    gpp: 'g++/c++',
+    python: 'Python3',
+    git: 'git',
+    curl: 'curl',
+    wget: 'wget',
+  }[item] || '历史环境';
+  let conclusion;
+  if (item === 'node') conclusion = `历史 KB measured 快照中，${label} 版本为 ${versionWithPrefix(version || facts.nodeVersion)}。`;
+  else if (item === 'python') conclusion = `历史 KB measured 快照中，${label} 版本为 ${version || facts.pythonVersion || '待确认'}。`;
+  else if (item === 'gcc' && status === 'available') conclusion = `历史 KB measured 快照中，gcc 可用，但版本待确认。`;
+  else if (status === 'missing') conclusion = `历史 KB measured 快照中，${label} 不可用。`;
+  else if (status === 'available') conclusion = `历史 KB measured 快照中，${label} 可用。`;
+  else conclusion = `历史 KB measured 快照中，${label} 状态待确认。`;
+  const pending = [];
+  if (item === 'gcc' && status === 'available' && !version) pending.push('gcc 版本未在整理版 topic 中明确记录。');
+  if (options && options.reason === 'unsupported_version') pending.push('模型曾生成未被工具证据支持的版本号，已按结构化事实纠正。');
+  if (!pending.length) pending.push('如需更精确时间点，请指定 session id 或 raw 证据文件。');
+  return [
+    `结论：${conclusion}`,
+    `时间点：${facts && facts.lastUpdated ? facts.lastUpdated : '待确认'}`,
+    `来源：${sourceTextForFacts(facts) || 'kb/environment_report.md; kb/software_stack.md'}`,
+    `证据：结构化历史环境 facts，confidence=${facts && facts.confidence ? facts.confidence : 'unknown'}。`,
+    '当前复测是否参与：未参与，以上为历史知识库快照证据。',
+    `待确认：${pending.join(' ')}`,
+  ].join('\n');
+}
+
+function observationEvidenceSources(state) {
+  const sources = [];
+  for (const observation of (state && state.observations) || []) {
+    const result = observation && observation.result ? observation.result : {};
+    const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+    for (const item of evidence) {
+      if (!item) continue;
+      const label = [
+        item.source || '',
+        item.topic || item.sessionId || '',
+        item.path || '',
+      ].filter(Boolean).join(':');
+      if (label && sources.indexOf(label) < 0) sources.push(label);
+    }
+  }
+  return sources.slice(0, 5);
+}
+
+function finalAnswerEvidenceGuard(state, currentUserPrompt) {
+  const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
+  if (!isBoardEnvironmentQuestion(prompt)) return null;
+  const intent = temporalIntentForPrompt(prompt);
+  if (intent === 'historical') {
+    if (hasKbTopicObservation(state, 'environment_report') || hasObservationFrom(state, ['session_summary'])) return null;
+    return {
+      reason: 'missing_historical_environment_evidence',
+      action: {
+        tool: 'kb_topic',
+        input: {
+          topic: 'environment_report',
+        },
+        reason: 'Required historical board environment evidence before answering.',
+      },
+      message: [
+        'The user asked a historical board environment/toolchain question.',
+        'Do not answer from memory.',
+        'Use kb_topic environment_report or kb_search for board environment/software_stack evidence, or session_summary only if the user asks for a session/latest-session record.',
+        'Then answer with 时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认.',
+      ].join('\n'),
+    };
+  }
+  if (intent === 'current') {
+    if (hasObservationFrom(state, ['loong_env_check'])) return null;
+    return {
+      reason: 'missing_current_environment_evidence',
+      action: {
+        tool: 'loong_env_check',
+        input: {},
+        reason: 'Required current board environment evidence before answering.',
+      },
+      message: [
+        'The user asked a current board environment/toolchain question.',
+        'Do not answer from memory.',
+        'Call loong_env_check first, then answer using its evidence.',
+      ].join('\n'),
+    };
+  }
+  return null;
+}
+
+function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
+  const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
+  if (!isBoardEnvironmentQuestion(prompt)) return null;
+  const answerVersions = extractSemanticVersions(answerSummary);
+  const historical = temporalIntentForPrompt(prompt) === 'historical';
+  const facts = historical ? historicalEnvironmentFactsFromState(state) : null;
+  const requestedItem = requestedEnvironmentItem(prompt);
+  if (historical && facts) {
+    const factStatus = factStatusForItem(facts, requestedItem);
+    const factVersion = factVersionForItem(facts, requestedItem);
+    if (answerVersions.length) {
+      if (factVersion) {
+        const unsupported = answerVersions.filter((version) => version !== factVersion);
+        if (unsupported.length) {
+          return {
+            reason: 'answer_version_not_in_tool_evidence',
+            fallbackSummary: historicalEnvironmentFallbackSummary(prompt, facts, { reason: 'unsupported_version' }),
+            message: [
+              `The answer included version(s) not present in structured historical facts: ${unsupported.join(', ')}`,
+              `Use only the structured fact version: ${factVersion}`,
+            ].join('\n'),
+          };
+        }
+        return null;
+      }
+      if (requestedItem && isPendingFact(factVersionForItem(facts, requestedItem))) {
+        return {
+          reason: 'answer_version_not_in_tool_evidence',
+          fallbackSummary: historicalEnvironmentFallbackSummary(prompt, facts, { reason: 'unsupported_version' }),
+          message: 'The answer included a version for a historical fact whose version is pending confirmation.',
+        };
+      }
+    }
+    if (factStatus === 'missing' && answerSaysAvailable(answerSummary)) {
+      return {
+        reason: 'answer_status_conflicts_with_tool_evidence',
+        fallbackSummary: historicalEnvironmentFallbackSummary(prompt, facts, { reason: 'status_conflict' }),
+        message: 'The answer said an unavailable historical tool was available.',
+      };
+    }
+    if (factStatus === 'available' && answerSaysMissing(answerSummary)) {
+      return {
+        reason: 'answer_status_conflicts_with_tool_evidence',
+        fallbackSummary: historicalEnvironmentFallbackSummary(prompt, facts, { reason: 'status_conflict' }),
+        message: 'The answer said an available historical tool was unavailable.',
+      };
+    }
+    return null;
+  }
+  if (!answerVersions.length) return null;
+  const observationVersions = extractRelevantVersions(JSON.stringify((state && state.observations) || []), prompt);
+  if (!observationVersions.length) return null;
+  const observationSet = {};
+  observationVersions.forEach((version) => {
+    observationSet[version] = true;
+  });
+  const unsupported = answerVersions.filter((version) => !observationSet[version]);
+  if (!unsupported.length) return null;
+  const sources = observationEvidenceSources(state);
+  const supportedText = observationVersions.map((version) => `v${version}`).join(', ');
+  return {
+    reason: 'answer_version_not_in_tool_evidence',
+    fallbackSummary: [
+      '模型生成的版本号未出现在已收集的工具证据中，已拒绝该版本结论。',
+      `可由当前工具证据支持的版本号：${supportedText}`,
+      sources.length ? `来源：${sources.join('; ')}` : '',
+      historical ? '当前复测是否参与：未参与，以上为历史知识/会话证据。' : '当前复测是否参与：已使用当前只读检测证据。',
+      '待确认：如需更精确时间点，请指定 session id 或 raw 证据文件。',
+    ].filter(Boolean).join('\n'),
+    message: [
+      `The answer included version(s) not present in tool evidence: ${unsupported.join(', ')}`,
+      `Use only version(s) present in collected tool observations: ${observationVersions.join(', ')}`,
+      'Return the corrected answer with 时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认 when applicable.',
+    ].join('\n'),
+  };
+}
+
 function repeatPolicyForTool(tool) {
   if (!tool) return '';
   return tool.repeatPolicy || '';
@@ -1004,6 +1330,54 @@ async function runAgentLoop(options) {
 
     if (response.kind === 'final_answer') {
       invalidJsonCount = 0;
+      const evidenceGuard = finalAnswerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
+      if (evidenceGuard) {
+        state.answerEvidenceRetryCount = (state.answerEvidenceRetryCount || 0) + 1;
+        const guardAction = evidenceGuard.action;
+        const toolExecution = await executeToolCall(turnContext, guardAction, null);
+        const result = toolExecution.result;
+        const isError = toolExecution.isError;
+        recordToolResult(state, guardAction, result);
+        await prepareForNextTurn(turnContext, guardAction, result, isError);
+        await emitTurnEnd(turnContext, {
+          isError,
+          status: isError && toolExecution.errorType === 'policy_blocked' ? 'policy_blocked' : isError ? 'tool_error' : 'ok',
+          reason: evidenceGuard.reason || toolExecution.errorType,
+          toolName: guardAction.tool,
+        });
+        pendingMessages = pendingMessages.concat(getSteeringMessages());
+        pendingMessages.push({
+          content: `${evidenceGuard.message}\nUse the collected tool evidence from ${guardAction.tool} to answer. Do not invent versions or cite evidence that is not in the tool result.`,
+          internal: true,
+        });
+        continue;
+      }
+      const consistencyGuard = finalAnswerConsistencyGuard(state, currentUserPrompt || state.userPrompt, response.answer.summary || '');
+      if (consistencyGuard) {
+        await emitTurnEnd(turnContext, {
+          isError: false,
+          status: 'ok',
+          reason: consistencyGuard.reason,
+        });
+        const summary = consistencyGuard.fallbackSummary || consistencyGuard.message;
+        finishRun(state, summary);
+        await emit({
+          type: 'agent_end',
+          summary,
+          observations: state.observations,
+          status: 'ok',
+          turns: state.turn,
+          durationMs: elapsedMs(runStartedAt),
+          usageSummary: summarizeModelUsage(state),
+          completionSource: 'evidence_guard_fallback',
+          evidence: observationEvidenceSources(state),
+        });
+        return {
+          summary,
+          observations: state.observations,
+          completionSource: 'evidence_guard_fallback',
+        };
+      }
       await emitTurnEnd(turnContext, {
         isError: response.answer.status === 'error',
         status: response.answer.status || 'ok',

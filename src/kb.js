@@ -19,6 +19,7 @@ const METADATA_FIELDS = ['status', 'last_updated', 'sources', 'confidence'];
 const DRAFT_STATUSES = new Set(['draft', 'unknown']);
 const RAW_QUERY_PATTERN = /(?:\braw\b|\bevidence\b|证据|日志|dmesg|原始)/i;
 const MANIFEST_FILE = 'index.json';
+const PENDING_CONFIRMATION = '待确认';
 
 function workspaceRoot(config) {
   return path.resolve((config && config.workspace) || process.cwd());
@@ -158,6 +159,131 @@ function evidenceFor(config, topic, record) {
   };
 }
 
+function uniqueValues(values) {
+  return Array.from(new Set((values || []).filter(Boolean)));
+}
+
+function combinedConfidence(records) {
+  const order = { high: 3, medium: 2, low: 1, unknown: 0 };
+  let value = 'unknown';
+  for (const record of records || []) {
+    const confidence = String(record && record.confidence ? record.confidence : 'unknown').toLowerCase();
+    if (order[confidence] !== undefined && order[confidence] > order[value]) value = confidence;
+  }
+  return value;
+}
+
+function extractFirst(text, patterns) {
+  const value = String(text || '');
+  for (const pattern of patterns || []) {
+    const match = pattern.exec(value);
+    if (match && match[1]) return match[1];
+  }
+  return PENDING_CONFIRMATION;
+}
+
+function isPendingValue(value) {
+  return !value || /待确认|unknown|pending/i.test(String(value));
+}
+
+function statusFromText(text, availablePatterns, missingPatterns) {
+  const value = String(text || '');
+  for (const pattern of missingPatterns || []) {
+    if (pattern.test(value)) return 'missing';
+  }
+  for (const pattern of availablePatterns || []) {
+    if (pattern.test(value)) return 'available';
+  }
+  return PENDING_CONFIRMATION;
+}
+
+function hasHistoricalEnvironmentFactsTopic(topic) {
+  return topic === 'environment_report' || topic === 'software_stack';
+}
+
+function readHistoricalEnvironmentFacts(config) {
+  const env = readTopic(config, 'environment_report');
+  const software = readTopic(config, 'software_stack');
+  const records = [env.ok ? env.record : null, software.ok ? software.record : null].filter(Boolean);
+  const text = records.map((record) => `${record.topic}\n${record.content}\n${record.unknowns}`).join('\n');
+  const sourceTopics = records.map((record) => record.topic);
+  const sourcePaths = records.map((record) => record.path);
+  const nodeVersion = extractFirst(text, [
+      /node`?\s+is available at\s+(v?\d+\.\d+\.\d+)/i,
+      /Node\.js:\s*`?node`?\s+(v?\d+\.\d+\.\d+)/i,
+      /Node\.js:\s*`?node`?\s*(v?\d+\.\d+\.\d+)/i,
+      /Node\.js[^\r\n]*?\b(v?\d+\.\d+\.\d+)/i,
+      /`node`\s+(v?\d+\.\d+\.\d+)/i,
+  ]);
+  return {
+    nodeVersion,
+    nodeStatus: !isPendingValue(nodeVersion) ? 'available' : statusFromText(text, [
+      /node`?\s+is available/i,
+      /Node\.js:\s*`?node`?\s+v?\d+\.\d+\.\d+/i,
+      /`node`\s+v?\d+\.\d+\.\d+\s+is available/i,
+    ], [
+      /`node`\s+(is\s+)?(not available|missing)/i,
+    ]),
+    npmStatus: statusFromText(text, [], [
+      /`npm`[^\r\n]*(not available|missing)/i,
+      /npm workflows cannot run/i,
+      /npm is not available/i,
+    ]),
+    gccStatus: statusFromText(text, [
+      /`gcc`[^\r\n]*available/i,
+      /C toolchain:\s*`gcc`/i,
+    ], [
+      /`gcc`[^\r\n]*(not available|missing)/i,
+    ]),
+    gccVersion: PENDING_CONFIRMATION,
+    gppStatus: statusFromText(text, [], [
+      /`g\+\+`[^\r\n]*(not available|missing)/i,
+      /`g\+\+` and `c\+\+` are missing/i,
+      /g\+\+.*missing/i,
+    ]),
+    pythonVersion: extractFirst(text, [
+      /python3`?\s+is available at Python\s+(\d+\.\d+\.\d+)/i,
+      /Python:\s*`python3`\s+(\d+\.\d+\.\d+)/i,
+      /`python3`\s+(\d+\.\d+\.\d+)/i,
+    ]),
+    pythonStatus: statusFromText(text, [
+      /python3`?\s+is available/i,
+      /Python:\s*`python3`\s+\d+\.\d+\.\d+/i,
+    ], [
+      /`python3`[^\r\n]*(not available|missing)/i,
+    ]),
+    gitStatus: statusFromText(text, [
+      /`git`[^\r\n]*available/i,
+      /Shell and transfer tools:[^\r\n]*`git`/i,
+    ], [
+      /`git`[^\r\n]*(not available|missing)/i,
+    ]),
+    curlStatus: statusFromText(text, [
+      /`curl`[^\r\n]*available/i,
+      /Shell and transfer tools:[^\r\n]*`curl`/i,
+    ], [
+      /`curl`[^\r\n]*(not available|missing)/i,
+    ]),
+    wgetStatus: statusFromText(text, [
+      /`wget`[^\r\n]*available/i,
+      /Shell and transfer tools:[^\r\n]*`wget`/i,
+    ], [
+      /`wget`[^\r\n]*(not available|missing)/i,
+    ]),
+    sourceTopics,
+    sourcePaths,
+    lastUpdated: uniqueValues(records.map((record) => record.last_updated)).join('; ') || PENDING_CONFIRMATION,
+    confidence: combinedConfidence(records),
+  };
+}
+
+function factsForTopic(config, topic) {
+  if (!hasHistoricalEnvironmentFactsTopic(topic)) return null;
+  return {
+    historicalEnvironment: readHistoricalEnvironmentFacts(config),
+  };
+}
+
 function readTopic(config, topic) {
   const normalizedTopic = String(topic || '').trim();
   const filePath = topicPath(config, normalizedTopic);
@@ -282,6 +408,9 @@ function searchIndexedDocuments(config, query, terms, options) {
       evidence: evidenceForIndexEntry(entry),
       warning: '',
       warnings: [],
+      facts: /environment_report|software_stack/.test(`${entry.id} ${entry.path}`)
+        ? factsForTopic(config, entry.id.indexOf('software_stack') >= 0 ? 'software_stack' : 'environment_report')
+        : undefined,
     });
   }
   return matches;
@@ -316,6 +445,7 @@ function searchKnowledge(config, query, options) {
       evidence: evidenceFor(config, topic, record),
       warning: loaded.warning,
       warnings: loaded.warnings || (loaded.warning ? [loaded.warning] : []),
+      facts: factsForTopic(config, topic) || undefined,
     });
   }
   matches.push.apply(matches, searchIndexedDocuments(config, query, terms, options || {}));
@@ -352,6 +482,7 @@ function buildTopicEnvelope(config, topic) {
       confidence: record.confidence,
       content: record.content,
       unknowns: record.unknowns,
+      facts: factsForTopic(config, topic) || undefined,
     },
     summary: `${topic}: status=${record.status}, confidence=${record.confidence}. ${summarize(record.content, 240)}`,
     evidence: [evidenceFor(config, topic, record)],
@@ -371,6 +502,7 @@ module.exports = {
   kbRoot,
   knowledgeWarnings,
   readKnowledgeIndex,
+  readHistoricalEnvironmentFacts,
   listTopics,
   readTopic,
   searchKnowledge,
