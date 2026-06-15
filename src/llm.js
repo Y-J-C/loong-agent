@@ -3,6 +3,7 @@
 const {
   getProvider,
   getProviderCapabilities,
+  isRecoverableStreamError,
   listProviderDetails,
   listProviders,
   registerProvider,
@@ -60,6 +61,15 @@ function normalizeCompletionResult(result, config, options) {
     reasoningContentAvailable: Boolean(result && typeof result === 'object' && result.reasoningContentAvailable),
     streaming: Boolean(options && options.streaming),
     fallbackUsed: Boolean(options && options.fallbackUsed),
+    streamStatus:
+      result && typeof result === 'object' && result.streamStatus
+        ? result.streamStatus
+        : (options && options.streaming ? 'complete' : 'disabled'),
+    streamError:
+      result && typeof result === 'object' && result.streamError
+        ? String(result.streamError)
+        : '',
+    partialContentAccepted: Boolean(result && typeof result === 'object' && result.partialContentAccepted),
     usageStatus: '',
   };
 }
@@ -94,10 +104,12 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
     return metadata.content;
   }
   let receivedDelta = false;
+  let streamedContent = '';
   try {
     const result = await provider.streamChatCompletion(config, messages, Object.assign({}, options, {
       onDelta: (delta) => {
         receivedDelta = true;
+        streamedContent += String(delta || '');
         if (callbacks && typeof callbacks.onDelta === 'function') return callbacks.onDelta(delta);
         return null;
       },
@@ -115,6 +127,25 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
       const metadata = normalizeCompletionResult(result, config || {}, {
         streaming: false,
         fallbackUsed: true,
+      });
+      metadata.usageStatus = metadata.usage.status;
+      emitMetadata(callbacks, metadata);
+      return metadata.content;
+    }
+    if (
+      receivedDelta &&
+      isRecoverableStreamError(error) &&
+      (!callbacks || !callbacks.isAborted || !callbacks.isAborted())
+    ) {
+      const metadata = normalizeCompletionResult({
+        content: streamedContent,
+        usage: null,
+        streamStatus: 'partial',
+        streamError: error && error.message ? error.message : String(error),
+        partialContentAccepted: true,
+      }, config || {}, {
+        streaming: true,
+        fallbackUsed: false,
       });
       metadata.usageStatus = metadata.usage.status;
       emitMetadata(callbacks, metadata);

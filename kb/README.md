@@ -130,7 +130,7 @@ node scripts/test-knowledge-layer.js
 - 修改 `eth0` / `eth1` 网络配置。
 - 未确认电压、引脚、权限和接线前的 GPIO/I2C/SPI/UART 操作或盲扫。
 
-`command_reference.md` 是辅助说明。真正的可执行命令白名单以代码中的 `READONLY_COMMAND_METADATA` 为准。
+`command_reference.md` 是推荐诊断命令说明。`COMMAND_POLICY_METADATA` 不再作为 `bash` 执行边界。
 
 ## 后续阶段
 

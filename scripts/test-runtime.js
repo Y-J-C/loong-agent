@@ -4,6 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const childProcess = require('child_process');
 const { createAgent } = require('../src/agent-runtime');
 const { parseAgentResponse, parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
@@ -12,7 +13,7 @@ const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } 
 const { registerProvider } = require('../src/llm');
 const { createSessionManager } = require('../src/session-manager');
 const { renderSessionTrace } = require('../src/session');
-const { READONLY_COMMAND_METADATA, READONLY_COMMANDS } = require('../src/tools');
+const { COMMAND_POLICY_METADATA, COMMAND_POLICY_COMMANDS, evaluateCommand } = require('../src/command-policy');
 const {
   createDefaultToolRegistry,
   createDefaultTools,
@@ -29,6 +30,22 @@ function test(name, fn) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function childProcessSpawnBlocked() {
+  if (process.platform !== 'win32') return false;
+  const probe = childProcess.spawnSync(process.execPath, ['-v'], { encoding: 'utf8', windowsHide: true });
+  return Boolean(probe.error && probe.error.code === 'EPERM');
+}
+
+function recoverableStreamError(message) {
+  const error = new Error(message || 'read ECONNRESET');
+  error.code = 'ECONNRESET';
+  return error;
 }
 
 function tempWorkspace() {
@@ -137,6 +154,108 @@ test('model usage marks supported provider without token report as pending confi
   const usage = events.find((event) => event.type === 'model_usage');
   assert(usage && usage.usage.status === 'not_reported', 'usage should be not_reported');
   assert(usage.usage.note === '待确认', 'usage should mark pending confirmation');
+});
+
+test('streaming recoverable reset after complete answer is accepted with warning', async () => {
+  registerProvider({
+    name: 'test-stream-partial-answer',
+    capabilities: { streaming: true, thinking: false, usage: true, toolCalling: false },
+    chatCompletion: async () => {
+      throw new Error('fallback should not be used after deltas');
+    },
+    streamChatCompletion: async (cfg, messages, options) => {
+      await options.onDelta(JSON.stringify({
+        type: 'answer',
+        answer: 'partial answer ok',
+        status: 'ok',
+      }));
+      throw recoverableStreamError();
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-stream-partial-answer'), { streaming: true }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('stream answer');
+  const usage = events.find((event) => event.type === 'model_usage');
+  const end = events.find((event) => event.type === 'agent_end');
+  assert(result.summary === 'partial answer ok', 'partial answer was not accepted');
+  assert(end && end.status === 'ok', 'partial answer should end ok');
+  assert(usage && usage.streamStatus === 'partial', 'model_usage missing partial stream status');
+  assert(usage.partialContentAccepted === true, 'model_usage missing partial accepted flag');
+  assert(usage.warnings && usage.warnings.length === 1, 'model_usage missing partial warning');
+});
+
+test('streaming recoverable reset after complete tool action still executes tool', async () => {
+  registerProvider({
+    name: 'test-stream-partial-tool',
+    capabilities: { streaming: true, thinking: false, usage: true, toolCalling: false },
+    chatCompletion: async () => {
+      throw new Error('fallback should not be used after tool delta');
+    },
+    streamChatCompletion: async (cfg, messages, options) => {
+      await options.onDelta(JSON.stringify({
+        type: 'tool',
+        tool: 'finish',
+        input: { summary: 'partial tool ok' },
+        reason: 'done',
+      }));
+      throw recoverableStreamError('socket hang up');
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-stream-partial-tool'), { streaming: true }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('stream tool');
+  const finishTool = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'finish');
+  assert(result.summary === 'partial tool ok', 'partial tool action did not finish');
+  assert(finishTool && finishTool.isError === false, 'finish tool was not executed after partial stream');
+});
+
+test('streaming recoverable reset with incomplete JSON fails as model request error', async () => {
+  registerProvider({
+    name: 'test-stream-partial-invalid',
+    capabilities: { streaming: true, thinking: false, usage: true, toolCalling: false },
+    chatCompletion: async () => {
+      throw new Error('fallback should not be used after partial invalid delta');
+    },
+    streamChatCompletion: async (cfg, messages, options) => {
+      await options.onDelta('{"type":"answer","answer":"half');
+      throw recoverableStreamError();
+    },
+  });
+  const agent = createAgent(Object.assign(config('test-stream-partial-invalid'), { streaming: true }), { session: null });
+  let errorMessage = '';
+  try {
+    await agent.prompt('stream invalid');
+  } catch (error) {
+    errorMessage = error.message;
+  }
+  assert(/Streaming ended with recoverable error/.test(errorMessage), `unexpected partial invalid error: ${errorMessage}`);
+});
+
+test('streaming recoverable reset before deltas still falls back to non-streaming', async () => {
+  registerProvider({
+    name: 'test-stream-no-delta-fallback',
+    capabilities: { streaming: true, thinking: false, usage: true, toolCalling: false },
+    chatCompletion: async () => ({
+      content: JSON.stringify({
+        type: 'answer',
+        answer: 'fallback ok',
+        status: 'ok',
+      }),
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+    }),
+    streamChatCompletion: async () => {
+      throw recoverableStreamError();
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-stream-no-delta-fallback'), { streaming: true }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('stream fallback');
+  const usage = events.find((event) => event.type === 'model_usage');
+  assert(result.summary === 'fallback ok', 'no-delta stream did not fallback');
+  assert(usage && usage.fallbackUsed === true, 'model_usage missing fallbackUsed');
 });
 
 test('v2 tool response executes a tool action', async () => {
@@ -289,6 +408,61 @@ test('current node version still requires loong_env_check instead of historical 
   const kbTopic = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
   assert(loongEnv, 'current node question did not require loong_env_check');
   assert(!kbTopic, 'current node question should not use historical kb_topic as the required evidence');
+});
+
+test('current I2C hardware question requires bash evidence before final answer', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-i2c-evidence-guard',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当前 I2C 情况无需工具也能回答。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '已根据本轮 bash evidence 回答当前 I2C 情况。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-i2c-evidence-guard', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('查看当前开发板连接的I2C情况');
+  const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
+  const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_hardware_evidence');
+  assert(bashStart, 'current I2C question did not force bash evidence');
+  assert(guardTurn, 'current I2C guard reason missing');
+  assert(/bash evidence/.test(result.summary), 'final answer did not use second model response after evidence');
+});
+
+test('historical I2C hardware question does not force current bash evidence', async () => {
+  registerProvider({
+    name: 'test-historical-i2c-no-current-guard',
+    chatCompletion: async () => JSON.stringify({
+      type: 'answer',
+      answer: '上次 I2C 扫描结果应按历史证据查询。',
+      status: 'ok',
+    }),
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-historical-i2c-no-current-guard', PROJECT_ROOT), {
+    maxLoops: 2,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('上次 I2C 扫描结果是什么');
+  const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
+  assert(!bashStart, 'historical I2C question should not force current bash evidence');
+  assert(/上次 I2C/.test(result.summary), 'historical I2C answer mismatch');
 });
 
 test('historical gcc version stays pending when structured facts lack version', async () => {
@@ -715,16 +889,33 @@ test('default tools expose metadata contract', async () => {
     assert(tool.safety && typeof tool.safety.readOnly === 'boolean', `missing safety profile for ${tool.name}`);
     assert(tool.evidencePolicy && typeof tool.evidencePolicy.emitsEvidence === 'boolean', `missing evidence policy for ${tool.name}`);
   });
-  assert(names.finish && names.board_profile && names.run_readonly_command, 'missing expected default tools');
+  assert(names.finish && names.board_profile && names.bash, 'missing expected default tools');
+  ['process_status', 'process_logs', 'process_stop'].forEach((name) => {
+    assert(names[name], `missing process tool: ${name}`);
+  });
+  ['read', 'write', 'edit', 'ls', 'grep', 'find'].forEach((name) => {
+    assert(names[name], `missing Pi-style file tool: ${name}`);
+  });
+  assert(!names.run_readonly_command, 'legacy run_readonly_command should be removed from default tools');
 });
 
-test('readonly command allowlist is derived from metadata', async () => {
-  assert(READONLY_COMMAND_METADATA.length > 0, 'missing readonly command metadata');
-  READONLY_COMMAND_METADATA.forEach((item) => {
-    assert(item.command && item.category && item.risk && item.description, 'readonly command metadata incomplete');
-    assert(READONLY_COMMANDS.has(item.command), `metadata command not in allowlist: ${item.command}`);
+test('command reference metadata evaluates recommended command levels', async () => {
+  assert(COMMAND_POLICY_METADATA.length > 0, 'missing command policy metadata');
+  COMMAND_POLICY_METADATA.forEach((item) => {
+    assert(item.command && item.matchType && item.category && item.level && item.decision && item.description, 'command policy metadata incomplete');
+    if (item.decision === 'allow') {
+      assert(COMMAND_POLICY_COMMANDS.has(item.command), `metadata command not in command set: ${item.command}`);
+    }
   });
-  assert(READONLY_COMMANDS.size === READONLY_COMMAND_METADATA.length, 'readonly command allowlist drifted from metadata');
+  assert(evaluateCommand('node -v').allowed === true, 'node -v should be allowed');
+  assert(evaluateCommand('node -v').level === 'L0', 'node -v should be L0');
+  assert(evaluateCommand('dmesg | tail -n 80').allowed === true, 'dmesg should be allowed');
+  assert(evaluateCommand('dmesg | tail -n 80').level === 'L1', 'dmesg should be L1');
+  assert(evaluateCommand('i2cdetect -y 0').allowed === true, 'i2cdetect bus 0 should be allowed');
+  assert(evaluateCommand('i2cdetect -y 1').warnings.length > 0, 'i2cdetect should warn');
+  assert(evaluateCommand('i2cdetect -y 9').policy === 'unsupported_command', 'unexpected unsupported i2c policy');
+  assert(evaluateCommand('npm install').policy === 'dangerous_command', 'npm install should remain risky in reference metadata');
+  assert(evaluateCommand('echo x > file').policy === 'dangerous_command', 'redirect should remain risky in reference metadata');
 });
 
 test('finish and board_profile keep compatibility fields under envelope', async () => {
@@ -741,73 +932,252 @@ test('finish and board_profile keep compatibility fields under envelope', async 
   assert(board.data && board.data.profile, 'board_profile envelope data missing profile');
 });
 
-test('agent session default safety blocks dangerous readonly command', async () => {
-  let calls = 0;
-  registerProvider({
-    name: 'test-default-safety-dangerous-command',
-    chatCompletion: async () => {
-      calls += 1;
-      if (calls === 1) {
-        return JSON.stringify({
-          tool: 'run_readonly_command',
-          input: { command: 'apt full-upgrade' },
-          reason: 'dangerous',
-        });
-      }
-      return JSON.stringify({
-        tool: 'finish',
-        input: { summary: 'blocked safely' },
-        reason: 'done',
-      });
-    },
-  });
-
-  const events = [];
-  const session = createAgentSession(config('test-default-safety-dangerous-command'), { session: null });
-  session.subscribe((event) => events.push(event));
-  const result = await session.prompt('block apt');
-  const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'run_readonly_command');
-  const turnEnd = events.find((event) => event.type === 'turn_end' && event.status === 'policy_blocked');
-
-  assert(result.summary === 'blocked safely', 'agent did not continue after safety block');
-  assert(toolEnd && toolEnd.errorType === 'policy_blocked', 'dangerous command was not policy blocked');
-  assert(toolEnd.result && toolEnd.result.blocked === true, 'blocked result missing blocked flag');
-  assert(toolEnd.result.ok === false, 'blocked result missing envelope ok=false');
-  assert(toolEnd.result.data && toolEnd.result.data.blocked === true, 'blocked result missing envelope data');
-  assert(Array.isArray(toolEnd.result.evidence), 'blocked result missing envelope evidence');
-  assert(toolEnd.result.policy === 'dangerous_command', `unexpected policy: ${toolEnd.result.policy}`);
-  assert(turnEnd, 'turn_end did not expose policy_blocked status');
+test('bash executes shell commands with command evidence', async () => {
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config('test-controlled-bash'), 'bash', { command: 'node -v' });
+  assert(result.command === 'node -v', 'bash missing command');
+  assert(typeof result.exitCode === 'number', 'bash missing exitCode');
+  assert(result.evidence.some((item) => item.source === 'command' && item.command === 'node -v'), 'bash missing command evidence');
 });
 
-test('agent session default safety blocks non-allowlisted readonly command', async () => {
+test('bash accepts compound shell syntax without policy block', async () => {
+  const command = 'node -e "process.exit(1)" || node -v';
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config('test-general-bash-compound'), 'bash', { command });
+  assert(result.command === command, 'bash compound command mismatch');
+  assert(typeof result.exitCode === 'number', 'bash compound command missing exitCode');
+  assert(!result.blocked, 'bash compound command was policy blocked');
+  assert(!result.policy, 'bash compound command should not expose command policy');
+  assert(result.evidence.some((item) => item.source === 'command' && item.command === command), 'bash compound command missing evidence');
+});
+
+test('bash truncates long output and records full output path', async () => {
+  if (childProcessSpawnBlocked()) return;
+  const command = process.platform === 'win32'
+    ? 'for /L %i in (1,1,12000) do @echo line-%i'
+    : 'i=0; while [ $i -lt 12000 ]; do echo line-$i; i=$((i+1)); done';
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config('test-bash-long-output'), 'bash', { command });
+  assert(result.exitCode === 0, `long output command failed: ${result.stderr}`);
+  assert(result.truncated === true, 'long output should be truncated');
+  assert(result.fullOutputPath && fs.existsSync(result.fullOutputPath), 'full output path missing');
+  assert((result.stdout || '').indexOf('line-11999') >= 0, 'tail output missing final line');
+});
+
+test('bash timeout returns long-running recovery hint', async () => {
+  if (childProcessSpawnBlocked()) return;
+  const command = process.platform === 'win32'
+    ? 'ping -n 3 127.0.0.1 > nul'
+    : 'sleep 2';
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config('test-bash-timeout'), 'bash', { command, timeoutMs: 100 });
+  assert(result.exitCode === 124, `timeout command exit mismatch: ${result.exitCode}`);
+  assert(result.timedOut === true, 'timeout result missing timedOut');
+  assert(result.likelyLongRunning === true, 'timeout result missing likelyLongRunning');
+  assert(/background=true/.test(result.recoveryHint || ''), 'timeout result missing background recovery hint');
+});
+
+test('bash background process can be checked logged and stopped', async () => {
+  if (childProcessSpawnBlocked()) return;
+  const runsDir = path.join(PROJECT_ROOT, 'runs');
+  fs.mkdirSync(runsDir, { recursive: true });
+  const workspace = fs.mkdtempSync(path.join(runsDir, 'runtime-background-'));
+  const script = path.join(workspace, 'background-writer.js');
+  const csv = path.join(workspace, 'background.csv');
+  const logFile = path.join(workspace, '.loong-agent', 'logs', 'background.log');
+  const pidFile = path.join(workspace, '.loong-agent', 'pids', 'background.pid');
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+  fs.writeFileSync(script, [
+    "'use strict';",
+    "const fs = require('fs');",
+    `const csv = ${JSON.stringify(csv)};`,
+    "if (!fs.existsSync(csv)) fs.writeFileSync(csv, 'timestamp,value\\n', 'utf8');",
+    "let count = 0;",
+    "setInterval(function () {",
+    "  count += 1;",
+    "  fs.appendFileSync(csv, new Date().toISOString() + ',' + count + '\\n', 'utf8');",
+    "  console.log('tick ' + count);",
+    "}, 200);",
+    '',
+  ].join('\n'), 'utf8');
+
+  const registry = createDefaultToolRegistry();
+  const cfg = config('test-bash-background', workspace);
+  const command = `node ${JSON.stringify(script)}`;
+  const started = await registry.execute(cfg, 'bash', {
+    command,
+    background: true,
+    logFile,
+    pidFile,
+  });
+  assert(started.ok === true && started.background === true, 'background bash did not start');
+  assert(started.pid && fs.existsSync(pidFile), 'background pid file missing');
+
+  await sleep(1800);
+  const status = await registry.execute(cfg, 'process_status', { pidFile, logFile });
+  assert(status.running === true, 'background process is not running');
+
+  const logs = await registry.execute(cfg, 'process_logs', { logFile, lines: 20 });
+  assert((logs.content || '').indexOf('tick') >= 0, 'process logs missing tick output');
+
+  const csvContent = fs.readFileSync(csv, 'utf8');
+  assert(csvContent.split(/\r?\n/).filter(Boolean).length >= 2, 'background csv missing data rows');
+
+  const stopped = await registry.execute(cfg, 'process_stop', { pidFile });
+  assert(stopped.pid === started.pid, 'process_stop pid mismatch');
+  await sleep(300);
+  const finalStatus = await registry.execute(cfg, 'process_status', { pidFile, logFile });
+  assert(finalStatus.running === false, 'background process was not stopped');
+});
+
+test('agent session default safety does not block general bash command content', async () => {
   let calls = 0;
   registerProvider({
-    name: 'test-default-safety-allowlist',
+    name: 'test-default-safety-general-bash',
     chatCompletion: async () => {
       calls += 1;
       if (calls === 1) {
         return JSON.stringify({
-          tool: 'run_readonly_command',
-          input: { command: 'whoami' },
-          reason: 'not listed',
+          tool: 'bash',
+          input: { command: 'node -e "console.log(\'general-bash\')"' },
+          reason: 'general shell',
         });
       }
       return JSON.stringify({
         tool: 'finish',
-        input: { summary: 'allowlist enforced' },
+        input: { summary: 'bash completed' },
         reason: 'done',
       });
     },
   });
 
   const events = [];
-  const session = createAgentSession(config('test-default-safety-allowlist'), { session: null });
+  const session = createAgentSession(config('test-default-safety-general-bash'), { session: null });
   session.subscribe((event) => events.push(event));
-  const result = await session.prompt('block whoami');
-  const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'run_readonly_command');
+  const result = await session.prompt('run general bash');
+  const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'bash');
 
-  assert(result.summary === 'allowlist enforced', 'agent did not continue after allowlist block');
-  assert(toolEnd && toolEnd.result.policy === 'readonly_allowlist', 'non-allowlisted command was not blocked by allowlist policy');
+  assert(result.summary === 'bash completed', 'agent did not continue after bash command');
+  assert(toolEnd && toolEnd.errorType !== 'policy_blocked', 'general bash command was policy blocked');
+  assert(toolEnd.result && toolEnd.result.blocked !== true, 'general bash result should not be blocked');
+  assert(Array.isArray(toolEnd.result.evidence), 'bash result missing envelope evidence');
+});
+
+test('Pi-style file tools write read edit list grep and find external paths', async () => {
+  const workspace = tempWorkspace();
+  const external = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-external-'));
+  const target = path.join(external, 'data', 'probe.txt');
+  const runsDir = path.join(PROJECT_ROOT, 'runs');
+  fs.mkdirSync(runsDir, { recursive: true });
+  const scriptDir = fs.mkdtempSync(path.join(runsDir, 'pi-file-tools-'));
+  const script = path.join(scriptDir, 'probe.js');
+  const csv = path.join(external, 'data', 'probe.csv');
+  const registry = createDefaultToolRegistry();
+  const cfg = config('test-pi-file-tools', workspace);
+
+  const write = await registry.execute(cfg, 'write', {
+    path: target,
+    content: 'temperature,pressure\n25.1,1008.2\n',
+  });
+  assert(write.ok === true, 'write failed');
+  assert(write.data.resolvedPath === path.resolve(target), 'write did not preserve external absolute path');
+  assert(write.evidence.some((item) => item.source === 'file' && item.action === 'write'), 'write evidence missing');
+
+  const read = await registry.execute(cfg, 'read', { path: target });
+  assert(read.data.content.indexOf('temperature,pressure') >= 0, 'read did not return written content');
+
+  const edit = await registry.execute(cfg, 'edit', {
+    path: target,
+    edits: [{ oldText: '25.1,1008.2', newText: '25.2,1008.4' }],
+  });
+  assert(edit.ok === true && edit.data.edits === 1, 'edit failed');
+  assert(fs.readFileSync(target, 'utf8').indexOf('25.2,1008.4') >= 0, 'edit did not change file');
+
+  const ls = await registry.execute(cfg, 'ls', { path: path.dirname(target) });
+  assert(ls.data.entries.some((entry) => entry.name === 'probe.txt'), 'ls did not list written file');
+
+  const grep = await registry.execute(cfg, 'grep', { path: target, pattern: '25.2' });
+  assert(grep.data.matches.length === 1, 'grep did not find edited text');
+
+  const find = await registry.execute(cfg, 'find', { path: external, name: 'probe.txt' });
+  assert(find.data.results.some((item) => item.indexOf('probe.txt') >= 0), 'find did not locate file');
+
+  await registry.execute(cfg, 'write', {
+    path: script,
+    content: [
+      "'use strict';",
+      "const fs = require('fs');",
+      `fs.writeFileSync(${JSON.stringify(csv)}, 'temperature,pressure\\n25.2,1008.4\\n', 'utf8');`,
+      '',
+    ].join('\n'),
+  });
+  const command = `node ${JSON.stringify(script)}`;
+  const bash = await registry.execute(cfg, 'bash', { command });
+  assert(!bash.blocked && !bash.policy, 'bash should not be policy blocked while executing written script');
+  if (bash.exitCode === 0) {
+    const csvRead = await registry.execute(cfg, 'read', { path: csv });
+    assert(csvRead.data.content.indexOf('temperature,pressure') >= 0, 'read did not inspect generated csv');
+  } else {
+    assert(/EPERM|EACCES|permission/i.test(bash.stderr || bash.error || ''), `unexpected bash failure: ${bash.stderr || bash.error}`);
+  }
+  try {
+    fs.rmSync(scriptDir, { recursive: true, force: true });
+  } catch (error) {
+    // Some Windows sandboxes keep failed child-process targets locked briefly.
+  }
+});
+
+test('Pi-style edit fails without partially writing when oldText is ambiguous', async () => {
+  const workspace = tempWorkspace();
+  const file = path.join(workspace, 'ambiguous.txt');
+  fs.writeFileSync(file, 'same\nsame\n', 'utf8');
+  const registry = createDefaultToolRegistry();
+  let errorMessage = '';
+  try {
+    await registry.execute(config('test-pi-edit-ambiguous', workspace), 'edit', {
+      path: file,
+      edits: [{ oldText: 'same', newText: 'changed' }],
+    });
+  } catch (error) {
+    errorMessage = error.message;
+  }
+  assert(/Expected exactly one match/.test(errorMessage), `unexpected edit error: ${errorMessage}`);
+  assert(fs.readFileSync(file, 'utf8') === 'same\nsame\n', 'ambiguous edit should not write partial content');
+});
+
+test('agent session default safety allows Pi-style write tool', async () => {
+  const workspace = tempWorkspace();
+  const target = path.join(workspace, 'generated.txt');
+  let calls = 0;
+  registerProvider({
+    name: 'test-default-safety-write',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          tool: 'write',
+          input: { path: target, content: 'created by write tool\n' },
+          reason: 'create file',
+        });
+      }
+      return JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'write completed' },
+        reason: 'done',
+      });
+    },
+  });
+
+  const events = [];
+  const session = createAgentSession(config('test-default-safety-write', workspace), { session: null });
+  session.subscribe((event) => events.push(event));
+  const result = await session.prompt('create file with write');
+  const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'write');
+
+  assert(result.summary === 'write completed', 'agent did not continue after write');
+  assert(toolEnd && toolEnd.errorType !== 'policy_blocked', 'write was policy blocked');
+  assert(fs.readFileSync(target, 'utf8') === 'created by write tool\n', 'write tool did not create file');
 });
 
 test('agent session default safety blocks sensitive file reads', async () => {

@@ -17,14 +17,14 @@ High-priority risks:
 - Alternate GPT abnormality is recorded; record it, do not rewrite partition metadata casually.
 - Network risk: do not modify `eth0` / `eth1` configuration during knowledge testing. `eth0` is the working access path.
 - `eth1` failure is unresolved and may be hardware, driver, DMA, link, or configuration related.
-- Peripheral risk: do not attach or scan GPIO/I2C/SPI/UART devices until voltage, pinout, wiring, and permissions are confirmed.
+- Peripheral risk: do not attach or scan GPIO/I2C/SPI/UART devices until voltage, pinout, wiring, and permissions are confirmed, except explicitly listed recommended diagnostics such as `i2cdetect -y 0` and `i2cdetect -y 1`.
 - Package-management risk: package candidates must not be described as installed packages.
 - Development-environment risk: wrapper files and runtime libraries must not be described as complete dev toolchains.
 
 Agent behavior rules:
 
 - Prefer read-only commands and cite uncertainty.
-- Before recommending a command, use the structured command allowlist from `READONLY_COMMAND_METADATA`.
+- Before recommending a board diagnostic command, use the structured command reference from `COMMAND_POLICY_METADATA`.
 - Mention `待确认` items instead of filling gaps.
 - Treat the preview package as evidence and planning context, not as a repair manual.
 

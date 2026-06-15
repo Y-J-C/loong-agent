@@ -7,7 +7,6 @@ const { loadConfig } = require('../config');
 const { createSessionManager } = require('../session-manager');
 const { openJsonlSession, renderSessionAudit, renderSessionTrace, writeSessionExport } = require('../session');
 const { createDefaultToolRegistry } = require('../tool-registry');
-const { runReadonlyCommand } = require('../tools');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
 const { addMessage, clearMessages } = require('./state');
 const {
@@ -135,7 +134,7 @@ function helpText() {
   return [
     '命令:',
     commands,
-    '! <只读命令>',
+    '! <shell command>',
     '',
     '换行: Ctrl+Enter(终端支持时)/Alt+Enter(推荐)/\\+Enter(通用)',
     '退出: Ctrl+C / Ctrl+D(空输入) / /exit',
@@ -832,18 +831,19 @@ async function runSlashCommandLegacy(context, text) {
 async function runBangCommand(context, text) {
   const command = String(text || '').replace(/^!!?\s*/, '').trim();
   if (!command) {
-    addMessage(context.state, { type: 'error', text: 'Usage: ! <readonly command>' });
+    addMessage(context.state, { type: 'error', text: 'Usage: ! <shell command>' });
     return;
   }
   try {
-    const result = await runReadonlyCommand({ command });
+    const result = await createDefaultToolRegistry().execute(context.config, 'bash', { command });
     addMessage(context.state, {
-      type: result.exitCode === 0 ? 'system' : 'error',
-      text: section('只读命令执行', [
+      type: result.ok ? 'system' : 'error',
+      text: section('bash 执行 / bash command', [
         `! ${command}`,
         `exitCode: ${result.exitCode}`,
         result.stdout ? `stdout:\n${result.stdout}` : '',
         result.stderr ? `stderr:\n${result.stderr}` : '',
+        result.warnings && result.warnings.length ? `warnings:\n${result.warnings.join('\n')}` : '',
       ].filter(Boolean)),
     });
   } catch (error) {

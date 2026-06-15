@@ -55,7 +55,7 @@ Default read-only knowledge tools:
 - `kb_topic`: read one topic and return metadata, content, unknowns, and evidence.
 - `kb_search`: lightweight keyword search across local topics and indexed knowledge files.
 - `risk_lookup`: return risk and unknowns context relevant to a query.
-- `command_reference`: return allowed read-only commands from `READONLY_COMMAND_METADATA` with optional local notes.
+- `command_reference`: return recommended diagnostic commands from `COMMAND_POLICY_METADATA` with optional local notes.
 
 All knowledge tool results use the standard tool envelope:
 
@@ -173,15 +173,15 @@ The prompt builder must preserve evidence metadata and warnings before long topi
 
 `kb/command_reference.md` is human documentation only.
 
-The authoritative command allowlist is `READONLY_COMMAND_METADATA`. If Markdown notes and structured metadata disagree, structured metadata wins.
+The recommended diagnostic command reference is `COMMAND_POLICY_METADATA`. It supports `command_reference` and risk discussion, but it is not the execution boundary for `bash`.
 
 `command_reference` returns command groups for:
 
-- L0: low-risk read-only commands from `READONLY_COMMAND_METADATA`
-- L1: medium-risk read-only commands from `READONLY_COMMAND_METADATA`
+- L0: low-risk recommended diagnostic commands from `COMMAND_POLICY_METADATA`
+- L1: cautious recommended diagnostic commands from `COMMAND_POLICY_METADATA`
 - forbiddenExamples: documented operation families that must not be presented as executable agent commands
 
-`risk_lookup` returns a structured risk envelope with `riskLevel`, `forbiddenOperations`, `readOnlyAlternatives`, and `pendingConfirmations`. It is advisory context only; tool execution remains controlled by the safety policy and read-only allowlist.
+`risk_lookup` returns a structured risk envelope with `riskLevel`, `forbiddenOperations`, `readOnlyAlternatives`, and `pendingConfirmations`. It is advisory context only; tool execution remains controlled by the safety policy and command policy.
 
 ## Safety
 

@@ -5,6 +5,10 @@ const {
   wrapToolDefinitions,
 } = require('../tool-definition-wrapper');
 const {
+  createBashTool,
+  createBashToolDefinition,
+} = require('./bash');
+const {
   createBoardProfileTool,
   createBoardProfileToolDefinition,
 } = require('./board-profile');
@@ -20,14 +24,23 @@ const {
 const {
   createKnowledgeToolDefinitions,
 } = require('./kb-tools');
+const {
+  createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
+} = require('./file-tools');
 const { createReadFileTool, createReadFileToolDefinition } = require('./read-file');
 const {
   createProjectMapToolDefinition,
 } = require('./project-map');
 const {
-  createReadonlyCommandTool,
-  createReadonlyCommandToolDefinition,
-} = require('./readonly-command');
+  createProcessLogsToolDefinition,
+  createProcessStatusToolDefinition,
+  createProcessStopToolDefinition,
+} = require('./process-tools');
 const {
   createRuntimeHealthToolDefinition,
 } = require('./runtime-health');
@@ -43,7 +56,16 @@ function createDefaultToolDefinitions() {
   return [
     createBoardProfileToolDefinition(),
     createLoongEnvCheckToolDefinition(),
-    createReadonlyCommandToolDefinition(),
+    createBashToolDefinition(),
+    createProcessStatusToolDefinition(),
+    createProcessLogsToolDefinition(),
+    createProcessStopToolDefinition(),
+    createReadToolDefinition(),
+    createWriteToolDefinition(),
+    createEditToolDefinition(),
+    createLsToolDefinition(),
+    createGrepToolDefinition(),
+    createFindToolDefinition(),
     createListDirectoryToolDefinition(),
     createReadFileToolDefinition(),
     createSearchFilesToolDefinition(),
@@ -59,7 +81,12 @@ function createReadOnlyToolDefinitions() {
   return [
     createBoardProfileToolDefinition(),
     createLoongEnvCheckToolDefinition(),
-    createReadonlyCommandToolDefinition(),
+    createReadToolDefinition(),
+    createLsToolDefinition(),
+    createGrepToolDefinition(),
+    createFindToolDefinition(),
+    createProcessStatusToolDefinition(),
+    createProcessLogsToolDefinition(),
     createListDirectoryToolDefinition(),
     createReadFileToolDefinition(),
     createSearchFilesToolDefinition(),
@@ -81,6 +108,17 @@ function createReadOnlyTools() {
 module.exports = {
   createDefaultToolDefinitions,
   createDefaultTools,
+  createBashTool,
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createProcessLogsToolDefinition,
+  createProcessStatusToolDefinition,
+  createProcessStopToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
   createReadOnlyToolDefinitions,
   createReadOnlyTools,
   createToolDefinitionFromAgentTool,

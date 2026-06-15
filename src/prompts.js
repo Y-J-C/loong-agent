@@ -35,8 +35,18 @@ Rules:
 - Historical-state answers must include: 时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认.
 - For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.
 - For risk, install, repair, boot/storage, network modification, or peripheral operation questions, use risk_lookup or command_reference first.
-- Do not describe commands outside READONLY_COMMAND_METADATA as executable by the agent.
-- Do not repeat the same read-only query tool with the same input. If the existing tool result is enough, answer the user directly.
+- For current board hardware, I2C, sensor, peripheral, or connected-device questions, collect current tool evidence first. Use bash for commands such as ls /dev/i2c*, i2cdetect -l, and /sys/bus/i2c/devices before answering.
+- Bash is a general shell command tool; shell execution is governed by the process environment and user intent, not COMMAND_POLICY_METADATA.
+- COMMAND_POLICY_METADATA is a recommended diagnostic command reference, not the bash execution boundary.
+- Use read, write, edit, ls, grep, and find as the primary file tools. Use legacy read_file, list_directory, and search_files only for compatibility.
+- Use write for new files or complete rewrites, including multi-line scripts and CSV/logging helpers. Do not create large files with bash heredocs when write is available.
+- Use edit only after reading the file and matching exact oldText. If the text is uncertain, read again before editing.
+- User-specified absolute output paths are allowed. Record the exact path in the answer when creating or editing files.
+- After writing a script, use bash to execute it and read to inspect generated output files.
+- Long-running tasks must not be run as foreground bash commands. If the request or script involves while True, time.sleep in a loop, logging, monitoring, servers, daemons, "every N seconds", or continuous sensor collection, start it with bash background=true.
+- For background bash commands, provide logFile and pidFile when the user gave an output directory. Then verify with process_status, process_logs, and read/grep the generated output file before answering.
+- If a foreground bash command times out and the result says likelyLongRunning or includes recoveryHint, recover by rerunning the appropriate command with background=true instead of treating the task as failed.
+- Do not repeat the same command policy query tool with the same input. If the existing tool result is enough, answer the user directly.
 - The finish tool is legacy compatibility. Prefer type="answer" or natural language for final answers.`;
 
 function buildSystemPrompt(tools) {

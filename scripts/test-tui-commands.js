@@ -180,13 +180,14 @@ test('selected target reports clear error when no session is selected', async ()
   assert(text.indexOf('No selected session') >= 0, 'missing selected target error');
 });
 
-test('bang command only accepts readonly allowlist', async () => {
+test('bang command executes general shell commands', async () => {
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);
   await handleCommand(context, '! node src/index.js --help');
-  await handleCommand(context, '! npm install');
+  await handleCommand(context, '! node -e "process.exit(1)" || node -v');
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf('! node src/index.js --help') >= 0, 'allowed command result was not displayed');
+  assert(text.indexOf('! node -e "process.exit(1)" || node -v') >= 0, 'compound command result was not displayed');
   assert(text.indexOf('exitCode:') >= 0, 'allowed command did not record exit code');
-  assert(text.indexOf('Command is not in read-only allowlist') >= 0, 'blocked command did not fail');
+  assert(text.indexOf('controlled bash policy') < 0 && text.indexOf('dangerous_command') < 0, 'bang command still reports policy blocking');
 });

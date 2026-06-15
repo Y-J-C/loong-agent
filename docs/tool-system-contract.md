@@ -62,11 +62,55 @@ Recommended shapes:
 
 Evidence must stay small. Large stdout, file content, or raw session bodies belong in `data`, not `evidence`.
 
-## Read-Only Commands
+## Bash Commands
 
-`READONLY_COMMAND_METADATA` is the source of truth for read-only diagnostic commands.
+`bash` is the default shell command tool. It executes general shell commands through a spawned shell process and must preserve timeout handling, result envelopes, evidence, warnings, and session audit events.
 
-`READONLY_COMMANDS` remains the execution allowlist and is derived from metadata. Prompt hints, safety policy, and tests should use the metadata source to avoid drift.
+Foreground calls keep the compatible input shape:
+
+```js
+{ command: "node -v", timeoutMs: 15000 }
+```
+
+Long-running commands must use managed background mode:
+
+```js
+{
+  command: "python3 /home/loongson/测试/read_bmp280.py",
+  background: true,
+  logFile: "/home/loongson/测试/bmp280_logger.log",
+  pidFile: "/home/loongson/测试/bmp280_logger.pid"
+}
+```
+
+Background calls return `pid`, `logFile`, `pidFile`, and `background: true` without waiting for the process to exit. Foreground timeout returns `exitCode: 124`, `timedOut: true`, `likelyLongRunning: true`, and a recovery hint telling the model to rerun as background when appropriate.
+
+Command output must be bounded in memory. Tool results should expose tail output in `stdout` and `stderr`; when output is truncated, include `truncated: true` and `fullOutputPath`.
+
+`COMMAND_POLICY_METADATA` is a recommended diagnostic command reference for `command_reference`. It is not the execution boundary for `bash`.
+
+## Process Tools
+
+Managed background processes are inspected through these tools:
+
+- `process_status`: check a `pid` or `pidFile` returned by `bash`.
+- `process_logs`: read the tail of a background command `logFile`.
+- `process_stop`: stop the process tree for a `pid` or `pidFile`.
+
+These tools do not scan all system processes. They operate on a user-provided PID, PID file, or log file.
+
+## File Tools
+
+Pi-style file tools are the primary file interface:
+
+- `read`: read a file by workspace-relative or user-specified absolute path.
+- `write`: create or overwrite a file, including multi-line scripts and generated artifacts.
+- `edit`: apply exact text replacements after reading the target file.
+- `ls`: list a directory.
+- `grep`: search literal text.
+- `find`: locate files by name.
+
+Legacy `read_file`, `list_directory`, and `search_files` remain compatibility tools. New prompts should prefer the Pi-style short names.
 
 ## Compatibility
 

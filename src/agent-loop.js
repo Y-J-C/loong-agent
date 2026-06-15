@@ -218,7 +218,7 @@ function summarizeToolResultForAnswer(toolName, result, resultSummary) {
   if (toolName === 'command_reference' && Array.isArray(result.commands)) {
     const commands = result.commands.map((item) => item.command).filter(Boolean);
     return [
-      `当前允许的只读命令共有 ${commands.length} 个，来源为 READONLY_COMMAND_METADATA。`,
+      `当前允许的只读命令共有 ${commands.length} 个，来源为 COMMAND_POLICY_METADATA。`,
       commands.length ? `允许命令：${commands.join('、')}` : '',
       resultSummary ? `摘要：${resultSummary}` : '',
     ].filter(Boolean).join('\n');
@@ -243,6 +243,9 @@ const TEMPORAL_CURRENT_PATTERN = /当前|现在|此刻|这台设备现在|curren
 const BOARD_ENV_PATTERN = /node|npm|gcc|g\+\+|python|python3|git|curl|wget|环境|运行时|工具链|软件栈|系统环境/i;
 const VERSION_OR_STATUS_PATTERN = /版本|version|情况|状态|可用|available|installed/i;
 
+const CURRENT_HARDWARE_PATTERN = /i2c|sensor|sensors|传感器|外设|开发板|设备|硬件|连接|connected|peripheral/i;
+const HARDWARE_CURRENT_PATTERN = /当前|现在|此刻|查看|检测|扫描|连接|current|now|connected/i;
+
 function temporalIntentForPrompt(text) {
   const value = String(text || '');
   if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return 'historical';
@@ -255,12 +258,28 @@ function isBoardEnvironmentQuestion(text) {
   return BOARD_ENV_PATTERN.test(value) && VERSION_OR_STATUS_PATTERN.test(value);
 }
 
+function isCurrentHardwareQuestion(text) {
+  const value = String(text || '');
+  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return false;
+  if (/当时|之前|上次|刚才|那次|历史|记录|previous|last time|earlier/i.test(value)) return false;
+  return CURRENT_HARDWARE_PATTERN.test(value) && HARDWARE_CURRENT_PATTERN.test(value);
+}
+
 function hasObservationFrom(state, toolNames) {
   const names = {};
   (toolNames || []).forEach((name) => {
     names[name] = true;
   });
   return (state.observations || []).some((item) => item && names[item.tool]);
+}
+
+function hasCommandEvidenceObservation(state) {
+  return (state.observations || []).some((item) => {
+    if (!item || item.tool !== 'bash') return false;
+    const result = item.result || {};
+    const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+    return evidence.some((entry) => entry && entry.source === 'command');
+  });
 }
 
 function hasKbTopicObservation(state, topic) {
@@ -447,6 +466,23 @@ function observationEvidenceSources(state) {
 
 function finalAnswerEvidenceGuard(state, currentUserPrompt) {
   const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
+  if (isCurrentHardwareQuestion(prompt) && !hasCommandEvidenceObservation(state)) {
+    return {
+      reason: 'missing_current_hardware_evidence',
+      action: {
+        tool: 'bash',
+        input: {
+          command: 'ls /dev/i2c*; i2cdetect -l; ls /sys/bus/i2c/devices 2>/dev/null || true',
+        },
+        reason: 'Required current board hardware/I2C evidence before answering.',
+      },
+      message: [
+        'The user asked for current board hardware or I2C state.',
+        'Do not answer from memory, historical sessions, or KB alone.',
+        'Use this bash command evidence first, then decide whether more I2C probing is needed.',
+      ].join('\n'),
+    };
+  }
   if (!isBoardEnvironmentQuestion(prompt)) return null;
   const intent = temporalIntentForPrompt(prompt);
   if (intent === 'historical') {
@@ -712,6 +748,12 @@ function createModelUsageEvent(config, turn, metadata) {
     reasoningContentAvailable: Boolean(metadata && metadata.reasoningContentAvailable),
     streaming: metadata ? Boolean(metadata.streaming) : config.streaming !== false,
     fallbackUsed: Boolean(metadata && metadata.fallbackUsed),
+    streamStatus: metadata && metadata.streamStatus ? metadata.streamStatus : (metadata && metadata.streaming ? 'complete' : 'disabled'),
+    streamError: metadata && metadata.streamError ? metadata.streamError : '',
+    partialContentAccepted: Boolean(metadata && metadata.partialContentAccepted),
+    warnings: metadata && metadata.partialContentAccepted
+      ? ['Streaming ended with recoverable error after usable content was received.']
+      : [],
     usage: {
       promptTokens: Number(usage.promptTokens || 0) || 0,
       completionTokens: Number(usage.completionTokens || 0) || 0,
@@ -1317,6 +1359,13 @@ async function runAgentLoop(options) {
       return failRun(turnContext, createLoopError('Agent run aborted', 'aborted'));
     }
     const response = parseAgentResponse(content);
+    if (modelMetadata && modelMetadata.partialContentAccepted && response.kind === 'invalid_action') {
+      const partialError = createLoopError(
+        `Streaming ended with recoverable error before a complete model response was available: ${modelMetadata.streamError || errorMessage(response.error)}`,
+        'model_request_error'
+      );
+      return failRun(turnContext, partialError, { code: 'model_request_error' });
+    }
     if (!assistantAlreadyEmitted) {
       const displayContent = response.kind === 'final_answer'
         ? response.answer.summary

@@ -13,6 +13,10 @@ const DEFAULT_CAPABILITIES = {
   toolCalling: false,
 };
 
+function errorMessage(error) {
+  return error && error.message ? error.message : String(error);
+}
+
 function normalizeCapabilities(capabilities) {
   capabilities = capabilities || {};
   return {
@@ -228,6 +232,17 @@ function createAbortError() {
   return error;
 }
 
+function isRecoverableStreamError(error) {
+  const code = error && error.code ? String(error.code) : '';
+  const message = error && error.message ? String(error.message) : String(error || '');
+  return (
+    code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    code === 'ETIMEDOUT' ||
+    /socket hang up|read ECONNRESET|stream reset|connection reset/i.test(message)
+  );
+}
+
 function parseSseData(buffer, onData) {
   const lines = String(buffer || '').split(/\r?\n/);
   let eventLines = [];
@@ -257,6 +272,7 @@ function streamJson(urlString, apiKey, payload, handlers) {
     let deltaChain = Promise.resolve();
     let usage = null;
     let reasoningContent = '';
+    let receivedDelta = false;
     let abortTimer = null;
     let req = null;
     function cleanup() {
@@ -282,9 +298,16 @@ function streamJson(urlString, apiKey, payload, handlers) {
       if (req) req.destroy(createAbortError());
       return true;
     }
-    function finish() {
+    function finish(options) {
+      options = options || {};
       deltaChain.then(() => {
-        resolveOnce({ usage, reasoningContent });
+        resolveOnce({
+          usage,
+          reasoningContent,
+          streamStatus: options.streamStatus || 'complete',
+          streamError: options.streamError || '',
+          partialContentAccepted: options.streamStatus === 'partial',
+        });
       }).catch((error) => {
         rejectOnce(error);
       });
@@ -357,6 +380,7 @@ function streamJson(urlString, apiKey, payload, handlers) {
               if (parsedUsage) usage = parsedUsage;
               reasoningContent += extractOpenAiReasoningDelta(parsed);
               const delta = extractOpenAiDelta(parsed);
+              if (delta) receivedDelta = true;
               pushDelta(delta);
             });
           }
@@ -372,6 +396,7 @@ function streamJson(urlString, apiKey, payload, handlers) {
                   if (parsedUsage) usage = parsedUsage;
                   reasoningContent += extractOpenAiReasoningDelta(parsed);
                   const delta = extractOpenAiDelta(parsed);
+                  if (delta) receivedDelta = true;
                   pushDelta(delta);
                 } catch (error) {
                   rejectOnce(new Error(`Model returned invalid SSE JSON: ${data.slice(0, 300)}`));
@@ -384,6 +409,13 @@ function streamJson(urlString, apiKey, payload, handlers) {
       }
     );
     req.on('error', (error) => {
+      if (!settled && receivedDelta && isRecoverableStreamError(error)) {
+        finish({
+          streamStatus: 'partial',
+          streamError: errorMessage(error),
+        });
+        return;
+      }
       rejectOnce(error);
     });
     req.on('timeout', () => {
@@ -488,6 +520,9 @@ registerProvider({
       usage: metadata && metadata.usage ? metadata.usage : null,
       nativeThinking: supportsNativeThinking(config),
       reasoningContentAvailable: supportsNativeThinking(config) && Boolean(metadata && metadata.reasoningContent),
+      streamStatus: metadata && metadata.streamStatus ? metadata.streamStatus : 'complete',
+      streamError: metadata && metadata.streamError ? metadata.streamError : '',
+      partialContentAccepted: Boolean(metadata && metadata.partialContentAccepted),
     };
   },
 });
@@ -505,6 +540,7 @@ module.exports = {
   normalizeCapabilities,
   resolveProviderCapabilities,
   supportsNativeThinking,
+  isRecoverableStreamError,
   parseSseData,
   registerProvider,
   streamJson,

@@ -1,7 +1,6 @@
 'use strict';
 
 const path = require('path');
-const { READONLY_COMMANDS } = require('../tools.js');
 
 const PATH_TOOLS = {
   kb_search: null,
@@ -13,10 +12,13 @@ const PATH_TOOLS = {
   search_files: 'relative_path',
 };
 
-const SENSITIVE_PATH_PATTERN = /(^|[\\/])\.env($|[\\/])|api[_-]?key|token|secret|authorization|credential/i;
+const MUTATING_TOOLS_ALLOWED_BY_RUNTIME = {
+  write: true,
+  edit: true,
+  process_stop: true,
+};
 
-const DANGEROUS_COMMAND_PATTERN =
-  /\b(apt(-get)?\s+(install|remove|purge|upgrade|full-upgrade|dist-upgrade|autoremove)|npm\s+(install|update|audit\s+fix)|yarn\s+(add|install|upgrade)|pnpm\s+(add|install|update)|rm\s+|mv\s+|cp\s+|chmod\s+|chown\s+|dd\s+|mkfs|mount\s+|umount\s+|reboot|shutdown|systemctl\s+(start|stop|restart|enable|disable)|service\s+\S+\s+(start|stop|restart))\b|(^|[^<])>>?|&&|\|\||;\s*|`|\$\(/i;
+const SENSITIVE_PATH_PATTERN = /(^|[\\/])\.env($|[\\/])|api[_-]?key|token|secret|authorization|credential/i;
 
 function block(action, policy, reason) {
   const blocked = {
@@ -63,29 +65,19 @@ function inspectPathTool(config, action) {
   return null;
 }
 
-function inspectReadonlyCommand(action) {
-  if (action.tool !== 'run_readonly_command') return null;
-  const command = String((action.input && action.input.command) || '').trim();
-  if (!command) {
-    return block(action, 'readonly_command_missing', 'Missing read-only command.');
-  }
-  if (DANGEROUS_COMMAND_PATTERN.test(command)) {
-    return block(action, 'dangerous_command', `Command is blocked by safety policy: ${command}`);
-  }
-  if (!READONLY_COMMANDS.has(command)) {
-    return block(action, 'readonly_allowlist', `Command is not in read-only allowlist: ${command}`);
-  }
-  return null;
-}
-
 async function toolSafetyPolicyHook(context) {
   const action = context && context.action ? context.action : {};
   const config = context && context.config ? context.config : {};
   const tool = context && context.tool ? context.tool : null;
-  if (tool && tool.safety && tool.safety.readOnly === false) {
+  if (
+    tool &&
+    tool.safety &&
+    tool.safety.readOnly === false &&
+    !MUTATING_TOOLS_ALLOWED_BY_RUNTIME[action.tool || '']
+  ) {
     return block(action, 'readonly_required', `Tool is not read-only: ${action.tool || 'unknown'}`);
   }
-  return inspectPathTool(config, action) || inspectReadonlyCommand(action);
+  return inspectPathTool(config, action);
 }
 
 module.exports = {

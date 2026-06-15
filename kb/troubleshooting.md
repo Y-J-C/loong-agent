@@ -25,7 +25,7 @@ confidence: medium
 只读排查：
 
 - 查看整理版 `network_profile.md` 和 `environment_report.md`。
-- 如运行时允许，只用白名单中的只读命令补充当前状态。
+- 如运行时允许，优先用推荐的只读诊断命令补充当前状态。
 
 禁止操作：
 
@@ -62,7 +62,7 @@ confidence: medium
 只读排查：
 
 - 查看 `software_stack.md`、`package_management.md`、`compatibility_matrix.md`。
-- 用白名单命令确认 `node -v` 和 `npm -v` 的当前状态。
+- 用推荐诊断命令确认 `node -v` 和 `npm -v` 的当前状态。
 
 禁止操作：
 
@@ -99,7 +99,7 @@ confidence: medium
 只读排查：
 
 - 查看 `software_stack.md` 的 C/C++ 与构建工具表。
-- 用白名单命令确认 `gcc -v`；`g++` 不在当前白名单中，不能自动执行。
+- 用推荐诊断命令确认 `gcc -v`；`g++` 不在当前推荐表中，执行前需确认目的。
 
 禁止操作：
 
@@ -137,7 +137,7 @@ confidence: medium
 只读排查：
 
 - 查看 `software_stack.md` 和 `package_management.md`。
-- 需要当前状态时，只运行白名单内 Python 版本命令；包管理操作需另行确认。
+- 需要当前状态时，优先运行推荐的 Python 版本诊断命令；包管理操作需另行确认。
 
 禁止操作：
 
@@ -208,7 +208,7 @@ confidence: medium
 只读排查：
 
 - 查看 `storage_boot_profile.md`。
-- 如需当前状态，只使用白名单只读命令查看文件系统和磁盘占用。
+- 如需当前状态，优先使用推荐的只读诊断命令查看文件系统和磁盘占用。
 
 禁止操作：
 

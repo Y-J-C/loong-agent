@@ -141,11 +141,11 @@ test('policy blocks, tool errors, evidence, and warnings are counted', () => {
   const file = writeSession(workspace, 'stats', [
     JSON.stringify({ type: 'session', version: 2, sessionId: 'stats', rootSessionId: 'stats', cwd: workspace }),
     JSON.stringify({ type: 'agent_start', prompt: 'stats' }),
-    JSON.stringify({ type: 'tool_execution_start', loop: 1, toolName: 'run_readonly_command', toolCallId: 'a' }),
+    JSON.stringify({ type: 'tool_execution_start', loop: 1, toolName: 'bash', toolCallId: 'a' }),
     JSON.stringify({
       type: 'tool_execution_end',
       loop: 1,
-      toolName: 'run_readonly_command',
+      toolName: 'bash',
       toolCallId: 'a',
       isError: true,
       errorType: 'policy_blocked',
@@ -166,19 +166,19 @@ test('exports include capability coverage and knowledge evidence', () => {
     JSON.stringify({ type: 'session', version: 2, sessionId: 'coverage', rootSessionId: 'coverage', cwd: workspace }),
     JSON.stringify({ type: 'agent_start', prompt: 'coverage' }),
     JSON.stringify({ type: 'message_end', role: 'user', content: 'show coverage' }),
-    JSON.stringify({ type: 'message_end', role: 'assistant', content: '{"tool":"run_readonly_command","input":{"command":"node -v"},"reason":"check"}' }),
-    JSON.stringify({ type: 'tool_execution_start', loop: 1, toolName: 'run_readonly_command', toolCallId: 'a' }),
+    JSON.stringify({ type: 'message_end', role: 'assistant', content: '{"tool":"bash","input":{"command":"node -v"},"reason":"check"}' }),
+    JSON.stringify({ type: 'tool_execution_start', loop: 1, toolName: 'bash', toolCallId: 'a' }),
     JSON.stringify({
       type: 'tool_execution_end',
       loop: 1,
-      toolName: 'run_readonly_command',
+      toolName: 'bash',
       toolCallId: 'a',
       isError: true,
       status: 'error',
       errorType: 'policy_blocked',
       result: {
         ok: false,
-        policy: 'readonly_allowlist',
+        policy: 'unsupported_command',
         summary: 'blocked',
         evidence: [
           { source: 'command' },
@@ -195,9 +195,9 @@ test('exports include capability coverage and knowledge evidence', () => {
   const html = renderSessionHtml(session);
   const markdown = renderSessionMarkdown(session);
 
-  assert(coverage.toolsCalled[0].name === 'run_readonly_command', 'coverage missing called tool');
+  assert(coverage.toolsCalled[0].name === 'bash', 'coverage missing called tool');
   assert(coverage.toolsFailed[0].errorTypes[0] === 'policy_blocked', 'coverage missing failed error type');
-  assert(coverage.policyBlocked[0].policies[0] === 'readonly_allowlist', 'coverage missing blocked policy');
+  assert(coverage.policyBlocked[0].policies[0] === 'unsupported_command', 'coverage missing blocked policy');
   assert(coverage.evidenceSources.some((item) => item.source === 'command'), 'coverage missing command evidence source');
   assert(coverage.knowledgeSources.some((item) => item.topic === 'risk_list'), 'coverage missing kb knowledge source');
   assert(html.indexOf('Capability Coverage') >= 0, 'html missing capability coverage');

@@ -8,7 +8,7 @@ const { createDefaultToolRegistry } = require('../src/tool-registry');
 const { createHookRunner, knowledgeContextHook } = require('../src/hooks');
 const { listTopics, readHistoricalEnvironmentFacts, readKnowledgeIndex, readTopic, searchKnowledge } = require('../src/kb');
 const { buildMessagesFromTurnContext, buildSystemPrompt, buildTurnContext } = require('../src/prompts');
-const { READONLY_COMMAND_METADATA } = require('../src/tools');
+const { COMMAND_POLICY_METADATA } = require('../src/command-policy');
 
 const ROOT = path.resolve(__dirname, '..');
 const PREVIEW_ROOT = path.join(ROOT, 'kb', 'loongson-2k1000-board-kb-preview');
@@ -207,7 +207,7 @@ test('knowledge README exposes P0 and P1 maintenance entrypoints', () => {
     'stage_status.md',
     'scripts/README.md',
     'node scripts/test-knowledge-layer.js',
-    'READONLY_COMMAND_METADATA',
+    'COMMAND_POLICY_METADATA',
   ].forEach((needle) => {
     assert(text.indexOf(needle) >= 0, `kb README missing: ${needle}`);
   });
@@ -243,7 +243,7 @@ test('P1 command reference documents risk levels and command authority', () => {
     'L0',
     'L1',
     'Forbidden',
-    'READONLY_COMMAND_METADATA',
+    'COMMAND_POLICY_METADATA',
     'apt upgrade',
     'fsck',
     'fdisk',
@@ -505,23 +505,23 @@ testAsync('P3 risk_lookup classifies package installation as caution', async () 
   assert(result.data.pendingConfirmations.length > 0, 'missing pending confirmations');
 });
 
-testAsync('command_reference uses READONLY_COMMAND_METADATA as authoritative source', async () => {
+testAsync('command_reference uses COMMAND_POLICY_METADATA as recommendation source', async () => {
   const registry = createDefaultToolRegistry();
   const result = await registry.execute(config(), 'command_reference', { query: 'node' });
   assert(result.ok === true, 'command_reference failed');
-  assert(result.data.authoritativeSource === 'READONLY_COMMAND_METADATA', 'wrong command source');
+  assert(result.data.authoritativeSource === 'COMMAND_POLICY_METADATA recommendations', 'wrong command source');
   assert(result.commands.length > 0, 'missing command metadata results');
   result.commands.forEach((item) => {
-    assert(READONLY_COMMAND_METADATA.some((meta) => meta.command === item.command), `command not from metadata: ${item.command}`);
+    assert(COMMAND_POLICY_METADATA.some((meta) => meta.command === item.command), `command not from metadata: ${item.command}`);
   });
 });
 
-testAsync('P3 command_reference reports forbidden examples for non-allowlisted commands', async () => {
+testAsync('P3 command_reference reports forbidden examples for unsupported commands', async () => {
   const registry = createDefaultToolRegistry();
   const result = await registry.execute(config(), 'command_reference', { query: 'apt upgrade' });
   assert(result.ok === true, 'command_reference failed');
-  assert(result.commands.length === 0, 'apt upgrade should not be allowlisted');
-  assert(result.warnings.some((item) => /No allowed command matched query/.test(item)), 'missing no-match warning');
+  assert(result.commands.length === 0, 'apt upgrade should not be in command policy');
+  assert(result.warnings.some((item) => /No command reference item matched query/.test(item)), 'missing no-match warning');
   assert(result.data.riskLevels.forbiddenExamples.some((item) => /apt upgrade/.test(item)), 'missing forbidden apt upgrade example');
 });
 
@@ -531,6 +531,17 @@ testAsync('P3 command_reference groups L0 and L1 read-only commands', async () =
   assert(result.ok === true, 'command_reference failed');
   assert(result.data.riskLevels.L0.some((item) => item.command === 'node -v'), 'missing node -v in L0');
   assert(result.data.riskLevels.L1.some((item) => item.command === 'dmesg | tail -n 80'), 'missing dmesg in L1');
+});
+
+testAsync('P3 command_reference reports allowed I2C scan commands', async () => {
+  const registry = createDefaultToolRegistry();
+  const result = await registry.execute(config(), 'command_reference', { query: 'i2c' });
+  assert(result.ok === true, 'command_reference failed');
+  const commands = result.commands.map((item) => item.command);
+  assert(commands.includes('ls /dev/i2c*'), 'missing i2c node listing');
+  assert(commands.includes('i2cdetect -l'), 'missing i2c bus listing');
+  assert(commands.includes('i2cdetect -y 0'), 'missing i2c bus 0 scan');
+  assert(commands.includes('i2cdetect -y 1'), 'missing i2c bus 1 scan');
 });
 
 test('P4 session_summary metadata describes historical evidence use', () => {
@@ -554,7 +565,7 @@ test('knowledgeContextHook returns cautious structured knowledge context', () =>
   const result = knowledgeContextHook({
     config: config(),
     state,
-    action: { tool: 'run_readonly_command', input: { command: 'node -v' } },
+    action: { tool: 'bash', input: { command: 'node -v' } },
     result: { summary: 'command ok' },
   });
   assert(state.observations.length === 0, 'knowledge hook should not mutate observations');
@@ -611,7 +622,7 @@ test('turn context applies knowledge budget and keeps metadata', () => {
 test('P3 system prompt includes knowledge-driven answer and command safety rules', () => {
   const prompt = buildSystemPrompt();
   assert(prompt.indexOf('结论 / 证据 / 风险 / 待确认 / 下一步只读排查') >= 0, 'prompt missing Loong board answer structure');
-  assert(prompt.indexOf('READONLY_COMMAND_METADATA') >= 0, 'prompt missing command metadata authority');
+  assert(prompt.indexOf('recommended diagnostic command reference') >= 0, 'prompt missing command metadata reference guidance');
   assert(prompt.indexOf('includeRaw=true') >= 0, 'prompt missing raw evidence guidance');
 });
 

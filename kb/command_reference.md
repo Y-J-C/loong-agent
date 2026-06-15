@@ -2,20 +2,20 @@
 
 status: sourced
 last_updated: 2026-06-14
-sources: src/tools.js READONLY_COMMAND_METADATA; kb/loongson-2k1000-board-kb-preview/README.md; kb/loongson-2k1000-board-kb-preview/scripts/README.md
+sources: src/command-policy.js COMMAND_POLICY_METADATA; kb/loongson-2k1000-board-kb-preview/README.md; kb/loongson-2k1000-board-kb-preview/scripts/README.md
 confidence: high
 
 ## Content
 
-The authoritative command allowlist for the agent is `READONLY_COMMAND_METADATA` in `src/tools.js`. This Markdown file is supporting documentation only; if it disagrees with structured metadata, the structured metadata wins.
+The recommended diagnostic command reference is `COMMAND_POLICY_METADATA` in `src/command-policy.js`. It supports `command_reference` and risk discussion, but it is not the execution boundary for `bash`.
 
-Risk levels:
+Recommendation levels:
 
 - L0: local read-only state query. It must not modify files, packages, services, network, boot configuration, partition tables, or peripheral state.
 - L1: read-only but potentially heavier, log-reading, device-state-dependent, or requiring extra caution in interpretation.
-- Forbidden: install, upgrade, write, repair, reconfigure, modify boot/network/device-tree/kernel state, or probe peripherals in a way that can affect hardware.
+- Forbidden examples: install, upgrade, write, repair, reconfigure, modify boot/network/device-tree/kernel state, or probe peripherals in a way that can affect hardware. These remain risk notes, not bash enforcement.
 
-L0 commands currently represented in `READONLY_COMMAND_METADATA`:
+L0 commands currently represented in `COMMAND_POLICY_METADATA`:
 
 ```text
 uname -a
@@ -56,13 +56,15 @@ ls /dev/i2c*
 i2cdetect -l
 ```
 
-L1 commands currently represented in `READONLY_COMMAND_METADATA`:
+L1 commands currently represented in `COMMAND_POLICY_METADATA`:
 
 ```text
 dmesg | tail -n 80
+i2cdetect -y 0
+i2cdetect -y 1
 ```
 
-Forbidden command families and operations:
+Risky command families and operations:
 
 ```text
 apt install
@@ -78,7 +80,7 @@ system package modification
 device tree or kernel parameter modification
 eth0/eth1 network reconfiguration
 GPIO write/export operations
-I2C/SPI blind scans or wiring tests
+I2C/SPI scans or wiring tests outside the recommended diagnostics
 service state modification
 ```
 
@@ -89,13 +91,13 @@ Preview package command boundary:
 - The preview package does not include formal executable scripts.
 - `scripts/README.md` explicitly says `collect_env.sh`, `check_software_stack.sh`, and `check_peripherals_readonly.sh` are not formally included yet.
 
-Commands and operations that must not be suggested from the preview package alone:
+Commands and operations that require explicit user intent and should not be suggested from the preview package alone:
 
 - Software install or upgrade commands.
 - `apt upgrade` or broad package modification.
 - `fsck`, `fdisk`, `parted`, `mkfs`, `dd`, partition rewriting, or filesystem repair.
 - Modifying `/boot`, EFI files, device tree, kernel parameters, or network configuration.
-- Peripheral bus scanning or wiring tests before hardware details are confirmed.
+- Peripheral bus scanning or wiring tests before hardware details are confirmed, except the explicitly listed `i2cdetect -y 0` and `i2cdetect -y 1` recommendation entries.
 - Deploying services or agent runtime as part of knowledge package validation.
 
 Recommended diagnostic posture:
@@ -103,10 +105,10 @@ Recommended diagnostic posture:
 - Use `command_reference` before suggesting board diagnostic shell commands.
 - Prefer one small read-only command at a time.
 - Report command purpose, expected evidence, and risk boundary.
-- If a command is not listed in `READONLY_COMMAND_METADATA`, do not present it as executable by the agent.
+- If a command is not listed in `COMMAND_POLICY_METADATA`, present it as a general shell command rather than a recommended board diagnostic.
 
 ## Unknowns
 
 - Formal read-only collection scripts are not yet validated.
 - Final executable collection scripts are not yet complete.
-- Any command outside `READONLY_COMMAND_METADATA` requires explicit review before it becomes an agent recommendation.
+- Any command outside `COMMAND_POLICY_METADATA` requires explicit review before it becomes an agent recommendation.

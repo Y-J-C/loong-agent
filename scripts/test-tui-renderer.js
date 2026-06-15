@@ -134,7 +134,7 @@ test('renderer keeps output inside small terminal dimensions', () => {
   state.messages.push({ type: 'error', text: 'verylongword'.repeat(20) });
   state.messages.push({
     type: 'tool',
-    toolName: 'run_readonly_command',
+    toolName: 'bash',
     summary: 'stdout '.repeat(20),
     done: true,
     resultSummary: 'ok',
@@ -168,19 +168,19 @@ test('renderer shows tool policy error metadata', () => {
   handleAgentEvent(state, {
     type: 'tool_execution_start',
     loop: 1,
-    toolName: 'run_readonly_command',
+    toolName: 'bash',
     callSummary: 'apt full-upgrade',
   });
   handleAgentEvent(state, {
     type: 'tool_execution_end',
     loop: 1,
-    toolName: 'run_readonly_command',
+    toolName: 'bash',
     isError: true,
     errorType: 'policy_blocked',
     durationMs: 12,
     result: {
       blocked: true,
-      policy: 'readonly_command.dangerous',
+      policy: 'dangerous_command',
       error: 'Command is blocked',
       evidence: [{ source: 'command', command: 'apt full-upgrade' }],
       warnings: ['blocked before execution'],
@@ -192,7 +192,7 @@ test('renderer shows tool policy error metadata', () => {
   assert(output.indexOf('12ms') >= 0 || output.indexOf('durationMs: 12') >= 0, 'missing duration');
   assert(output.indexOf('evidence=1') >= 0, 'missing evidence count');
   assert(output.indexOf('warnings=1') >= 0, 'missing warning count');
-  assert(output.indexOf('readonly_command.dangerous') >= 0, 'missing policy id');
+  assert(output.indexOf('dangerous_command') >= 0, 'missing policy id');
 });
 
 test('renderer shows slash command autocomplete', () => {

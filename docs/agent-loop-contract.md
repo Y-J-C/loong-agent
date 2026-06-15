@@ -293,6 +293,23 @@ prepareNextTurn
 
 `afterToolCall` is for result normalization and redaction. It must not start new tool calls.
 
+## Long-Running Commands
+
+`bash` timeout is a tool result, not a transport crash. When a foreground shell command returns:
+
+```js
+{
+  exitCode: 124,
+  timedOut: true,
+  likelyLongRunning: true,
+  recoveryHint: "..."
+}
+```
+
+Agent Loop should preserve the tool result, record warnings, and let `prepareNextTurn` inject recovery context. The next model turn should usually rerun logger, monitor, server, loop, or "every N seconds" tasks with `bash background=true`, then verify with `process_status`, `process_logs`, and generated output files.
+
+Starting a managed background process is considered a successful tool turn when `bash` returns `pid`, `logFile`, and `pidFile`. It must not be killed automatically at the end of the agent run; `process_stop` is the explicit stop path.
+
 ## Tool Result Compatibility
 
 Agent Loop only depends on:
@@ -327,10 +344,12 @@ session audit, replay, export, or recovery helpers.
 
 `createAgentSession()` enables default tool safety:
 
-- `run_readonly_command` must use the read-only allowlist.
-- Obvious write, package install, system upgrade, service mutation, and redirect commands are blocked.
-- `read_file`, `list_directory`, and `search_files` must stay inside the workspace.
-- Sensitive paths such as `.env`, API key, token, secret, authorization, and credential files are blocked.
+- `bash` executes general shell commands; `COMMAND_POLICY_METADATA` is only a recommended diagnostic command reference.
+- Long-running shell tasks should use `bash background=true`, then `process_status`, `process_logs`, and file tools for verification.
+- `read`, `write`, `edit`, `ls`, `grep`, and `find` accept workspace-relative paths and user-specified absolute paths.
+- `write` and `edit` are runtime-approved file mutation tools and are not blocked by the read-only hook.
+- Legacy `read_file`, `list_directory`, and `search_files` keep the old workspace-boundary behavior for compatibility.
+- Sensitive paths such as `.env`, API key, token, secret, authorization, and credential files are warnings/evidence for Pi-style file tools, not automatic blocks.
 
 Safety blocks use:
 
@@ -342,6 +361,15 @@ Safety blocks use:
   tool: "tool name"
 }
 ```
+
+## Streaming Recovery
+
+Streaming model transport errors are separate from model content validity.
+
+- If streaming ends with a recoverable socket error after a complete `answer` or `tool` JSON has been received, the turn continues with `streamStatus: "partial"` and a model usage warning.
+- If the recoverable error happens before any delta, the runtime may retry with non-streaming completion.
+- If partial content cannot be parsed as a valid answer or tool action, the turn fails as `model_request_error`.
+- Recoverable stream warnings must be recorded in session/model usage metadata; they are not tool policy blocks.
 
 Stage 2 safety blocks are also wrapped in the tool result envelope with `ok: false`.
 
@@ -366,6 +394,7 @@ The current contract is proved by these local checks:
 | --- | --- |
 | Normal event order and `turn_end` emission | `node scripts/test-runtime.js`, test `finish event order includes turn_end` |
 | Tool error lifecycle and `turn_end.status = "tool_error"` | `node scripts/test-runtime.js`, test `tool events include stable metadata and turn status` |
+| Bash spawn, timeout recovery, bounded output, and background process lifecycle | `node scripts/test-runtime.js`, tests `bash truncates long output and records full output path`, `bash timeout returns long-running recovery hint`, and `bash background process can be checked logged and stopped` |
 | Safety block lifecycle and `policy_blocked` status | `node scripts/test-runtime.js`, tests `beforeToolCall can block a tool call without crashing the loop` and `agent session default safety blocks dangerous readonly command` |
 | Model failure and abort terminal events | `node scripts/test-runtime.js`, tests `model failure is recorded as assistant error lifecycle` and `abort after model response records failed turn and agent end` |
 | Max loop terminal status | `node scripts/test-runtime.js`, test `max loop completion records max_loops status` |
