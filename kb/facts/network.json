@@ -1,0 +1,57 @@
+[
+  {
+    "id": "network.eth0.address",
+    "value": "192.168.3.101/24",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report", "board_profile"],
+    "sourcePaths": ["kb/environment_report.md", "kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "network.eth0.speed",
+    "value": "1000 Mbps",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report"],
+    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "network.default_route",
+    "value": "default via 192.168.3.1 dev eth0",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report"],
+    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "network.dns.server",
+    "value": "192.168.3.1",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report"],
+    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "network.eth1.status",
+    "value": "DOWN with DMA initialization failure evidence",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report", "troubleshooting"],
+    "sourcePaths": ["kb/environment_report.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": ["eth1 root cause remains unresolved."]
+  }
+]

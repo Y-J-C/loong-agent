@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  COMMAND_POLICY_METADATA,
+  READONLY_COMMAND_METADATA,
   groupCommandPolicyLevels,
 } = require('../command-policy');
 const {
@@ -72,8 +72,8 @@ function classifyRisk(query) {
   const riskLevel = uniqueForbidden.length ? 'forbidden' : uniqueCaution.length ? 'caution' : 'unknown';
   const readOnlyAlternatives = [
     'Search the local knowledge base for existing evidence and uncertainty notes.',
-    'Use command_reference to find recommended diagnostic commands from COMMAND_POLICY_METADATA.',
-    'Prefer loong_env_check or recommended diagnostic commands for current state.',
+    'Use command_reference to confirm whether a diagnostic command is in READONLY_COMMAND_METADATA.',
+    'Prefer loong_env_check or read-only allowlist diagnostics for current state.',
   ];
   const pendingConfirmations = [];
   if (riskLevel === 'forbidden') {
@@ -240,13 +240,13 @@ function createCommandReferenceToolDefinition() {
   return {
     name: 'command_reference',
     label: 'Command reference',
-    description: 'Show recommended diagnostic commands from structured command reference metadata plus local notes.',
+    description: 'Show allowed read-only diagnostic commands from structured command metadata plus local notes.',
     category: 'diagnostics',
     safety: kbSafety(),
     evidencePolicy: kbEvidencePolicy(),
     resultSchema: {
-      data: 'diagnostic command metadata and kb command notes',
-      evidence: 'structured command reference and kb source',
+      data: 'readonly command metadata and kb command notes',
+      evidence: 'structured readonly command metadata and kb source',
       warnings: 'command reference kb uncertainty',
     },
     parameters: {
@@ -254,20 +254,20 @@ function createCommandReferenceToolDefinition() {
     },
     promptSnippet: 'Use command_reference before suggesting diagnostic shell commands.',
     promptGuidelines:
-      'COMMAND_POLICY_METADATA is a recommended diagnostic command reference, not the bash execution boundary. One successful command_reference result is enough to answer command reference questions; summarize it instead of calling this tool again with the same input.',
+      'READONLY_COMMAND_METADATA is authoritative for commands the agent may present as allowed read-only diagnostics. One successful command_reference result is enough to answer command reference questions; summarize it instead of calling this tool again with the same input.',
     repeatPolicy: 'answerable_once',
     answerHint: 'Use this result to answer the user’s command reference question directly.',
     validate: () => '',
-    renderCall: (input) => input && input.query ? `query=${input.query}` : 'all recommended commands',
+    renderCall: (input) => input && input.query ? `query=${input.query}` : 'all readonly commands',
     renderResult: (result) => result && result.summary ? result.summary : summarize(result, 700),
     execute: async (config, input) => {
       const topic = buildTopicEnvelope(config, 'command_reference');
       const query = String((input && input.query) || '').toLowerCase().trim();
-      const commands = COMMAND_POLICY_METADATA.filter((item) => {
+      const commands = READONLY_COMMAND_METADATA.filter((item) => {
         if (!query) return true;
         return `${item.command} ${item.category} ${item.level} ${item.decision} ${item.description}`.toLowerCase().indexOf(query) >= 0;
       });
-      const riskLevels = groupCommandPolicyLevels(COMMAND_POLICY_METADATA);
+      const riskLevels = groupCommandPolicyLevels(READONLY_COMMAND_METADATA);
       const evidence = [{
         source: 'runtime',
         topic: 'command_reference',
@@ -276,7 +276,7 @@ function createCommandReferenceToolDefinition() {
         confidence: 'high',
       }].concat(topic.evidence || []);
       const warnings = topic.warnings ? topic.warnings.slice() : [];
-      if (!commands.length) warnings.push(`No command reference item matched query: ${input && input.query ? input.query : ''}`);
+      if (!commands.length) warnings.push(`No allowed command matched query: ${input && input.query ? input.query : ''}`);
       return {
         ok: true,
         data: {
@@ -284,9 +284,9 @@ function createCommandReferenceToolDefinition() {
           commands,
           notes: topic.data,
           riskLevels,
-          authoritativeSource: 'COMMAND_POLICY_METADATA recommendations',
+          authoritativeSource: 'READONLY_COMMAND_METADATA',
         },
-        summary: `command_reference: ${commands.length} recommended command item(s) from COMMAND_POLICY_METADATA`,
+        summary: `command_reference: ${commands.length} allowed read-only command(s) from READONLY_COMMAND_METADATA`,
         evidence,
         warnings,
         error: '',

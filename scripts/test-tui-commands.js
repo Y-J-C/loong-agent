@@ -8,6 +8,7 @@ const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
 const { handleCommand } = require('../src/tui/commands');
 const { createTuiState } = require('../src/tui/state');
+const { createJsonlSession, readSessionFromPath } = require('../src/session');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -183,11 +184,17 @@ test('selected target reports clear error when no session is selected', async ()
 test('bang command executes general shell commands', async () => {
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);
+  const session = createJsonlSession(config(workspace), { command: 'tui-test' });
+  context.state.currentSession = { id: session.id, path: session.filePath };
   await handleCommand(context, '! node src/index.js --help');
-  await handleCommand(context, '! node -e "process.exit(1)" || node -v');
+  await handleCommand(context, '!! node -e "process.exit(1)" || node -v');
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf('! node src/index.js --help') >= 0, 'allowed command result was not displayed');
-  assert(text.indexOf('! node -e "process.exit(1)" || node -v') >= 0, 'compound command result was not displayed');
+  assert(text.indexOf('!! node -e "process.exit(1)" || node -v') >= 0, 'compound command result was not displayed');
   assert(text.indexOf('exitCode:') >= 0, 'allowed command did not record exit code');
   assert(text.indexOf('controlled bash policy') < 0 && text.indexOf('dangerous_command') < 0, 'bang command still reports policy blocking');
+  const stored = readSessionFromPath(session.filePath);
+  const bashEvents = stored.events.filter((event) => event.type === 'bash_execution');
+  assert(bashEvents.length === 2, 'bang command did not persist bash_execution events');
+  assert(bashEvents[1].excludeFromContext === true, '!! bash execution should be excluded from context');
 });

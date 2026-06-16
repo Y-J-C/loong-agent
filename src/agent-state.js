@@ -63,6 +63,25 @@ function recordToolResult(state, action, result) {
   return observation;
 }
 
+function recordBashExecution(state, message) {
+  if (!message || !message.command) return null;
+  const entry = {
+    role: 'bashExecution',
+    turn: state.turn,
+    command: String(message.command || ''),
+    output: String(message.output || ''),
+    exitCode: message.exitCode,
+    cancelled: Boolean(message.cancelled),
+    truncated: Boolean(message.truncated),
+    fullOutputPath: message.fullOutputPath || '',
+    timestamp: message.timestamp || Date.now(),
+    excludeFromContext: Boolean(message.excludeFromContext),
+    details: message.details || {},
+  };
+  state.messages.push(entry);
+  return entry;
+}
+
 function finishRun(state, summary) {
   state.summary = summary || '';
   state.isRunning = false;
@@ -72,6 +91,7 @@ module.exports = {
   createAgentState,
   finishRun,
   recordAssistantMessage,
+  recordBashExecution,
   recordUserMessage,
   recordToolResult,
   startRun,

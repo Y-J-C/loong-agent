@@ -5,6 +5,7 @@ const { resolveProviderCapabilities } = require('./provider-registry');
 const {
   finishRun,
   recordAssistantMessage,
+  recordBashExecution,
   recordUserMessage,
   recordToolResult,
   startRun,
@@ -31,6 +32,30 @@ function createLoopError(message, code) {
   const error = new Error(message);
   error.code = code || 'agent_loop_error';
   return error;
+}
+
+function bashExecutionFromToolResult(action, result, options) {
+  if (!action || action.tool !== 'bash' || !result) return null;
+  const data = result.data && typeof result.data === 'object' ? result.data : result;
+  const output = data.output || [data.stdout, data.stderr].filter(Boolean).join('\n');
+  return {
+    type: 'bash_execution',
+    role: 'bashExecution',
+    command: data.command || (action.input && action.input.command) || '',
+    output: output || '',
+    exitCode: data.exitCode,
+    cancelled: Boolean(data.cancelled),
+    truncated: Boolean(data.truncated),
+    fullOutputPath: data.fullOutputPath || '',
+    timestamp: Date.now(),
+    excludeFromContext: Boolean(options && options.excludeFromContext),
+    details: {
+      background: Boolean(data.background),
+      pid: data.pid,
+      logFile: data.logFile || '',
+      pidFile: data.pidFile || '',
+    },
+  };
 }
 
 function stableStringify(value) {
@@ -211,6 +236,37 @@ function summarizeObservations(observations) {
     'Reached max loop limit; returning best available summary from collected observations.',
     ...latest,
   ].join('\n');
+}
+
+function csvObservationSummary(observations) {
+  const items = observations || [];
+  const csvReads = items.filter((item) => {
+    if (!item || item.tool !== 'read') return false;
+    const result = item.result || {};
+    const data = result.data && typeof result.data === 'object' ? result.data : result;
+    const targetPath = data.resolvedPath || data.path || (item.input && item.input.path) || '';
+    const content = String(data.content || '');
+    const lines = content.split(/\r?\n/).filter((line) => line.trim());
+    return /\.csv$/i.test(String(targetPath)) && lines.length >= 2;
+  });
+  if (!csvReads.length) return '';
+  const latest = csvReads[csvReads.length - 1];
+  const data = latest.result && latest.result.data ? latest.result.data : latest.result || {};
+  const lines = String(data.content || '').split(/\r?\n/).filter((line) => line.trim());
+  const script = items.find((item) => item && item.tool === 'write' && /\.py$/i.test(String((item.input && item.input.path) || '')));
+  const background = items.find((item) => {
+    const result = item && item.result ? item.result : {};
+    const data = result.data && typeof result.data === 'object' ? result.data : result;
+    return item.tool === 'bash' && data.background;
+  });
+  return [
+    '已根据本轮工具证据完成长期任务验证，可直接收口。',
+    script && script.input && script.input.path ? `脚本路径：${script.input.path}` : '',
+    `CSV 路径：${data.resolvedPath || data.path || (latest.input && latest.input.path) || ''}`,
+    `CSV 数据行数：${Math.max(0, lines.length - 1)}`,
+    `最新数据：${lines[lines.length - 1] || ''}`,
+    background ? `后台进程：pid=${(background.result && (background.result.pid || (background.result.data && background.result.data.pid))) || ''}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 function summarizeToolResultForAnswer(toolName, result, resultSummary) {
@@ -986,6 +1042,25 @@ async function executeToolCall(context, action, repeatDecision) {
   let isError = false;
   let resultSummary = '';
   let errorType = '';
+  const AbortControllerCtor = typeof AbortController !== 'undefined' ? AbortController : null;
+  const controller = AbortControllerCtor ? new AbortControllerCtor() : null;
+  let toolUpdateEmitted = false;
+  const executionContext = {
+    signal: controller ? controller.signal : null,
+    toolCallId,
+    onUpdate: async (update) => {
+      toolUpdateEmitted = true;
+      await emit({
+        type: 'tool_execution_update',
+        loop: turn,
+        toolCallId,
+        toolName: action.tool,
+        update: update || {},
+        resultSummary: update && update.output ? String(update.output).slice(-1000) : '',
+        timestamp: nowIso(),
+      });
+    },
+  };
 
   if (repeatDecision && repeatDecision.mode === 'block') {
     const blocked = createRepeatBlockedExecution(action, repeatDecision);
@@ -1002,7 +1077,7 @@ async function executeToolCall(context, action, repeatDecision) {
       resultSummary = beforeDecision.resultSummary;
     } else {
       try {
-        result = await registry.execute(config, action.tool, action.input);
+        result = await registry.execute(config, action.tool, action.input, executionContext);
         const executedTool = registry.get(action.tool);
         resultSummary =
           executedTool && executedTool.renderResult ? executedTool.renderResult(result) : '';
@@ -1033,6 +1108,35 @@ async function executeToolCall(context, action, repeatDecision) {
     }
   }
 
+  if (
+    action.tool === 'bash' &&
+    !toolUpdateEmitted &&
+    result &&
+    !isError &&
+    (result.output || result.stdout || result.stderr)
+  ) {
+    const data = result.data && typeof result.data === 'object' ? result.data : result;
+    const output = data.output || [data.stdout, data.stderr].filter(Boolean).join('\n');
+    await emit({
+      type: 'tool_execution_update',
+      loop: turn,
+      toolCallId,
+      toolName: action.tool,
+      update: {
+        command: data.command || (action.input && action.input.command) || '',
+        output,
+        stdout: data.stdout || '',
+        stderr: data.stderr || '',
+        truncated: Boolean(data.truncated),
+        fullOutputPath: data.fullOutputPath || '',
+        durationMs: data.durationMs || elapsedMs(startedAt),
+        finalSnapshot: true,
+      },
+      resultSummary: String(output || '').slice(-1000),
+      timestamp: nowIso(),
+    });
+  }
+
   await emit({
     type: 'tool_execution_end',
     loop: turn,
@@ -1051,6 +1155,14 @@ async function executeToolCall(context, action, repeatDecision) {
     } : undefined,
   });
 
+  if (action.tool === 'bash' && result && !isError) {
+    const bashExecution = bashExecutionFromToolResult(action, result);
+    if (bashExecution && bashExecution.command) {
+      recordBashExecution(context.state, bashExecution);
+      await emit(bashExecution);
+    }
+  }
+
   const execution = {
     errorType,
     isError,
@@ -1065,11 +1177,12 @@ async function executeToolCall(context, action, repeatDecision) {
 async function runBeforeToolCall(context, action, tool, toolCallId) {
   if (typeof context.beforeToolCall !== 'function') return null;
   try {
-    const decision = await context.beforeToolCall({
-      action,
-      config: context.config,
-      loop: context.loop,
-      state: context.state,
+      const decision = await context.beforeToolCall({
+        action,
+        config: context.config,
+        currentUserPrompt: context.currentUserPrompt || (context.state && context.state.userPrompt) || '',
+        loop: context.loop,
+        state: context.state,
       tool,
       toolCallId,
       turn: context.turn,
@@ -1577,8 +1690,9 @@ async function runAgentLoop(options) {
     pendingMessages = pendingMessages.concat(getSteeringMessages());
   }
 
+  const maxLoopSummary = csvObservationSummary(state.observations) || summarizeObservations(state.observations);
   const finalResult = {
-    summary: summarizeObservations(state.observations),
+    summary: maxLoopSummary,
     observations: state.observations,
   };
   finishRun(state, finalResult.summary);
@@ -1586,11 +1700,11 @@ async function runAgentLoop(options) {
     type: 'agent_end',
     summary: finalResult.summary,
     observations: state.observations,
-    status: 'max_loops',
+    status: csvObservationSummary(state.observations) ? 'ok' : 'max_loops',
     turns: state.turn,
     durationMs: elapsedMs(runStartedAt),
     usageSummary: summarizeModelUsage(state),
-    completionSource: 'max_loops_fallback',
+    completionSource: csvObservationSummary(state.observations) ? 'long_task_csv_fallback' : 'max_loops_fallback',
   });
   return finalResult;
 }

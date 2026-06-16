@@ -117,6 +117,22 @@ function handleAgentEvent(state, event) {
       detail: event.args || {},
     });
     state.currentToolEventIdByKey[key] = item.id;
+  } else if (event.type === 'tool_execution_update') {
+    state.lastEventTime = Date.now();
+    state.status = `tool ${event.toolName || 'unknown'} running`;
+    const key = toolEventKey(event);
+    const id = state.currentToolEventIdByKey[key];
+    const update = event.update || {};
+    const patch = {
+      type: 'tool',
+      toolName: event.toolName,
+      summary: event.resultSummary || update.output || workflow('execute', '工具运行中'),
+      done: false,
+      status: 'running',
+      detail: update,
+    };
+    if (id && updateMessage(state, id, patch)) return;
+    addMessage(state, Object.assign({ id: `tool-${key}` }, patch));
   } else if (event.type === 'tool_execution_end') {
     state.lastEventTime = Date.now();
     state.status = event.isError ? `tool ${event.toolName || 'unknown'} error` : `tool ${event.toolName || 'unknown'} ok`;

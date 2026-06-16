@@ -29,6 +29,7 @@ function validateBash(input) {
 function commandEnvelope(result) {
   const warnings = Array.isArray(result.warnings) ? result.warnings.slice() : [];
   if (result.timedOut) warnings.push('Command timed out.');
+  if (result.cancelled) warnings.push('Command was cancelled.');
   if (result.exitCode !== 0 && !result.timedOut) warnings.push('Command exited with non-zero status.');
   if (result.truncated) warnings.push('Command output was truncated; inspect fullOutputPath for complete output.');
   if (result.likelyLongRunning && result.recoveryHint) warnings.push(result.recoveryHint);
@@ -39,8 +40,10 @@ function commandEnvelope(result) {
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
+      output: result.output || [result.stdout, result.stderr].filter(Boolean).join('\n'),
       durationMs: result.durationMs,
       timedOut: result.timedOut === true,
+      cancelled: result.cancelled === true,
       background: result.background === true,
       pid: result.pid,
       logFile: result.logFile || '',
@@ -63,6 +66,7 @@ function commandEnvelope(result) {
       logFile: result.logFile || '',
       pidFile: result.pidFile || '',
       timedOut: result.timedOut === true,
+      cancelled: result.cancelled === true,
       truncated: result.truncated === true,
     }],
     warnings,
@@ -71,8 +75,10 @@ function commandEnvelope(result) {
     exitCode: result.exitCode,
     stdout: result.stdout,
     stderr: result.stderr,
+    output: result.output || [result.stdout, result.stderr].filter(Boolean).join('\n'),
     durationMs: result.durationMs,
     timedOut: result.timedOut === true,
+    cancelled: result.cancelled === true,
     background: result.background === true,
     pid: result.pid,
     logFile: result.logFile || '',
@@ -121,12 +127,14 @@ function createBashToolDefinition() {
       pidFile: result && result.pidFile,
       stdout: result && result.stdout,
       stderr: result && result.stderr,
+      output: result && result.output,
       timedOut: result && result.timedOut,
+      cancelled: result && result.cancelled,
       truncated: result && result.truncated,
       warnings: result && result.warnings,
     }, 700),
-    execute: async (config, input) => {
-      const result = await runBashCommand(input || {}, config || {});
+    execute: async (config, input, executionContext) => {
+      const result = await runBashCommand(input || {}, config || {}, executionContext || {});
       return commandEnvelope(result);
     },
   };

@@ -279,6 +279,33 @@ function collectTimeline(session) {
           result: event.result,
         },
       });
+    } else if (event.type === 'tool_execution_update') {
+      timeline.push({
+        type: 'tool_execution_update',
+        title: `Tool update: ${event.toolName}`,
+        timestamp: event.timestamp,
+        detail: {
+          summary: event.resultSummary || '',
+          update: event.update || {},
+        },
+      });
+    } else if (event.type === 'bash_execution') {
+      timeline.push({
+        type: 'bash_execution',
+        title: `Bash execution: ${event.command || ''}`,
+        timestamp: event.timestamp,
+        status: event.exitCode === 0 ? 'ok' : 'error',
+        detail: {
+          command: event.command || '',
+          exitCode: event.exitCode,
+          cancelled: Boolean(event.cancelled),
+          truncated: Boolean(event.truncated),
+          fullOutputPath: event.fullOutputPath || '',
+          excludeFromContext: Boolean(event.excludeFromContext),
+          details: event.details || {},
+          output: truncateText(event.output || '', 2000),
+        },
+      });
     } else if (event.type === 'context_update') {
       timeline.push({
         type: 'context_update',

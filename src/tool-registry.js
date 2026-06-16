@@ -66,7 +66,7 @@ function createToolRegistry(tools) {
     list: () => list.slice(),
     get: (name) => byName[name],
     has: (name) => Boolean(byName[name]),
-    execute: async (config, name, input) => {
+    execute: async (config, name, input, executionContext) => {
       const tool = byName[name];
       if (!tool) throw new Error(`Unknown tool: ${name}`);
       if (tool.isAvailable && !tool.isAvailable(config)) {
@@ -74,7 +74,7 @@ function createToolRegistry(tools) {
       }
       const validationError = tool.validate(input || {});
       if (validationError) throw new Error(`Invalid input for ${name}: ${validationError}`);
-      const rawResult = await tool.execute(config, input || {});
+      const rawResult = await tool.execute(config, input || {}, executionContext || {});
       return normalizeToolResult(tool, rawResult);
     },
   };

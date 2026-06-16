@@ -1,0 +1,112 @@
+[
+  {
+    "id": "environment.board.device_tree_model",
+    "value": "loongson,LS2K1000_PAI_UDB_V1_5",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["board_profile", "environment_report"],
+    "sourcePaths": ["kb/board_profile.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/board_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.board.commercial_name",
+    "value": "待确认",
+    "status": "unknown",
+    "confidence": "low",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["board_profile", "unknowns"],
+    "sourcePaths": ["kb/board_profile.md", "kb/unknowns.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "unknowns": ["Accurate commercial board name remains pending confirmation."]
+  },
+  {
+    "id": "environment.os.release",
+    "value": "Loongnix-Embedded GNU/Linux 20 (DaoXiangHu)",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report"],
+    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/environment_report.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.kernel.version",
+    "value": "4.19.0-18-loongson-2k",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["board_profile", "environment_report"],
+    "sourcePaths": ["kb/board_profile.md", "kb/environment_report.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.architecture",
+    "value": "loongarch64",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["board_profile", "environment_report"],
+    "sourcePaths": ["kb/board_profile.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.cpu.cores",
+    "value": "2",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["board_profile"],
+    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.memory.total",
+    "value": "about 1.4 GiB RAM",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["board_profile"],
+    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.node.version",
+    "value": "v14.16.1",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report", "software_stack"],
+    "sourcePaths": ["kb/environment_report.md", "kb/software_stack.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.python3.version",
+    "value": "3.7.3",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report", "software_stack"],
+    "sourcePaths": ["kb/environment_report.md", "kb/software_stack.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "environment.ssh.primary_interface",
+    "value": "eth0 via 192.168.3.101/24",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["environment_report", "board_profile"],
+    "sourcePaths": ["kb/environment_report.md", "kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": []
+  }
+]

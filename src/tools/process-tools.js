@@ -4,6 +4,7 @@ const {
   processLogs,
   processStatus,
   processStop,
+  processWait,
 } = require('../tools.js');
 const { createTool } = require('../tool-registry');
 const { optionalNumber, requireObject, requireString, summarize } = require('../tool-utils');
@@ -118,9 +119,30 @@ function createProcessLogsToolDefinition() {
   };
 }
 
+function createProcessWaitToolDefinition() {
+  return {
+    name: 'process_wait',
+    label: 'Process Wait',
+    description: 'Wait for a bounded duration without invoking a shell command.',
+    category: 'process-readonly',
+    safety: { readOnly: true, sensitive: false, requiresWorkspace: false },
+    evidencePolicy: { emitsEvidence: true, source: 'process' },
+    parameters: {
+      durationMs: 'number; wait duration, max 60000',
+    },
+    promptSnippet: 'Use instead of bash sleep when waiting for a background logger, monitor, or CSV writer.',
+    promptGuidelines: 'Use process_wait after bash background=true, then inspect process_status/process_logs/read output files.',
+    validate: (input) => optionalNumber(input || {}, 'durationMs'),
+    renderCall: (input) => `durationMs=${input.durationMs || 1000}`,
+    renderResult: (result) => summarize(result, 300),
+    execute: async (config, input) => processEnvelope(await processWait(config, input || {}), 'wait'),
+  };
+}
+
 function createProcessToolDefinitions() {
   return [
     createProcessStatusToolDefinition(),
+    createProcessWaitToolDefinition(),
     createProcessStopToolDefinition(),
     createProcessLogsToolDefinition(),
   ];
@@ -138,6 +160,10 @@ function createProcessLogsTool() {
   return createTool(createProcessLogsToolDefinition());
 }
 
+function createProcessWaitTool() {
+  return createTool(createProcessWaitToolDefinition());
+}
+
 module.exports = {
   createProcessLogsTool,
   createProcessLogsToolDefinition,
@@ -145,5 +171,7 @@ module.exports = {
   createProcessStatusToolDefinition,
   createProcessStopTool,
   createProcessStopToolDefinition,
+  createProcessWaitTool,
+  createProcessWaitToolDefinition,
   createProcessToolDefinitions,
 };

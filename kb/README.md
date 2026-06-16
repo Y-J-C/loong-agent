@@ -2,11 +2,23 @@
 
 ## 当前定位
 
-`kb/` 是 Loong Pi Agent 的本地、只读、可追溯知识层，面向当前这块龙芯 2K1000 相关开发板样板。它用于帮助 agent 引用板卡画像、环境约束、软件栈、风险边界、来源和待确认事项。
+`kb/` 是 Loong Pi Agent 的本地、只读、可追溯知识层，面向当前这块龙芯 2K1000 相关开发板样板。它用于帮助 agent 引用板卡画像、环境约束、软件栈、风险边界、来源、结构化事实和待确认事项。
 
-这不是 RAG 系统，不使用向量库、embedding、外部抓取或自动采集。它也不是系统修复手册，不能作为直接修改系统、修复分区或安装软件的执行依据。
+这不是 RAG 系统，不使用向量库、embedding、数据库、外部抓取或自动采集。它也不是系统修复手册，不能作为直接修改系统、修复分区、安装软件、同步板端项目或操作外设的执行依据。
 
-## 目录结构
+## P6 知识分层
+
+`kb/` 当前按五层维护：
+
+| 层级 | 职责 | 默认检索 |
+|---|---|---|
+| agent topic | 根目录 8 个 Markdown 文件，作为运行时优先读取的摘要入口 | 是 |
+| maintenance docs | 维护说明、阶段状态、排查索引、证据地图、维护规范 | 是 |
+| structured facts | `kb/facts/*.json`，供代码稳定读取的事实表 | 否 |
+| preview docs | `kb/loongson-2k1000-board-kb-preview/` 历史整理文档归档 | 是 |
+| raw evidence | preview 包内 `raw/stage*/` 原始命令输出 | 否，除非显式请求 raw/evidence |
+
+## Agent 可读 Topic
 
 根目录的 8 个 Markdown 文件是 agent 运行时读取入口：
 
@@ -18,19 +30,6 @@
 - `command_reference.md`
 - `source_index.md`
 - `unknowns.md`
-
-`loongson-2k1000-board-kb-preview/` 是原始 preview 知识包归档，保留完整 Markdown、raw 原始证据、索引、阶段状态和校验摘要。
-
-`raw/` 是历史骨架和兼容保留目录。当前主要 raw 证据以 preview 包内的 `raw/stage1/`、`raw/stage2/`、`raw/stage3/` 为准。
-
-P1 维护入口：
-
-- `troubleshooting.md`：常见问题、证据、只读排查、禁止操作和待确认项。
-- `stage_status.md`：仓库知识库阶段状态，区分 preview 原始状态和当前适配状态。
-- `scripts/README.md`：未来正式只读采集脚本的说明和约束。
-- `index.json`：P2 轻量知识索引，记录 topic、维护文档、preview Markdown 和 raw 证据的路径与类型。
-
-## Agent 可读 Topic
 
 每个 agent topic 必须包含以下 metadata 字段：
 
@@ -50,11 +49,75 @@ confidence:
 
 `status` 用于区分 `measured`、`sourced`、`inferred`、`unknown`、`draft`。`confidence` 用于提示可信度。`unknown`、`draft`、低置信度和 `待确认` 内容只能作为不确定支持证据，不能写成确定事实。
 
+## Maintenance Docs
+
+- `troubleshooting.md`：P6 排查入口，指向 `kb/playbooks/*.md`。
+- `stage_status.md`：仓库知识库阶段状态，区分 preview 原始状态和当前适配状态。
+- `scripts/README.md`：未来正式只读采集脚本的说明和约束。
+- `evidence_map.md`：主要结论到 topic / preview / raw 的追溯表。
+- `glossary.md`：知识层术语表。
+- `maintenance_guide.md`：后续维护规范和禁止事项。
+- `index.json`：轻量知识索引，记录 topic、维护文档、preview Markdown、structured facts 和 raw 证据的路径与类型。
+
+## Structured Facts
+
+P6 新增 `kb/facts/`，用于保存可被代码稳定读取的结构化事实：
+
+- `kb/facts/environment.json`
+- `kb/facts/software_stack.json`
+- `kb/facts/network.json`
+- `kb/facts/storage_boot.json`
+- `kb/facts/peripherals.json`
+- `kb/facts/risks.json`
+
+每条 fact 至少包含：
+
+```json
+{
+  "id": "environment.node.version",
+  "value": "v14.16.1",
+  "status": "measured",
+  "confidence": "high",
+  "last_updated": "2026-06-14",
+  "sourceTopics": ["environment_report", "software_stack"],
+  "sourcePaths": ["kb/environment_report.md", "kb/software_stack.md"],
+  "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+  "unknowns": []
+}
+```
+
+没有明确证据的字段必须写 `待确认`，不能补猜。Package candidate、runtime available、installed、missing 必须分开表达。
+
+## Playbooks
+
+P6 将排查内容拆成 `kb/playbooks/*.md`：
+
+- `eth1.md`
+- `npm.md`
+- `gpp.md`
+- `pip.md`
+- `containers.md`
+- `boot-efi.md`
+- `gpt-warning.md`
+- `audio.md`
+- `display.md`
+- `gpio-i2c-spi-uart.md`
+
+完整路径示例：`kb/playbooks/eth1.md`、`kb/playbooks/npm.md`、`kb/playbooks/gpp.md`。
+
+每个 playbook 固定包含：
+
+```text
+结论 / 当前状态 / 历史证据 / 风险 / 禁止操作 / 允许的只读排查 / 待确认 / 证据路径
+```
+
 ## 证据追溯
 
 普通回答优先读取根目录 8 个 topic。需要精确复核时，追溯到：
 
 ```text
+kb/evidence_map.md
+kb/facts/*.json
 kb/loongson-2k1000-board-kb-preview/
 ```
 
@@ -66,7 +129,7 @@ raw/stage2/
 raw/stage3/
 ```
 
-`kb/loongson-2k1000-board-kb-preview/checksums.md` 用于确认 preview 包内文件未被误改。若整理版 topic 与 raw 证据冲突，应以 raw 证据为优先，并在后续修正 topic。
+`kb/loongson-2k1000-board-kb-preview/checksums.md` 用于确认 preview 包内文件未被误改。若整理版 topic 与 raw 证据冲突，应以 raw 证据为优先，并在后续修正 topic 或 facts。
 
 ## 当前实测与历史证据
 
@@ -76,11 +139,7 @@ raw/stage3/
 
 `kb_search` 和 `kb_topic` 表示本地知识库整理结果。preview 包和 raw 文件是历史采集证据，不等同于当前状态。
 
-未指定 session id 的历史环境 / 工具链问题，默认使用 `kb/environment_report.md` 与 `kb/software_stack.md` 的 measured 快照。P5 起，`kb_topic` 和相关 `kb_search` 命中会附带结构化 `historicalEnvironment` facts，用于稳定回答 Node、npm、gcc、g++、Python、git、curl、wget 等历史状态问题。
-
-结构化 facts 只表达整理版 topic 已明确确认的事实。没有明确版本证据的字段必须写作 `待确认`，例如当前 `gcc` 可用但版本待确认，不能从上下文或模型记忆补全。
-
-回答历史状态问题时必须区分：
+结构化 facts 只表达整理版 topic、preview 文档和 raw 证据已明确确认的事实。回答历史状态问题时必须区分：
 
 ```text
 时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认
@@ -88,19 +147,20 @@ raw/stage3/
 
 如果为了复核又调用了 `loong_env_check`，必须标注为“当前复测”，不能把它写成历史证据。
 
-## P2 轻量全文检索
+## P2/P6 轻量全文检索
 
 `kb/index.json` 是手工维护的轻量 manifest。它不是自动采集索引，也不是向量库。
 
-`kb_search` 的 P2 行为：
+`kb_search` 的行为：
 
-1. 优先搜索根目录 8 个 agent topic；
-2. 补充搜索 `index.json` 中 `defaultSearch: true` 的维护文档和 preview Markdown；
-3. raw `.txt` 默认不搜索；
-4. 当查询包含 `raw`、`evidence`、`证据`、`日志`、`dmesg`、`原始`，或调用方显式传入 `includeRaw: true` 时，才搜索 raw 证据；
-5. 调用方显式传入 `includeRaw: false` 时，强制排除 raw 证据。
+1. 优先搜索根目录 8 个 agent topic。
+2. 补充搜索 `index.json` 中 `defaultSearch: true` 的维护文档、playbook 和 preview Markdown。
+3. `kb/facts/*.json` 默认不搜索，只作为结构化读取和审计对象。
+4. raw `.txt` 默认不搜索。
+5. 当查询包含 `raw`、`evidence`、`证据`、`日志`、`dmesg`、`原始`，或调用方显式传入 `includeRaw: true` 时，才搜索 raw 证据。
+6. 调用方显式传入 `includeRaw: false` 时，强制排除 raw 证据。
 
-P2 仍然不使用 RAG、embedding、向量库、外部抓取或自动 ingestion。搜索结果只是本地关键词命中，需要结合 `status`、`confidence`、`stage` 和 `sourceType` 判断可信度。
+P6 仍然不使用 RAG、embedding、向量库、数据库、外部抓取或自动 ingestion。搜索结果只是本地关键词命中，需要结合 `status`、`confidence`、`stage` 和 `sourceType` 判断可信度。
 
 ## 验证方式
 
@@ -118,6 +178,8 @@ node scripts/test-knowledge-layer.js
 - preview 包 `checksums.md` 与实际文件 hash。
 - preview 包内 raw 引用是否仍可追溯。
 - `kb/index.json` manifest 路径、搜索范围和 raw 按需检索。
+- `kb/facts/*.json` 的字段契约、来源、raw 证据和 `待确认` 口径。
+- `kb/playbooks/*.md` 的固定结构、覆盖范围和只读边界。
 - knowledge context 注入和 context budget 行为。
 
 ## 安全边界
@@ -130,12 +192,18 @@ node scripts/test-knowledge-layer.js
 - 修改 `eth0` / `eth1` 网络配置。
 - 未确认电压、引脚、权限和接线前的 GPIO/I2C/SPI/UART 操作或盲扫。
 
-`command_reference.md` 是推荐诊断命令说明。`COMMAND_POLICY_METADATA` 不再作为 `bash` 执行边界。
+`command_reference.md` 是推荐诊断命令说明。`READONLY_COMMAND_METADATA` 仍是允许作为 agent 只读诊断建议的命令元数据来源，不能由普通文档替代。
+
+## 板端操作限制
+
+龙芯派在 P6 中只作为“只读观察对象”，不是开发和写入目标。不要直接修改、覆盖、同步、删除或移动 `/home/loongson/loong-pi-agent` 或其他板端项目目录内容。
+
+如需把本地修改同步到板端，必须先单独确认，不能默认执行。
 
 ## 后续阶段
 
-P1 已补齐仓库层第四阶段维护入口。后续重点：
+P6 已将知识库从 topic 摘要扩展为可维护、可追溯、可验证的内容治理结构。后续重点：
 
-- 实现并人工验收真实只读采集脚本。
-- 将 `troubleshooting.md` 是否纳入 agent topic 列表作为单独决策。
-- 根据 P2 检索效果决定是否扩展更细的 topic 或文档评分规则。
+- 决定是否让 runtime 直接读取 `kb/facts/*.json`。
+- 按新基线补充更多事实，但每条必须附 source path 和 raw evidence。
+- 将任何板端复测结果作为新证据追加，而不是默认覆盖历史 facts。

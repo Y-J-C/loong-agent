@@ -43,10 +43,97 @@ Draft and unknown topics are allowed. They must not be treated as confirmed fact
 
 - `kind: "topic"` for the 8 root agent topics
 - `kind: "maintenance"` for repository-level knowledge maintenance docs
+- `kind: "fact"` for structured fact files under `kb/facts/`
+- `kind: "playbook"` for troubleshooting playbooks under `kb/playbooks/`
 - `kind: "preview_doc"` for copied preview Markdown files
 - `kind: "raw"` for copied raw evidence files
 
 Each manifest entry must point to a workspace-local file and must not escape the workspace.
+
+## P6 Structured Facts
+
+Structured facts live under `kb/facts/`. They are stable, machine-readable summaries of confirmed KB knowledge. They are not generated automatically, and they must not replace raw evidence.
+
+Required files:
+
+- `kb/facts/environment.json`
+- `kb/facts/software_stack.json`
+- `kb/facts/network.json`
+- `kb/facts/storage_boot.json`
+- `kb/facts/peripherals.json`
+- `kb/facts/risks.json`
+
+Each fact file must contain a JSON array. Every fact object must include:
+
+```js
+{
+  id: "environment.node.version",
+  value: "v14.16.1",
+  status: "measured",
+  confidence: "high",
+  last_updated: "2026-06-14",
+  sourceTopics: ["environment_report", "software_stack"],
+  sourcePaths: ["kb/environment_report.md", "kb/software_stack.md"],
+  rawEvidence: ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+  unknowns: []
+}
+```
+
+Fact rules:
+
+- `id`, `status`, `confidence`, and `last_updated` must be non-empty strings.
+- `sourceTopics`, `sourcePaths`, `rawEvidence`, and `unknowns` must be arrays.
+- `sourcePaths` and `rawEvidence` must not be empty.
+- Every local path in `sourcePaths` and `rawEvidence` must remain inside the workspace and resolve to an existing file.
+- Missing or unresolved values must be written as `待确认`; the KB must not infer unmeasured versions, board identity, driver state, or install safety.
+- `installed`, `runtime available`, `apt candidate exists`, `missing`, and `unknown` must remain distinct concepts.
+
+Structured fact files may be listed in `kb/index.json`, but they must use `defaultSearch: false` unless a future contract explicitly changes that behavior.
+
+## P6 Troubleshooting Playbooks
+
+`kb/troubleshooting.md` is the troubleshooting index. Detailed issue handling lives in `kb/playbooks/*.md`.
+
+Required playbook coverage:
+
+- `eth1`
+- `npm`
+- `g++`
+- `pip`
+- Docker / Podman
+- `/boot/efi`
+- Alternate GPT warning
+- audio / no codecs found
+- display / CRTC
+- GPIO / I2C / SPI / UART
+
+Each playbook must include these sections:
+
+```text
+## 结论
+## 当前状态
+## 历史证据
+## 风险
+## 禁止操作
+## 允许的只读排查
+## 待确认
+## 证据路径
+```
+
+Playbooks must only recommend read-only diagnostics. They must not present `apt install`, `apt upgrade`, `fsck`, `fdisk`, `parted`, `mkfs`, `dd`, boot changes, network rewrites, or GPIO/I2C/SPI/UART writes as executable agent suggestions.
+
+## Evidence Map And Maintenance Docs
+
+`kb/evidence_map.md` must connect major conclusions to topic, preview document, raw evidence, and confidence.
+
+`kb/maintenance_guide.md` must explain the maintenance rules:
+
+- new facts require source paths and raw evidence
+- topic changes require raw evidence review
+- unknowns must be closed or moved, not silently deleted
+- preview package files are archival and must not be modified during P6
+- secrets must not be written into KB files
+- current re-checks must not overwrite historical facts unless the collection baseline is explicitly upgraded
 
 ## Tools
 
@@ -55,7 +142,7 @@ Default read-only knowledge tools:
 - `kb_topic`: read one topic and return metadata, content, unknowns, and evidence.
 - `kb_search`: lightweight keyword search across local topics and indexed knowledge files.
 - `risk_lookup`: return risk and unknowns context relevant to a query.
-- `command_reference`: return recommended diagnostic commands from `COMMAND_POLICY_METADATA` with optional local notes.
+- `command_reference`: return allowed read-only diagnostic commands from `READONLY_COMMAND_METADATA` with optional local notes.
 
 All knowledge tool results use the standard tool envelope:
 
@@ -173,12 +260,12 @@ The prompt builder must preserve evidence metadata and warnings before long topi
 
 `kb/command_reference.md` is human documentation only.
 
-The recommended diagnostic command reference is `COMMAND_POLICY_METADATA`. It supports `command_reference` and risk discussion, but it is not the execution boundary for `bash`.
+The allowed read-only diagnostic command reference is `READONLY_COMMAND_METADATA`. It supports `command_reference` and risk discussion. Commands outside this metadata must not be described as executable by the agent.
 
 `command_reference` returns command groups for:
 
-- L0: low-risk recommended diagnostic commands from `COMMAND_POLICY_METADATA`
-- L1: cautious recommended diagnostic commands from `COMMAND_POLICY_METADATA`
+- L0: low-risk read-only diagnostic commands from `READONLY_COMMAND_METADATA`
+- L1: cautious read-only diagnostic commands from `READONLY_COMMAND_METADATA`
 - forbiddenExamples: documented operation families that must not be presented as executable agent commands
 
 `risk_lookup` returns a structured risk envelope with `riskLevel`, `forbiddenOperations`, `readOnlyAlternatives`, and `pendingConfirmations`. It is advisory context only; tool execution remains controlled by the safety policy and command policy.

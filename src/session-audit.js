@@ -113,6 +113,7 @@ function auditSession(session) {
     turns: events.filter((event) => event.type === 'turn_start').length,
     toolsStarted: events.filter((event) => event.type === 'tool_execution_start').length,
     toolsEnded: toolEndEvents.length,
+    bashExecutions: events.filter((event) => event.type === 'bash_execution').length,
     toolErrors: toolEndEvents.filter((event) => event.isError).length,
     policyBlocked: toolEndEvents.filter((event) => event.errorType === 'policy_blocked').length,
     evidence: countResultItems(toolEndEvents.concat(events.filter((event) => event.type === 'context_update')), 'evidence'),
@@ -159,6 +160,7 @@ function renderSessionAudit(session, options) {
     `Recoverable events: ${audit.recoverableEvents}`,
     `Invalid JSON: ${audit.stats.invalidJson}`,
     `Tool errors: ${audit.stats.toolErrors}`,
+    `Bash executions: ${audit.stats.bashExecutions}`,
     `Policy blocked: ${audit.stats.policyBlocked}`,
     `Evidence: ${audit.stats.evidence}`,
     `Warnings: ${audit.stats.warnings}`,
@@ -200,6 +202,8 @@ function replayLines(session) {
         (event.result && event.result.error) ||
         '';
       lines.push(`tool ${event.toolName || ''} ${status}: ${String(summary).slice(0, 200)}`);
+    } else if (event.type === 'bash_execution') {
+      lines.push(`bash ${event.exitCode === 0 ? 'ok' : 'exit=' + event.exitCode}: ${String(event.command || '').slice(0, 160)}`);
     } else if (event.type === 'turn_end') {
       lines.push(`turn ${event.loop || ''} ${event.status || 'ok'}`);
     } else if (event.type === 'model_usage') {

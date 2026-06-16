@@ -2,20 +2,20 @@
 
 status: sourced
 last_updated: 2026-06-14
-sources: src/command-policy.js COMMAND_POLICY_METADATA; kb/loongson-2k1000-board-kb-preview/README.md; kb/loongson-2k1000-board-kb-preview/scripts/README.md
+sources: src/command-policy.js READONLY_COMMAND_METADATA; kb/loongson-2k1000-board-kb-preview/README.md; kb/loongson-2k1000-board-kb-preview/scripts/README.md
 confidence: high
 
 ## Content
 
-The recommended diagnostic command reference is `COMMAND_POLICY_METADATA` in `src/command-policy.js`. It supports `command_reference` and risk discussion, but it is not the execution boundary for `bash`.
+The allowed read-only diagnostic command reference is `READONLY_COMMAND_METADATA`. It supports `command_reference` and risk discussion. Do not present commands outside this metadata as agent-executable board diagnostics.
 
-Recommendation levels:
+Read-only levels:
 
 - L0: local read-only state query. It must not modify files, packages, services, network, boot configuration, partition tables, or peripheral state.
 - L1: read-only but potentially heavier, log-reading, device-state-dependent, or requiring extra caution in interpretation.
-- Forbidden examples: install, upgrade, write, repair, reconfigure, modify boot/network/device-tree/kernel state, or probe peripherals in a way that can affect hardware. These remain risk notes, not bash enforcement.
+- Forbidden examples: install, upgrade, write, repair, reconfigure, modify boot/network/device-tree/kernel state, or probe peripherals in a way that can affect hardware. These remain risk notes and must not be presented as executable agent actions.
 
-L0 commands currently represented in `COMMAND_POLICY_METADATA`:
+L0 commands currently represented in `READONLY_COMMAND_METADATA`:
 
 ```text
 uname -a
@@ -56,7 +56,7 @@ ls /dev/i2c*
 i2cdetect -l
 ```
 
-L1 commands currently represented in `COMMAND_POLICY_METADATA`:
+L1 commands currently represented in `READONLY_COMMAND_METADATA`:
 
 ```text
 dmesg | tail -n 80
@@ -105,10 +105,10 @@ Recommended diagnostic posture:
 - Use `command_reference` before suggesting board diagnostic shell commands.
 - Prefer one small read-only command at a time.
 - Report command purpose, expected evidence, and risk boundary.
-- If a command is not listed in `COMMAND_POLICY_METADATA`, present it as a general shell command rather than a recommended board diagnostic.
+- If a command is not listed in `READONLY_COMMAND_METADATA`, do not describe it as executable by the agent.
 
 ## Unknowns
 
 - Formal read-only collection scripts are not yet validated.
 - Final executable collection scripts are not yet complete.
-- Any command outside `COMMAND_POLICY_METADATA` requires explicit review before it becomes an agent recommendation.
+- Any command outside `READONLY_COMMAND_METADATA` requires explicit review before it becomes an agent recommendation.

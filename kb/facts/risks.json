@@ -1,0 +1,57 @@
+[
+  {
+    "id": "risk.board_readonly_boundary",
+    "value": "Board is a read-only observation target for this task, not a write target",
+    "status": "sourced",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["risk_list", "command_reference"],
+    "sourcePaths": ["kb/risk_list.md", "kb/command_reference.md", "kb/README.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "risk.package_install",
+    "value": "Package candidates must not be described as installed packages or safe install choices",
+    "status": "sourced",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["risk_list", "software_stack", "compatibility_matrix"],
+    "sourcePaths": ["kb/risk_list.md", "kb/software_stack.md", "kb/compatibility_matrix.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["Safe package install set, dependency size, and disk impact are pending."]
+  },
+  {
+    "id": "risk.storage_repair",
+    "value": "Do not run fsck, fdisk, parted, mkfs, dd, or boot repairs from this KB alone",
+    "status": "sourced",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["risk_list", "troubleshooting"],
+    "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_dmesg_20260609.txt"],
+    "unknowns": ["Recovery image and backup procedure are not confirmed."]
+  },
+  {
+    "id": "risk.network_config",
+    "value": "Do not modify eth0 or network service configuration during knowledge testing",
+    "status": "sourced",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["risk_list", "troubleshooting"],
+    "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": ["eth1 root cause remains unresolved."]
+  },
+  {
+    "id": "risk.peripheral_electrical",
+    "value": "Do not connect, export, write, or scan GPIO/I2C/SPI/UART until pinout and electrical limits are confirmed",
+    "status": "sourced",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["risk_list", "troubleshooting", "unknowns"],
+    "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/unknowns.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "unknowns": ["Official pinout, voltage, and wiring constraints remain pending."]
+  }
+]

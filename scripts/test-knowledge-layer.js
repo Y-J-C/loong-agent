@@ -8,7 +8,7 @@ const { createDefaultToolRegistry } = require('../src/tool-registry');
 const { createHookRunner, knowledgeContextHook } = require('../src/hooks');
 const { listTopics, readHistoricalEnvironmentFacts, readKnowledgeIndex, readTopic, searchKnowledge } = require('../src/kb');
 const { buildMessagesFromTurnContext, buildSystemPrompt, buildTurnContext } = require('../src/prompts');
-const { COMMAND_POLICY_METADATA } = require('../src/command-policy');
+const { READONLY_COMMAND_METADATA } = require('../src/command-policy');
 
 const ROOT = path.resolve(__dirname, '..');
 const PREVIEW_ROOT = path.join(ROOT, 'kb', 'loongson-2k1000-board-kb-preview');
@@ -89,6 +89,17 @@ function extractRawRefs(text) {
 
 function readWorkspaceFile(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
+}
+
+function readJsonWorkspaceFile(relativePath) {
+  return JSON.parse(readWorkspaceFile(relativePath));
+}
+
+function assertWorkspaceRelativePathExists(relativePath, label) {
+  assert(relativePath && relativePath.indexOf('..') < 0, `${label} path must not escape workspace: ${relativePath}`);
+  const resolved = path.resolve(ROOT, relativePath.replace(/\//g, path.sep));
+  assert(isInsideRoot(resolved), `${label} path escapes workspace: ${relativePath}`);
+  assert(fs.existsSync(resolved), `${label} path is missing: ${relativePath}`);
 }
 
 test('knowledge skeleton contains required topic files and metadata', () => {
@@ -206,10 +217,86 @@ test('knowledge README exposes P0 and P1 maintenance entrypoints', () => {
     'troubleshooting.md',
     'stage_status.md',
     'scripts/README.md',
+    'kb/facts/environment.json',
+    'kb/playbooks/eth1.md',
+    'evidence_map.md',
+    'maintenance_guide.md',
     'node scripts/test-knowledge-layer.js',
-    'COMMAND_POLICY_METADATA',
+    'READONLY_COMMAND_METADATA',
   ].forEach((needle) => {
     assert(text.indexOf(needle) >= 0, `kb README missing: ${needle}`);
+  });
+});
+
+test('P6 structured facts are valid, sourced, and evidence-backed', () => {
+  const factFiles = [
+    'kb/facts/environment.json',
+    'kb/facts/software_stack.json',
+    'kb/facts/network.json',
+    'kb/facts/storage_boot.json',
+    'kb/facts/peripherals.json',
+    'kb/facts/risks.json',
+  ];
+  const required = ['id', 'value', 'status', 'confidence', 'last_updated', 'sourceTopics', 'sourcePaths', 'rawEvidence', 'unknowns'];
+  let factCount = 0;
+  factFiles.forEach((relativePath) => {
+    assertWorkspaceRelativePathExists(relativePath, 'fact file');
+    const facts = readJsonWorkspaceFile(relativePath);
+    assert(Array.isArray(facts), `fact file must contain an array: ${relativePath}`);
+    assert(facts.length > 0, `fact file has no facts: ${relativePath}`);
+    facts.forEach((fact) => {
+      factCount += 1;
+      required.forEach((field) => {
+        assert(Object.prototype.hasOwnProperty.call(fact, field), `fact missing ${field}: ${relativePath}`);
+      });
+      assert(typeof fact.id === 'string' && fact.id.length > 0, `fact id must be non-empty: ${relativePath}`);
+      assert(typeof fact.status === 'string' && fact.status.length > 0, `fact status must be non-empty: ${fact.id}`);
+      assert(typeof fact.confidence === 'string' && fact.confidence.length > 0, `fact confidence must be non-empty: ${fact.id}`);
+      assert(typeof fact.last_updated === 'string' && fact.last_updated.length > 0, `fact last_updated must be non-empty: ${fact.id}`);
+      assert(Array.isArray(fact.sourceTopics), `fact sourceTopics must be array: ${fact.id}`);
+      assert(Array.isArray(fact.sourcePaths) && fact.sourcePaths.length > 0, `fact sourcePaths must be non-empty array: ${fact.id}`);
+      assert(Array.isArray(fact.rawEvidence) && fact.rawEvidence.length > 0, `fact rawEvidence must be non-empty array: ${fact.id}`);
+      assert(Array.isArray(fact.unknowns), `fact unknowns must be array: ${fact.id}`);
+      fact.sourcePaths.forEach((sourcePath) => assertWorkspaceRelativePathExists(sourcePath, `source path for ${fact.id}`));
+      fact.rawEvidence.forEach((rawPath) => assertWorkspaceRelativePathExists(rawPath, `raw evidence for ${fact.id}`));
+    });
+  });
+  assert(factCount >= 25, 'expected P6 fact coverage across environment/software/network/storage/peripherals/risks');
+});
+
+test('P6 facts distinguish runtime availability, package candidates, missing, and unknowns', () => {
+  const softwareFacts = readJsonWorkspaceFile('kb/facts/software_stack.json');
+  const values = softwareFacts.map((fact) => String(fact.value)).join('\n');
+  [
+    'runtime available',
+    'apt candidate exists',
+    'missing',
+    'not usable as default board path',
+  ].forEach((needle) => {
+    assert(values.indexOf(needle) >= 0, `software facts missing status distinction: ${needle}`);
+  });
+  assert(
+    softwareFacts.some((fact) => fact.id === 'software.npm.status' && /candidate/.test(String(fact.value)) && /missing/.test(String(fact.value))),
+    'npm fact must distinguish missing runtime from apt candidate'
+  );
+  assert(
+    softwareFacts.some((fact) => fact.id === 'software.pip.status' && /pip command missing/.test(String(fact.value)) && /python3 -m pip/.test(String(fact.value))),
+    'pip fact must distinguish pip command from pip3/python3 -m pip'
+  );
+});
+
+test('P6 evidence map links conclusions to topics, preview docs, raw evidence, and confidence', () => {
+  const text = readWorkspaceFile(path.join('kb', 'evidence_map.md'));
+  [
+    '| 结论 | Topic | Preview 文档 | Raw 证据 | confidence |',
+    'Node.js v14.16.1',
+    'npm / npx are missing',
+    'eth1',
+    '/boot/efi',
+    'Alternate GPT',
+    'raw/stage3/raw_stage3_evidence_combined.txt',
+  ].forEach((needle) => {
+    assert(text.indexOf(needle) >= 0, `evidence map missing: ${needle}`);
   });
 });
 
@@ -237,13 +324,56 @@ test('P1 troubleshooting guide covers known fourth-stage gaps', () => {
   });
 });
 
+test('P6 troubleshooting playbooks cover required issues with fixed structure and read-only boundary', () => {
+  const playbooks = {
+    eth1: 'kb/playbooks/eth1.md',
+    npm: 'kb/playbooks/npm.md',
+    'g++': 'kb/playbooks/gpp.md',
+    pip: 'kb/playbooks/pip.md',
+    Docker: 'kb/playbooks/containers.md',
+    '/boot/efi': 'kb/playbooks/boot-efi.md',
+    'Alternate GPT': 'kb/playbooks/gpt-warning.md',
+    'no codecs found': 'kb/playbooks/audio.md',
+    CRTC: 'kb/playbooks/display.md',
+    'GPIO/I2C/SPI/UART': 'kb/playbooks/gpio-i2c-spi-uart.md',
+  };
+  const sections = ['## 结论', '## 当前状态', '## 历史证据', '## 风险', '## 禁止操作', '## 允许的只读排查', '## 待确认', '## 证据路径'];
+  Object.keys(playbooks).forEach((label) => {
+    const relativePath = playbooks[label];
+    assertWorkspaceRelativePathExists(relativePath, `playbook ${label}`);
+    const text = readWorkspaceFile(relativePath);
+    assert(text.indexOf(label) >= 0 || (label === 'Docker' && /Podman/.test(text)) || (label === 'CRTC' && /Display/.test(text)), `playbook does not mention issue label: ${label}`);
+    sections.forEach((section) => {
+      assert(text.indexOf(section) >= 0, `playbook ${label} missing section: ${section}`);
+    });
+    assert(/只读|read-only/i.test(text), `playbook ${label} must state read-only diagnostics`);
+    assert(/禁止操作/.test(text), `playbook ${label} must state forbidden operations`);
+  });
+});
+
+test('P6 maintenance guide preserves evidence, unknowns, preview archive, and board read-only rules', () => {
+  const text = readWorkspaceFile(path.join('kb', 'maintenance_guide.md'));
+  [
+    'sourcePaths',
+    'rawEvidence',
+    'unknowns',
+    'preview package',
+    '.env',
+    'API key',
+    'read-only observation target',
+    '不默认执行',
+  ].forEach((needle) => {
+    assert(text.indexOf(needle) >= 0, `maintenance guide missing: ${needle}`);
+  });
+});
+
 test('P1 command reference documents risk levels and command authority', () => {
   const text = readWorkspaceFile(path.join('kb', 'command_reference.md'));
   [
     'L0',
     'L1',
     'Forbidden',
-    'COMMAND_POLICY_METADATA',
+    'READONLY_COMMAND_METADATA',
     'apt upgrade',
     'fsck',
     'fdisk',
@@ -302,6 +432,8 @@ test('P2 knowledge index lists existing workspace-local knowledge files', () => 
     return acc;
   }, {});
   assert(counts.topic >= 8, 'knowledge index missing topic entries');
+  assert(counts.fact >= 6, 'knowledge index missing structured fact entries');
+  assert(counts.playbook >= 10, 'knowledge index missing playbook entries');
   assert(counts.preview_doc >= 10, 'knowledge index missing preview Markdown entries');
   assert(counts.raw >= 5, 'knowledge index missing raw entries');
   entries.forEach((entry) => {
@@ -312,8 +444,20 @@ test('P2 knowledge index lists existing workspace-local knowledge files', () => 
   });
 });
 
+test('P6 facts are indexed but excluded from default search', () => {
+  const entries = readKnowledgeIndex(config());
+  const facts = entries.filter((entry) => entry.kind === 'fact');
+  assert(facts.length >= 6, 'missing P6 fact index entries');
+  facts.forEach((entry) => {
+    assert(entry.defaultSearch === false, `fact must not be default-searchable: ${entry.id}`);
+    assert(entry.sourceType === 'structured_fact', `fact sourceType mismatch: ${entry.id}`);
+  });
+  const results = searchKnowledge(config(), 'environment.node.version', { limit: 10 });
+  assert(results.every((item) => item.kind !== 'fact'), 'facts should not appear in default kb_search results');
+});
+
 test('P2 kb_search returns topic and preview document matches by default', () => {
-  const results = searchKnowledge(config(), 'eth1 DMA', { limit: 8 });
+  const results = searchKnowledge(config(), 'eth1 DMA', { limit: 10 });
   assert(results.some((item) => item.kind === 'topic'), 'expected topic search result');
   assert(
     results.some((item) => item.kind === 'preview_doc' && /network_profile|environment_report/.test(item.path)),
@@ -357,12 +501,12 @@ test('P3 knowledgeContextHook injects troubleshooting search matches for eth1 qu
   });
   assert(result.contextAdditions.some((item) => item.source === 'knowledge_search'), 'missing knowledge search context');
   assert(
-    result.knowledgeEvidence.some((item) => /maintenance\.troubleshooting|preview\.network_profile/.test(item.topic || '')),
-    'missing troubleshooting or network evidence'
+    result.knowledgeEvidence.some((item) => /maintenance\.troubleshooting|preview\.network_profile|playbook\.eth1/.test(item.topic || '')),
+    'missing troubleshooting, playbook, or network evidence'
   );
   assert(
-    result.data.searchMatches.some((item) => /maintenance\.troubleshooting|preview\.network_profile/.test(item.topic || '')),
-    'missing troubleshooting or network search match'
+    result.data.searchMatches.some((item) => /maintenance\.troubleshooting|preview\.network_profile|playbook\.eth1/.test(item.topic || '')),
+    'missing troubleshooting, playbook, or network search match'
   );
 });
 
@@ -505,14 +649,14 @@ testAsync('P3 risk_lookup classifies package installation as caution', async () 
   assert(result.data.pendingConfirmations.length > 0, 'missing pending confirmations');
 });
 
-testAsync('command_reference uses COMMAND_POLICY_METADATA as recommendation source', async () => {
+testAsync('command_reference uses READONLY_COMMAND_METADATA as authoritative source', async () => {
   const registry = createDefaultToolRegistry();
   const result = await registry.execute(config(), 'command_reference', { query: 'node' });
   assert(result.ok === true, 'command_reference failed');
-  assert(result.data.authoritativeSource === 'COMMAND_POLICY_METADATA recommendations', 'wrong command source');
+  assert(result.data.authoritativeSource === 'READONLY_COMMAND_METADATA', 'wrong command source');
   assert(result.commands.length > 0, 'missing command metadata results');
   result.commands.forEach((item) => {
-    assert(COMMAND_POLICY_METADATA.some((meta) => meta.command === item.command), `command not from metadata: ${item.command}`);
+    assert(READONLY_COMMAND_METADATA.some((meta) => meta.command === item.command), `command not from metadata: ${item.command}`);
   });
 });
 
@@ -521,7 +665,7 @@ testAsync('P3 command_reference reports forbidden examples for unsupported comma
   const result = await registry.execute(config(), 'command_reference', { query: 'apt upgrade' });
   assert(result.ok === true, 'command_reference failed');
   assert(result.commands.length === 0, 'apt upgrade should not be in command policy');
-  assert(result.warnings.some((item) => /No command reference item matched query/.test(item)), 'missing no-match warning');
+  assert(result.warnings.some((item) => /No allowed command matched query/.test(item)), 'missing no-match warning');
   assert(result.data.riskLevels.forbiddenExamples.some((item) => /apt upgrade/.test(item)), 'missing forbidden apt upgrade example');
 });
 
@@ -622,7 +766,7 @@ test('turn context applies knowledge budget and keeps metadata', () => {
 test('P3 system prompt includes knowledge-driven answer and command safety rules', () => {
   const prompt = buildSystemPrompt();
   assert(prompt.indexOf('结论 / 证据 / 风险 / 待确认 / 下一步只读排查') >= 0, 'prompt missing Loong board answer structure');
-  assert(prompt.indexOf('recommended diagnostic command reference') >= 0, 'prompt missing command metadata reference guidance');
+  assert(prompt.indexOf('READONLY_COMMAND_METADATA') >= 0, 'prompt missing command metadata reference guidance');
   assert(prompt.indexOf('includeRaw=true') >= 0, 'prompt missing raw evidence guidance');
 });
 

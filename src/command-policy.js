@@ -67,6 +67,9 @@ const COMMAND_POLICY_COMMANDS = new Set(
     .map((item) => item.command)
 );
 
+const READONLY_COMMAND_METADATA = COMMAND_POLICY_METADATA;
+const READONLY_COMMANDS = COMMAND_POLICY_COMMANDS;
+
 function findCommandMetadata(command) {
   return COMMAND_POLICY_METADATA.find((item) => {
     if (item.matchType === 'exact') return item.command === command;
@@ -134,6 +137,8 @@ module.exports = {
   COMMAND_POLICY_METADATA,
   DANGEROUS_COMMAND_PATTERN,
   FORBIDDEN_EXAMPLES,
+  READONLY_COMMAND_METADATA,
+  READONLY_COMMANDS,
   evaluateCommand,
   groupCommandPolicyLevels,
 };

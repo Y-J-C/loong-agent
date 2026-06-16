@@ -160,6 +160,29 @@ test('policy blocks, tool errors, evidence, and warnings are counted', () => {
   assert(audit.stats.warnings === 1, 'warnings count mismatch');
 });
 
+test('bashExecution events are audited and replayed', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'bash-execution', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'bash-execution', rootSessionId: 'bash-execution', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'bash' }),
+    JSON.stringify({
+      type: 'bash_execution',
+      command: 'node -v',
+      output: 'v14.16.1',
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+      details: {},
+    }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const audit = auditSession(session);
+  const replay = renderSessionReplay(session);
+  assert(audit.stats.bashExecutions === 1, 'bash execution count mismatch');
+  assert(replay.indexOf('bash ok: node -v') >= 0, 'replay missing bash execution');
+});
+
 test('exports include capability coverage and knowledge evidence', () => {
   const workspace = tempWorkspace();
   const file = writeSession(workspace, 'coverage', [

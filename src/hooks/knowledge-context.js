@@ -107,6 +107,9 @@ function selectSearchContextMatches(matches, text) {
     (matches || [])
       .filter((match) => match.topic === 'maintenance.troubleshooting')
       .forEach(add);
+    (matches || [])
+      .filter((match) => match.kind === 'playbook')
+      .forEach(add);
   }
   if (includeRawEvidence(text)) {
     (matches || [])
@@ -114,7 +117,7 @@ function selectSearchContextMatches(matches, text) {
       .forEach(add);
   }
   (matches || [])
-    .filter((match) => match.kind === 'preview_doc' || match.kind === 'maintenance')
+    .filter((match) => match.kind === 'preview_doc' || match.kind === 'maintenance' || match.kind === 'playbook')
     .forEach(add);
   (matches || []).forEach(add);
   return selected;

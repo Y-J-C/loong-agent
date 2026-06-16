@@ -829,17 +829,41 @@ async function runSlashCommandLegacy(context, text) {
 }
 
 async function runBangCommand(context, text) {
-  const command = String(text || '').replace(/^!!?\s*/, '').trim();
+  const raw = String(text || '').trim();
+  const excludeFromContext = raw.startsWith('!!');
+  const command = raw.replace(/^!!?\s*/, '').trim();
   if (!command) {
     addMessage(context.state, { type: 'error', text: 'Usage: ! <shell command>' });
     return;
   }
   try {
     const result = await createDefaultToolRegistry().execute(context.config, 'bash', { command });
+    const data = result && result.data ? result.data : result;
+    const output = data.output || [data.stdout, data.stderr].filter(Boolean).join('\n');
+    const writer = currentSessionWriter(context.state);
+    if (writer) {
+      writer.append({
+        type: 'bash_execution',
+        role: 'bashExecution',
+        command,
+        output,
+        exitCode: data.exitCode,
+        cancelled: Boolean(data.cancelled),
+        truncated: Boolean(data.truncated),
+        fullOutputPath: data.fullOutputPath || '',
+        excludeFromContext,
+        details: {
+          background: Boolean(data.background),
+          pid: data.pid,
+          logFile: data.logFile || '',
+          pidFile: data.pidFile || '',
+        },
+      });
+    }
     addMessage(context.state, {
       type: result.ok ? 'system' : 'error',
       text: section('bash 执行 / bash command', [
-        `! ${command}`,
+        `${excludeFromContext ? '!!' : '!'} ${command}`,
         `exitCode: ${result.exitCode}`,
         result.stdout ? `stdout:\n${result.stdout}` : '',
         result.stderr ? `stderr:\n${result.stderr}` : '',

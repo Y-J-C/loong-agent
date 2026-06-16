@@ -108,6 +108,195 @@
     "defaultSearch": true
   },
   {
+    "id": "maintenance.evidence_map",
+    "kind": "maintenance",
+    "path": "kb/evidence_map.md",
+    "title": "证据追溯地图",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "maintenance.glossary",
+    "kind": "maintenance",
+    "path": "kb/glossary.md",
+    "title": "知识层术语表",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "maintenance.maintenance_guide",
+    "kind": "maintenance",
+    "path": "kb/maintenance_guide.md",
+    "title": "知识层维护规范",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "facts.readme",
+    "kind": "fact",
+    "path": "kb/facts/README.md",
+    "title": "结构化 facts 说明",
+    "stage": "p6",
+    "sourceType": "structured_fact",
+    "defaultSearch": false
+  },
+  {
+    "id": "facts.environment",
+    "kind": "fact",
+    "path": "kb/facts/environment.json",
+    "title": "环境结构化事实",
+    "stage": "p6",
+    "sourceType": "structured_fact",
+    "defaultSearch": false
+  },
+  {
+    "id": "facts.software_stack",
+    "kind": "fact",
+    "path": "kb/facts/software_stack.json",
+    "title": "软件栈结构化事实",
+    "stage": "p6",
+    "sourceType": "structured_fact",
+    "defaultSearch": false
+  },
+  {
+    "id": "facts.network",
+    "kind": "fact",
+    "path": "kb/facts/network.json",
+    "title": "网络结构化事实",
+    "stage": "p6",
+    "sourceType": "structured_fact",
+    "defaultSearch": false
+  },
+  {
+    "id": "facts.storage_boot",
+    "kind": "fact",
+    "path": "kb/facts/storage_boot.json",
+    "title": "启动与存储结构化事实",
+    "stage": "p6",
+    "sourceType": "structured_fact",
+    "defaultSearch": false
+  },
+  {
+    "id": "facts.peripherals",
+    "kind": "fact",
+    "path": "kb/facts/peripherals.json",
+    "title": "外设结构化事实",
+    "stage": "p6",
+    "sourceType": "structured_fact",
+    "defaultSearch": false
+  },
+  {
+    "id": "facts.risks",
+    "kind": "fact",
+    "path": "kb/facts/risks.json",
+    "title": "风险结构化事实",
+    "stage": "p6",
+    "sourceType": "structured_fact",
+    "defaultSearch": false
+  },
+  {
+    "id": "playbook.readme",
+    "kind": "playbook",
+    "path": "kb/playbooks/README.md",
+    "title": "排查 playbook 说明",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.eth1",
+    "kind": "playbook",
+    "path": "kb/playbooks/eth1.md",
+    "title": "eth1 不可用排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.npm",
+    "kind": "playbook",
+    "path": "kb/playbooks/npm.md",
+    "title": "npm 缺失排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.gpp",
+    "kind": "playbook",
+    "path": "kb/playbooks/gpp.md",
+    "title": "g++ / c++ 缺失排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.pip",
+    "kind": "playbook",
+    "path": "kb/playbooks/pip.md",
+    "title": "pip / pip3 排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.containers",
+    "kind": "playbook",
+    "path": "kb/playbooks/containers.md",
+    "title": "Docker / Podman 排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.boot_efi",
+    "kind": "playbook",
+    "path": "kb/playbooks/boot-efi.md",
+    "title": "/boot/efi FAT warning 排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.gpt_warning",
+    "kind": "playbook",
+    "path": "kb/playbooks/gpt-warning.md",
+    "title": "Alternate GPT 异常排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.audio",
+    "kind": "playbook",
+    "path": "kb/playbooks/audio.md",
+    "title": "Audio no codecs found 排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.display",
+    "kind": "playbook",
+    "path": "kb/playbooks/display.md",
+    "title": "Display CRTC 异常排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
+    "id": "playbook.gpio_i2c_spi_uart",
+    "kind": "playbook",
+    "path": "kb/playbooks/gpio-i2c-spi-uart.md",
+    "title": "GPIO/I2C/SPI/UART 排查",
+    "stage": "p6",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
     "id": "preview.readme",
     "kind": "preview_doc",
     "path": "kb/loongson-2k1000-board-kb-preview/README.md",

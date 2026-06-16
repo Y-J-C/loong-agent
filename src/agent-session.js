@@ -36,6 +36,8 @@ function createAgentSession(config, options) {
 
   function createSessionAppender(targetSession) {
     let pendingUpdate = null;
+    let pendingBashExecutions = [];
+    let assistantStreamingOpen = false;
     let lastWrittenAt = 0;
     let lastWrittenLength = 0;
     const minIntervalMs = 250;
@@ -55,8 +57,18 @@ function createAgentSession(config, options) {
       pendingUpdate = null;
     }
 
+    function flushPendingBashExecutions() {
+      if (!pendingBashExecutions.length) return;
+      const items = pendingBashExecutions.slice();
+      pendingBashExecutions = [];
+      items.forEach((item) => appendNow(item));
+    }
+
     return async (event) => {
       if (!targetSession) return;
+      if (event && event.type === 'message_start' && event.role === 'assistant' && event.streaming) {
+        assistantStreamingOpen = true;
+      }
       if (event && event.type === 'message_update' && event.role === 'assistant' && event.streaming) {
         const now = Date.now();
         const length = String(event.content || '').length;
@@ -74,6 +86,7 @@ function createAgentSession(config, options) {
         return;
       }
       if (event && event.type === 'message_end' && event.role === 'assistant') {
+        assistantStreamingOpen = false;
         if (
           pendingUpdate &&
           String(pendingUpdate.content || '') !== String(event.content || '')
@@ -82,9 +95,15 @@ function createAgentSession(config, options) {
         } else {
           pendingUpdate = null;
         }
+        flushPendingBashExecutions();
       } else if (pendingUpdate && event && event.type !== 'message_update') {
         flushPending();
       }
+      if (event && event.type === 'bash_execution' && assistantStreamingOpen) {
+        pendingBashExecutions.push(event);
+        return;
+      }
+      if (event && event.type === 'agent_end') flushPendingBashExecutions();
       appendNow(event);
     };
   }

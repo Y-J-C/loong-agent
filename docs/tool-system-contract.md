@@ -85,7 +85,11 @@ Long-running commands must use managed background mode:
 
 Background calls return `pid`, `logFile`, `pidFile`, and `background: true` without waiting for the process to exit. Foreground timeout returns `exitCode: 124`, `timedOut: true`, `likelyLongRunning: true`, and a recovery hint telling the model to rerun as background when appropriate.
 
-Command output must be bounded in memory. Tool results should expose tail output in `stdout` and `stderr`; when output is truncated, include `truncated: true` and `fullOutputPath`.
+Command output must be bounded in memory. Tool results should expose tail output in `stdout`, `stderr`, and combined `output`; when output is truncated, include `truncated: true` and `fullOutputPath`.
+
+Foreground `bash` emits throttled `tool_execution_update` events while output is streaming. Consumers must treat updates as partial snapshots; only `tool_execution_end` is the final result.
+
+Every completed `bash` tool call also records a session-level `bash_execution` fact with command, output, exit code, truncation, and optional background details. `!!` TUI commands may set `excludeFromContext: true`, but the fact remains in session audit.
 
 `COMMAND_POLICY_METADATA` is a recommended diagnostic command reference for `command_reference`. It is not the execution boundary for `bash`.
 
@@ -94,10 +98,13 @@ Command output must be bounded in memory. Tool results should expose tail output
 Managed background processes are inspected through these tools:
 
 - `process_status`: check a `pid` or `pidFile` returned by `bash`.
+- `process_wait`: wait for a bounded duration without invoking shell.
 - `process_logs`: read the tail of a background command `logFile`.
 - `process_stop`: stop the process tree for a `pid` or `pidFile`.
 
 These tools do not scan all system processes. They operate on a user-provided PID, PID file, or log file.
+
+Long-task workflows must use `process_wait` instead of `bash sleep`, and `process_logs` instead of `bash cat`/`tail` for managed background logs.
 
 ## File Tools
 

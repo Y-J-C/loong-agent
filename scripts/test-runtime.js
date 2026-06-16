@@ -977,6 +977,48 @@ test('bash timeout returns long-running recovery hint', async () => {
   assert(/background=true/.test(result.recoveryHint || ''), 'timeout result missing background recovery hint');
 });
 
+test('bash emits execution updates and bashExecution facts', async () => {
+  if (childProcessSpawnBlocked()) return;
+  let calls = 0;
+  registerProvider({
+    name: 'test-bash-updates-execution-fact',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'bash',
+          input: { command: 'node -e "console.log(\\\"update-one\\\"); setTimeout(function(){ console.log(\\\"update-two\\\"); }, 150)"' },
+          reason: 'update test',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: 'done',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-bash-updates-execution-fact'), { streaming: false }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('run bash');
+  assert(result.summary === 'done', 'bash update run did not finish');
+  assert(events.some((event) => event.type === 'tool_execution_update' && event.toolName === 'bash'), 'missing tool_execution_update');
+  const execution = events.find((event) => event.type === 'bash_execution');
+  assert(execution && /update-one/.test(execution.output || ''), 'missing bash_execution output fact');
+});
+
+test('process_wait waits without shell and returns evidence envelope', async () => {
+  const registry = createDefaultToolRegistry();
+  const started = Date.now();
+  const result = await registry.execute(config('test-process-wait'), 'process_wait', { durationMs: 20 });
+  assert(Date.now() - started >= 10, 'process_wait returned too early');
+  assert(result.ok === true, 'process_wait should be ok');
+  assert(result.data.durationMs >= 0, 'process_wait missing duration');
+  assert(result.evidence.some((item) => item.source === 'process' && item.action === 'wait'), 'process_wait missing evidence');
+});
+
 test('bash background process can be checked logged and stopped', async () => {
   if (childProcessSpawnBlocked()) return;
   const runsDir = path.join(PROJECT_ROOT, 'runs');
@@ -1029,6 +1071,92 @@ test('bash background process can be checked logged and stopped', async () => {
   await sleep(300);
   const finalStatus = await registry.execute(cfg, 'process_status', { pidFile, logFile });
   assert(finalStatus.running === false, 'background process was not stopped');
+});
+
+test('long task workflow blocks bash sleep and redirects to process_wait', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-long-task-blocks-sleep',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'bash',
+          input: { command: 'sleep 15' },
+          reason: 'wait for logger',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: 'sleep blocked',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const cfg = Object.assign(config('test-long-task-blocks-sleep'), { streaming: false, maxLoops: 3 });
+  const agent = createAgentSession(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('每隔10秒采集传感器数据并保存CSV，测试运行');
+  const blocked = events.find((event) => event.type === 'tool_execution_end' && event.errorType === 'long_task_workflow');
+  assert(result.summary === 'sleep blocked', 'long task sleep run did not recover');
+  assert(blocked && blocked.result.recommendedTool === 'process_wait', 'bash sleep was not redirected to process_wait');
+});
+
+test('long task workflow blocks bash cat log and redirects to process_logs', async () => {
+  let calls = 0;
+  const workspace = tempWorkspace();
+  const logFile = path.join(workspace, 'logger.log');
+  const pidFile = path.join(workspace, 'logger.pid');
+  registerProvider({
+    name: 'test-long-task-blocks-cat-log',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'bash',
+          input: {
+            command: 'node -e "setInterval(()=>{},1000)"',
+            background: true,
+            logFile,
+            pidFile,
+          },
+          reason: 'start logger',
+        });
+      }
+      if (calls === 2) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'bash',
+          input: { command: `cat ${JSON.stringify(logFile)}` },
+          reason: 'read log',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: 'cat blocked',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const cfg = Object.assign(config('test-long-task-blocks-cat-log', workspace), { streaming: false, maxLoops: 4 });
+  const agent = createAgentSession(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('启动后台logger采集传感器CSV');
+  const started = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'bash' && event.result && event.result.background);
+  const blocked = events.find((event) => event.type === 'tool_execution_end' && event.errorType === 'long_task_workflow');
+  if (started && started.result && started.result.pid) {
+    try {
+      require('../src/tools').killProcessTree(started.result.pid);
+    } catch (error) {
+      // Best-effort cleanup for test background process.
+    }
+  }
+  assert(result.summary === 'cat blocked', 'long task cat log run did not recover');
+  assert(blocked && blocked.result.recommendedTool === 'process_logs', 'bash cat log was not redirected to process_logs');
 });
 
 test('agent session default safety does not block general bash command content', async () => {

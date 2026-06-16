@@ -40,6 +40,7 @@ const {
   createProcessLogsToolDefinition,
   createProcessStatusToolDefinition,
   createProcessStopToolDefinition,
+  createProcessWaitToolDefinition,
 } = require('./process-tools');
 const {
   createRuntimeHealthToolDefinition,
@@ -58,6 +59,7 @@ function createDefaultToolDefinitions() {
     createLoongEnvCheckToolDefinition(),
     createBashToolDefinition(),
     createProcessStatusToolDefinition(),
+    createProcessWaitToolDefinition(),
     createProcessLogsToolDefinition(),
     createProcessStopToolDefinition(),
     createReadToolDefinition(),
@@ -86,6 +88,7 @@ function createReadOnlyToolDefinitions() {
     createGrepToolDefinition(),
     createFindToolDefinition(),
     createProcessStatusToolDefinition(),
+    createProcessWaitToolDefinition(),
     createProcessLogsToolDefinition(),
     createListDirectoryToolDefinition(),
     createReadFileToolDefinition(),
@@ -117,6 +120,7 @@ module.exports = {
   createProcessLogsToolDefinition,
   createProcessStatusToolDefinition,
   createProcessStopToolDefinition,
+  createProcessWaitToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
   createReadOnlyToolDefinitions,

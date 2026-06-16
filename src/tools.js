@@ -45,6 +45,8 @@ class OutputAccumulator {
     this.maxLines = options.maxLines || MAX_OUTPUT_LINES;
     this.decoder = new StringDecoder('utf8');
     this.text = '';
+    this.fullBytes = 0;
+    this.fullLines = 0;
     this.bytes = 0;
     this.truncated = false;
     this.fullOutputPath = '';
@@ -55,7 +57,10 @@ class OutputAccumulator {
     if (!chunk) return;
     const text = Buffer.isBuffer(chunk) ? this.decoder.write(chunk) : String(chunk);
     if (!text) return;
-    this.bytes += Buffer.byteLength(text, 'utf8');
+    const byteLength = Buffer.byteLength(text, 'utf8');
+    this.bytes += byteLength;
+    this.fullBytes += byteLength;
+    this.fullLines += (text.match(/\n/g) || []).length;
     if (this.truncated || this.bytes > this.maxBytes) {
       this.ensureFullOutputPath();
       fs.appendFileSync(this.fullOutputPath, text, 'utf8');
@@ -95,6 +100,16 @@ class OutputAccumulator {
   value() {
     this.flush();
     return this.text.trim();
+  }
+
+  snapshot() {
+    return {
+      text: this.text.trim(),
+      truncated: this.truncated,
+      fullOutputPath: this.fullOutputPath || '',
+      bytes: this.fullBytes,
+      lines: this.fullLines,
+    };
   }
 }
 
@@ -149,79 +164,191 @@ function killProcessTree(pid) {
   }
 }
 
-function waitForChild(child, timeoutMs, started, command, stdout, stderr) {
+function streamEnded(stream) {
+  return !stream || stream.readableEnded || stream.destroyed;
+}
+
+function waitForChildProcess(child, options) {
+  options = options || {};
+  const timeoutMs = Number(options.timeoutMs) || DEFAULT_COMMAND_TIMEOUT_MS;
+  const started = options.started || Date.now();
+  const command = options.command || '';
+  const stdout = options.stdout;
+  const stderr = options.stderr;
+  const combined = options.combined;
+  const signal = options.signal;
+  const onUpdate = typeof options.onUpdate === 'function' ? options.onUpdate : null;
+  const updateIntervalMs = Math.max(50, Number(options.updateIntervalMs || 100));
   return new Promise((resolve) => {
     let settled = false;
     let timedOut = false;
+    let cancelled = false;
+    let exitCode;
+    let exitSignal = '';
+    let closeSeen = false;
+    let exitSeen = false;
+    let lastUpdateAt = 0;
+    const pendingUpdates = [];
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal && abortListener) {
+        try {
+          signal.removeEventListener('abort', abortListener);
+        } catch (ignored) {
+          // Ignore AbortSignal implementations without removeEventListener.
+        }
+      }
       stdout.flush();
       stderr.flush();
-      resolve(result);
+      combined.flush();
+      if (pendingUpdates.length) {
+        Promise.all(pendingUpdates).then(() => resolve(result)).catch(() => resolve(result));
+      } else {
+        resolve(result);
+      }
+    };
+    const emitUpdate = (streamName) => {
+      if (!onUpdate) return;
+      const now = Date.now();
+      if (now - lastUpdateAt < updateIntervalMs) return;
+      lastUpdateAt = now;
+      const snap = combined.snapshot();
+      try {
+        const maybePromise = onUpdate({
+          command,
+          stream: streamName || 'combined',
+          output: snap.text,
+          stdout: stdout.snapshot().text,
+          stderr: stderr.snapshot().text,
+          truncated: Boolean(stdout.truncated || stderr.truncated || combined.truncated),
+          fullOutputPath: combined.fullOutputPath || stdout.fullOutputPath || stderr.fullOutputPath || '',
+          durationMs: Date.now() - started,
+        });
+        if (maybePromise && typeof maybePromise.catch === 'function') {
+          pendingUpdates.push(maybePromise.catch(() => {}));
+        }
+      } catch (ignored) {
+        // Tool update observers must not affect command execution.
+      }
+    };
+    const maybeFinish = (force) => {
+      if (settled) return;
+      if (!force && !closeSeen && !exitSeen) return;
+      if (!force && (!streamEnded(child.stdout) || !streamEnded(child.stderr))) return;
+      const stdoutText = stdout.value();
+      const stderrText = stderr.value();
+      const combinedText = combined.value();
+      const result = {
+        command,
+        exitCode: timedOut ? 124 : cancelled ? 130 : typeof exitCode === 'number' ? exitCode : exitSignal ? 1 : 0,
+        stdout: stdoutText,
+        stderr: stderrText,
+        output: combinedText,
+        durationMs: Date.now() - started,
+        timedOut,
+        cancelled,
+        truncated: Boolean(stdout.truncated || stderr.truncated || combined.truncated),
+        fullOutputPath: combined.fullOutputPath || stdout.fullOutputPath || stderr.fullOutputPath || '',
+      };
+      if (timedOut) {
+        result.likelyLongRunning = true;
+        result.recoveryHint =
+          'This command timed out. If it is a logger, monitor, server, or loop, run it again with bash background=true, then check process_status, process_wait, process_logs, and any output file.';
+      }
+      finish(result);
     };
     const timer = setTimeout(() => {
       timedOut = true;
       killProcessTree(child.pid);
+      setTimeout(() => maybeFinish(true), 1500).unref();
     }, timeoutMs);
     if (timer.unref) timer.unref();
 
-    child.stdout.on('data', (chunk) => stdout.append(chunk));
-    child.stderr.on('data', (chunk) => stderr.append(chunk));
+    let abortListener = null;
+    if (signal) {
+      abortListener = () => {
+        cancelled = true;
+        killProcessTree(child.pid);
+        setTimeout(() => maybeFinish(true), 1500).unref();
+      };
+      if (signal.aborted) abortListener();
+      else if (signal.addEventListener) signal.addEventListener('abort', abortListener);
+    }
+
+    child.stdout.on('data', (chunk) => {
+      stdout.append(chunk);
+      combined.append(chunk);
+      emitUpdate('stdout');
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr.append(chunk);
+      combined.append(chunk);
+      emitUpdate('stderr');
+    });
+    child.stdout.on('end', () => maybeFinish(false));
+    child.stderr.on('end', () => maybeFinish(false));
     child.on('error', (error) => {
       finish({
         command,
         exitCode: 1,
         stdout: stdout.value(),
+        output: combined.value(),
         stderr: error && error.message ? error.message : String(error),
         durationMs: Date.now() - started,
         timedOut: false,
+        cancelled,
       });
     });
+    child.on('exit', (code, signalName) => {
+      exitSeen = true;
+      exitCode = code;
+      exitSignal = signalName || '';
+      setTimeout(() => maybeFinish(true), 100).unref();
+    });
     child.on('close', (code, signal) => {
-      const stdoutText = stdout.value();
-      const stderrText = stderr.value();
-      const result = {
-        command,
-        exitCode: timedOut ? 124 : typeof code === 'number' ? code : signal ? 1 : 0,
-        stdout: stdoutText,
-        stderr: stderrText,
-        durationMs: Date.now() - started,
-        timedOut,
-        truncated: Boolean(stdout.truncated || stderr.truncated),
-        fullOutputPath: stdout.fullOutputPath || stderr.fullOutputPath || '',
-      };
-      if (timedOut) {
-        result.likelyLongRunning = true;
-        result.recoveryHint =
-          'This command timed out. If it is a logger, monitor, server, or loop, run it again with bash background=true, then check process_status, process_logs, and any output file.';
-      }
-      finish(result);
+      closeSeen = true;
+      if (typeof code === 'number') exitCode = code;
+      if (signal) exitSignal = signal;
+      maybeFinish(false);
     });
   });
 }
 
-function runShell(command, timeoutMs) {
+function runShell(command, timeoutMs, options) {
+  options = options || {};
   const started = Date.now();
   const shell = resolveShell();
   const stdout = new OutputAccumulator({ filePrefix: 'loong-agent-stdout' });
   const stderr = new OutputAccumulator({ filePrefix: 'loong-agent-stderr' });
+  const combined = new OutputAccumulator({ filePrefix: 'loong-agent-output' });
   try {
     const child = childProcess.spawn(shell.command, shell.args.concat([command]), {
       detached: shell.detached,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
-    return waitForChild(child, timeoutMs || DEFAULT_COMMAND_TIMEOUT_MS, started, command, stdout, stderr);
+    return waitForChildProcess(child, {
+      command,
+      combined,
+      onUpdate: options.onUpdate,
+      signal: options.signal,
+      started,
+      stderr,
+      stdout,
+      timeoutMs: timeoutMs || DEFAULT_COMMAND_TIMEOUT_MS,
+    });
   } catch (error) {
     return Promise.resolve({
       command,
       exitCode: 1,
       stdout: '',
+      output: '',
       stderr: error && error.message ? error.message : String(error),
       durationMs: Date.now() - started,
       timedOut: false,
+      cancelled: false,
     });
   }
 }
@@ -273,8 +400,10 @@ function runBackgroundShell(config, command, input) {
       exitCode: 0,
       stdout: '',
       stderr: '',
+      output: '',
       durationMs: Date.now() - started,
       timedOut: false,
+      cancelled: false,
       background: true,
       pid: child.pid,
       logFile,
@@ -294,8 +423,10 @@ function runBackgroundShell(config, command, input) {
       exitCode: 1,
       stdout: '',
       stderr: error && error.message ? error.message : String(error),
+      output: error && error.message ? error.message : String(error),
       durationMs: Date.now() - started,
       timedOut: false,
+      cancelled: false,
       background: false,
       logFile,
       pidFile,
@@ -399,7 +530,7 @@ function normalizeCommandTimeout(input) {
   return Math.min(Math.floor(value), MAX_COMMAND_TIMEOUT_MS);
 }
 
-async function runBashCommand(input, config) {
+async function runBashCommand(input, config, executionContext) {
   const command = String(input.command || '').trim();
   const warnings = [];
   if (!command) {
@@ -408,8 +539,10 @@ async function runBashCommand(input, config) {
       exitCode: 1,
       stdout: '',
       stderr: 'Missing bash command.',
+      output: 'Missing bash command.',
       durationMs: 0,
       timedOut: false,
+      cancelled: false,
       warnings,
     };
   }
@@ -418,7 +551,7 @@ async function runBashCommand(input, config) {
       warnings,
     });
   }
-  return Object.assign({}, await runShell(command, normalizeCommandTimeout(input || {})), {
+  return Object.assign({}, await runShell(command, normalizeCommandTimeout(input || {}), executionContext || {}), {
     warnings,
   });
 }
@@ -472,6 +605,18 @@ async function processLogs(config, input) {
     truncated: start > 0 || lines.length > maxLines,
     content: lines.slice(-maxLines).join('\n'),
     warnings: warnForFilePath(logFile),
+  };
+}
+
+async function processWait(config, input) {
+  const requested = Number(input && input.durationMs);
+  const durationMs = Math.max(0, Math.min(Number.isFinite(requested) ? Math.floor(requested) : 1000, 60000));
+  const started = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, durationMs));
+  return {
+    durationMs: Date.now() - started,
+    requestedDurationMs: durationMs,
+    warnings: [],
   };
 }
 
@@ -712,6 +857,7 @@ async function callTool(config, tool, input) {
   if (tool === 'process_status') return processStatus(config || {}, input || {});
   if (tool === 'process_stop') return processStop(config || {}, input || {});
   if (tool === 'process_logs') return processLogs(config || {}, input || {});
+  if (tool === 'process_wait') return processWait(config || {}, input || {});
   if (tool === 'read') return readPath(config, input || {});
   if (tool === 'write') return writePath(config, input || {});
   if (tool === 'edit') return editPath(config, input || {});
@@ -752,6 +898,7 @@ module.exports = {
   processLogs,
   processStatus,
   processStop,
+  processWait,
   readFile,
   readPath,
   resolveFilePath,

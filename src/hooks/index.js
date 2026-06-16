@@ -3,6 +3,7 @@
 const { finalTurnSummaryHook } = require('./final-turn-summary');
 const { knowledgeContextHook } = require('./knowledge-context');
 const { loongBoardContextHook } = require('./loong-board-context');
+const { longTaskBeforeToolCallHook, longTaskWorkflowHook } = require('./long-task-workflow');
 const { toolResultRedactionHook } = require('./tool-result-redaction');
 const { toolErrorRecoveryHook } = require('./tool-error-recovery');
 const { toolSafetyPolicyHook } = require('./tool-safety-policy');
@@ -53,13 +54,13 @@ function createHookRunner(hooks) {
 }
 
 function createDefaultPrepareNextTurn(extraHook) {
-  const hooks = [loongBoardContextHook, knowledgeContextHook, toolErrorRecoveryHook, finalTurnSummaryHook];
+  const hooks = [loongBoardContextHook, knowledgeContextHook, toolErrorRecoveryHook, longTaskWorkflowHook, finalTurnSummaryHook];
   if (extraHook) hooks.push(extraHook);
   return createHookRunner(hooks).prepareNextTurn;
 }
 
 function createBeforeToolCallChain(extraHook) {
-  const hooks = [toolSafetyPolicyHook];
+  const hooks = [toolSafetyPolicyHook, longTaskBeforeToolCallHook];
   if (extraHook) hooks.push(extraHook);
   return async (context) => {
     for (const hook of hooks) {
@@ -103,6 +104,8 @@ module.exports = {
   finalTurnSummaryHook,
   knowledgeContextHook,
   loongBoardContextHook,
+  longTaskBeforeToolCallHook,
+  longTaskWorkflowHook,
   toolResultRedactionHook,
   toolErrorRecoveryHook,
   toolSafetyPolicyHook,

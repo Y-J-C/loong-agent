@@ -18,6 +18,18 @@ function summarizeToolEvent(event) {
   };
 }
 
+function summarizeBashExecution(event) {
+  return {
+    command: event.command || '',
+    exitCode: event.exitCode,
+    cancelled: Boolean(event.cancelled),
+    truncated: Boolean(event.truncated),
+    fullOutputPath: event.fullOutputPath || '',
+    details: event.details || {},
+    output: truncate(event.output || '', 500),
+  };
+}
+
 function createSessionManager(config) {
   const repo = createSessionRepo(config);
 
@@ -59,6 +71,10 @@ function createSessionManager(config) {
       .filter((event) => event.type === 'tool_execution_end')
       .slice(-12)
       .map(summarizeToolEvent);
+    const bashExecutions = session.events
+      .filter((event) => event.type === 'bash_execution')
+      .slice(-8)
+      .map(summarizeBashExecution);
     const forkStart = session.events.find((event) => event.type === 'fork_start') || {};
     return {
       sourceSessionId: session.id,
@@ -66,6 +82,7 @@ function createSessionManager(config) {
       parentSession: forkStart.sourceSessionPath || '',
       summary: lastEnd.summary || forkStart.summary || '',
       recentToolEvents: toolEvents.length ? toolEvents : forkStart.recentToolEvents || [],
+      recentBashExecutions: bashExecutions,
     };
   }
 
@@ -78,6 +95,7 @@ function createSessionManager(config) {
       entryId: options && options.entryId ? options.entryId : undefined,
       summary: context.summary,
       recentToolEvents: context.recentToolEvents,
+      recentBashExecutions: context.recentBashExecutions,
     });
     return {
       id: child.id,

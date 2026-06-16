@@ -1,0 +1,101 @@
+[
+  {
+    "id": "software.gcc.status",
+    "value": "runtime available",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "compatibility_matrix"],
+    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["Exact gcc runtime version is 待确认 in the curated historical facts."]
+  },
+  {
+    "id": "software.gpp.status",
+    "value": "missing",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "compatibility_matrix"],
+    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["Safe install cost for g++ is pending."]
+  },
+  {
+    "id": "software.node.status",
+    "value": "runtime available; version v14.16.1",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "environment_report"],
+    "sourcePaths": ["kb/software_stack.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "software.npm.status",
+    "value": "missing; apt candidate exists",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "compatibility_matrix"],
+    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["npm install safety, dependency size, and disk impact are not confirmed."]
+  },
+  {
+    "id": "software.pip.status",
+    "value": "pip command missing; pip3 and python3 -m pip available through user-local pip module",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "environment_report"],
+    "sourcePaths": ["kb/software_stack.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_pip_status_20260610.txt", "kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["Long-term Python 3.7 and user-local pip 24.0 compatibility remains pending."]
+  },
+  {
+    "id": "software.transfer.scp",
+    "value": "runtime available through openssh-client",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack"],
+    "sourcePaths": ["kb/software_stack.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": []
+  },
+  {
+    "id": "software.transfer.rsync",
+    "value": "missing; apt candidate exists",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "compatibility_matrix"],
+    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["Safe installation is pending review."]
+  },
+  {
+    "id": "software.container.docker_podman",
+    "value": "missing; not usable as default board path",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "compatibility_matrix"],
+    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["Alternate source availability, kernel support, storage, and permission requirements are not confirmed."]
+  },
+  {
+    "id": "software.gui_multimedia.dev_stack",
+    "value": "Qt, GTK, OpenCV, and ffmpeg development/runtime paths are not ready by default",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-06-14",
+    "sourceTopics": ["software_stack", "compatibility_matrix"],
+    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
+    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "unknowns": ["Qt wrapper traces must not be treated as complete Qt development availability."]
+  }
+]

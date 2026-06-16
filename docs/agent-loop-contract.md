@@ -12,7 +12,9 @@ turn_start
 message_start / message_end                 # user
 message_start / message_update / message_end # assistant
 tool_execution_start
+tool_execution_update                         # optional streaming tool output
 tool_execution_end
+bash_execution                                # when the completed tool was bash
 turn_end
 agent_end
 ```
@@ -185,6 +187,57 @@ Consumer notes:
 - Policy blocks use `isError: true`, `status: "error"`, and
   `errorType: "policy_blocked"`.
 
+### `tool_execution_update`
+
+Required fields:
+
+```js
+{
+  type: "tool_execution_update",
+  loop: 1,
+  toolCallId: "turn-1-bash-abcdef",
+  toolName: "bash",
+  update: {}
+}
+```
+
+Consumer notes:
+
+- Updates are throttled partial snapshots, not final tool results.
+- TUI consumers may display the current output tail.
+- Session replay and export should keep them as audit trail entries.
+- Agent Loop must only parse final tool results from `tool_execution_end`.
+
+### `bash_execution`
+
+Required fields:
+
+```js
+{
+  type: "bash_execution",
+  role: "bashExecution",
+  command: "node -v",
+  output: "v14.16.1",
+  exitCode: 0,
+  cancelled: false,
+  truncated: false,
+  timestamp: 0,
+  details: {}
+}
+```
+
+Compatible fields:
+
+- `fullOutputPath`
+- `excludeFromContext`
+- `details.background`, `details.pid`, `details.logFile`, `details.pidFile`
+
+Consumer notes:
+
+- This is a session fact, not an instruction to replay the command.
+- When injected into model context, it is rendered as `Ran \`command\`` plus fenced output.
+- `excludeFromContext` keeps the fact in audit/export but omits it from future LLM context.
+
 ### `turn_end`
 
 Required fields:
@@ -306,7 +359,7 @@ prepareNextTurn
 }
 ```
 
-Agent Loop should preserve the tool result, record warnings, and let `prepareNextTurn` inject recovery context. The next model turn should usually rerun logger, monitor, server, loop, or "every N seconds" tasks with `bash background=true`, then verify with `process_status`, `process_logs`, and generated output files.
+Agent Loop should preserve the tool result, record warnings, and let `prepareNextTurn` inject recovery context. The next model turn should usually rerun logger, monitor, server, loop, or "every N seconds" tasks with `bash background=true`, then verify with `process_status`, `process_wait`, `process_logs`, and generated output files.
 
 Starting a managed background process is considered a successful tool turn when `bash` returns `pid`, `logFile`, and `pidFile`. It must not be killed automatically at the end of the agent run; `process_stop` is the explicit stop path.
 
@@ -345,7 +398,7 @@ session audit, replay, export, or recovery helpers.
 `createAgentSession()` enables default tool safety:
 
 - `bash` executes general shell commands; `COMMAND_POLICY_METADATA` is only a recommended diagnostic command reference.
-- Long-running shell tasks should use `bash background=true`, then `process_status`, `process_logs`, and file tools for verification.
+- Long-running shell tasks should use `bash background=true`, then `process_status`, `process_wait`, `process_logs`, and file tools for verification.
 - `read`, `write`, `edit`, `ls`, `grep`, and `find` accept workspace-relative paths and user-specified absolute paths.
 - `write` and `edit` are runtime-approved file mutation tools and are not blocked by the read-only hook.
 - Legacy `read_file`, `list_directory`, and `search_files` keep the old workspace-boundary behavior for compatibility.
