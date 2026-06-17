@@ -2,6 +2,7 @@
 
 const { createDefaultTools, formatToolsForPrompt } = require('./tool-registry');
 const { resolveProviderCapabilities } = require('./provider-registry');
+const { classifyPromptSubjects, convertToLlm } = require('./messages');
 
 const SYSTEM_PROMPT = `You are Loong Pi Agent, a lightweight coding and diagnostics agent for LoongArch developer boards.
 
@@ -102,46 +103,12 @@ function compactJson(value, maxLength) {
 }
 
 function summarizeMessages(messages) {
-  const recent = (messages || []).slice(-12);
-  if (!recent.length) return '';
-  return recent
+  return (messages || [])
     .map((message) => {
-      if (!message || message.internal) return '';
-      if (message.role === 'user') return `User: ${message.content || ''}`;
-      if (message.role === 'assistant') return `Assistant response: ${message.content || ''}`;
-      if (message.role === 'bashExecution') {
-        if (message.excludeFromContext) return '';
-        const lines = [`Ran \`${message.command || ''}\``];
-        const output = String(message.output || '').trim();
-        if (output) lines.push('```', truncateText(output, 1200), '```');
-        if (message.exitCode !== undefined && message.exitCode !== 0) {
-          lines.push(`Exit code: ${message.exitCode}`);
-        }
-        if (message.cancelled) lines.push('Cancelled: true');
-        if (message.truncated) {
-          lines.push(`Output truncated${message.fullOutputPath ? `; full output: ${message.fullOutputPath}` : ''}`);
-        }
-        if (message.details && message.details.background) {
-          lines.push(`Background process: pid=${message.details.pid || ''} logFile=${message.details.logFile || ''} pidFile=${message.details.pidFile || ''}`);
-        }
-        return lines.join('\n');
-      }
-      if (message.role === 'toolResult') {
-        const content = message.content || {};
-        const parts = [
-          `Tool result (${message.tool || 'unknown'}): ${compactJson(content, 1200)}`,
-        ];
-        if (content.summary) parts.push(`Summary: ${content.summary}`);
-        if (content.repeat) parts.push(`Repeat: ${compactJson(content.repeat, 300)}`);
-        if (Array.isArray(content.evidence) && content.evidence.length) {
-          parts.push(`Evidence: ${compactJson(content.evidence, 500)}`);
-        }
-        if (Array.isArray(content.warnings) && content.warnings.length) {
-          parts.push(`Warnings: ${content.warnings.join('; ')}`);
-        }
-        return parts.join('\n');
-      }
-      return '';
+      if (!message || !message.content) return '';
+      if (message.role === 'user') return `User/session fact: ${message.content}`;
+      if (message.role === 'assistant') return `Assistant response: ${message.content}`;
+      return `${message.role || 'context'}: ${message.content}`;
     })
     .filter(Boolean)
     .join('\n');
@@ -207,15 +174,12 @@ function buildTurnContext(options) {
 
 function buildMessagesFromTurnContext(turnContext) {
   turnContext = turnContext || {};
-  const observationText = (turnContext.observations || [])
-    .map((item, index) => {
-      return `Observation ${index + 1}:\n${compactJson(item, 1600)}`;
-    })
-    .join('\n\n');
-  const transcriptText = summarizeMessages(turnContext.messages || []);
+  const transcriptText = summarizeMessages(convertToLlm(turnContext.messages || [], {
+    maxMessages: 12,
+    selectedSubjects: classifyPromptSubjects(turnContext.userPrompt || ''),
+  }));
   const parts = [`Current user request:\n${turnContext.userPrompt || 'Continue from current context.'}`];
   if (transcriptText) parts.push(`Recent conversation:\n${transcriptText}`);
-  if (observationText) parts.push(`Known observations:\n${observationText}`);
   if (turnContext.kbSummary) {
     parts.push([
       'Controlled context / knowledge additions:',

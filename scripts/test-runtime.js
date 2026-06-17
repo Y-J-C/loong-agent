@@ -6,11 +6,14 @@ const os = require('os');
 const path = require('path');
 const childProcess = require('child_process');
 const { createAgent } = require('../src/agent-runtime');
+const { createAgentState, recordToolResult } = require('../src/agent-state');
 const { parseAgentResponse, parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
 const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
 const { registerProvider } = require('../src/llm');
+const { bashExecutionToText, convertToLlm } = require('../src/messages');
+const { buildMessagesFromTurnContext } = require('../src/prompts');
 const { createSessionManager } = require('../src/session-manager');
 const { renderSessionTrace } = require('../src/session');
 const { COMMAND_POLICY_METADATA, COMMAND_POLICY_COMMANDS, evaluateCommand } = require('../src/command-policy');
@@ -64,6 +67,136 @@ function config(provider, workspace) {
 }
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+
+function createFakeBashRegistry(stdoutByCommand) {
+  return createToolRegistry([{
+    name: 'bash',
+    label: 'Bash',
+    description: 'Fake bash for tests',
+    parameters: { command: 'string' },
+    validate: (input) => input && input.command ? '' : 'Missing command',
+    execute: async (cfg, input) => {
+      const command = String(input.command || '');
+      const stdout = Object.prototype.hasOwnProperty.call(stdoutByCommand, command)
+        ? stdoutByCommand[command]
+        : '';
+      return {
+        ok: true,
+        data: {
+          command,
+          exitCode: 0,
+          stdout,
+          stderr: '',
+          output: stdout,
+          durationMs: 1,
+          timedOut: false,
+          cancelled: false,
+          background: false,
+          truncated: false,
+          fullOutputPath: '',
+        },
+        summary: `command=${command}, exitCode=0`,
+        evidence: [{
+          source: 'command',
+          command,
+          exitCode: 0,
+          durationMs: 1,
+        }],
+        warnings: [],
+        error: '',
+        command,
+        exitCode: 0,
+        stdout,
+        stderr: '',
+        output: stdout,
+        durationMs: 1,
+      };
+    },
+  }]);
+}
+
+test('bashExecution converts to Pi-style LLM context', () => {
+  const text = bashExecutionToText({
+    command: 'free -h',
+    output: 'Mem: 1.4Gi 615Mi 220Mi 20Mi 566Mi 563Mi',
+    exitCode: 0,
+    cancelled: false,
+    truncated: false,
+  });
+  assert(text.indexOf('Ran `free -h`') >= 0, 'bashExecution missing Pi-style command line');
+  assert(text.indexOf('```') >= 0, 'bashExecution missing fenced output');
+  assert(text.indexOf('1.4Gi') >= 0, 'bashExecution missing output');
+});
+
+test('excluded bashExecution stays out of LLM context', () => {
+  const messages = convertToLlm([
+    {
+      role: 'bashExecution',
+      command: 'free -h',
+      output: 'Mem: hidden',
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+      excludeFromContext: true,
+    },
+  ]);
+  assert(messages.length === 0, 'excluded bashExecution should not enter LLM context');
+});
+
+test('observation enters LLM context only when subject is selected', () => {
+  const observation = {
+    role: 'observation',
+    subject: 'system.memory',
+    freshness: 'current',
+    source: 'bash',
+    raw: 'Mem: 1.4Gi',
+    parsed: { mem: { total: '1.4Gi' } },
+    evidence: [{ source: 'command', command: 'free -h', exitCode: 0 }],
+  };
+  assert(convertToLlm([observation]).length === 0, 'observation should not enter context without selected subject');
+  const selected = convertToLlm([observation], { selectedSubjects: ['system.memory'] });
+  assert(selected.length === 1, 'selected observation should enter context');
+  assert(selected[0].content.indexOf('subject=system.memory') >= 0, 'selected observation missing subject');
+});
+
+test('recordToolResult derives system.memory observation from free -h', () => {
+  const state = createAgentState({ tools: [] });
+  recordToolResult(state, {
+    tool: 'bash',
+    input: { command: 'free -h' },
+    reason: 'memory',
+  }, {
+    ok: true,
+    data: {
+      command: 'free -h',
+      exitCode: 0,
+      stdout: 'total used free shared buff/cache available\nMem: 1.4Gi 615Mi 220Mi 20Mi 566Mi 563Mi\nSwap: 1.3Gi 8.0Mi 1.3Gi\n',
+      stderr: '',
+      output: 'total used free shared buff/cache available\nMem: 1.4Gi 615Mi 220Mi 20Mi 566Mi 563Mi\nSwap: 1.3Gi 8.0Mi 1.3Gi\n',
+    },
+    evidence: [{ source: 'command', command: 'free -h', exitCode: 0 }],
+  });
+  const observation = state.observations.find((item) => item.subject === 'system.memory');
+  assert(observation, 'missing system.memory observation');
+  assert(observation.parsed.mem.total === '1.4Gi', 'memory total was not parsed');
+  assert(state.messages.some((item) => item.role === 'observation' && item.subject === 'system.memory'), 'missing observation message');
+});
+
+test('prompt builder no longer includes all observations blindly', () => {
+  const messages = buildMessagesFromTurnContext({
+    userPrompt: 'current memory',
+    messages: [],
+    observations: [{
+      tool: 'bash',
+      result: { stdout: 'SHOULD_NOT_APPEAR' },
+    }],
+    tools: createDefaultTools(),
+    config: {},
+  });
+  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  assert(prompt.indexOf('Known observations') < 0, 'prompt should not include Known observations block');
+  assert(prompt.indexOf('SHOULD_NOT_APPEAR') < 0, 'prompt leaked raw unselected observation');
+});
 
 test('finish event order includes turn_end', async () => {
   registerProvider({
@@ -408,6 +541,89 @@ test('current node version still requires loong_env_check instead of historical 
   const kbTopic = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
   assert(loongEnv, 'current node question did not require loong_env_check');
   assert(!kbTopic, 'current node question should not use historical kb_topic as the required evidence');
+});
+
+test('current memory question requires current free evidence', async () => {
+  const freeOutput = [
+    '               total        used        free      shared  buff/cache   available',
+    'Mem:           1.4Gi       615Mi       220Mi        20Mi       566Mi       563Mi',
+    'Swap:          1.3Gi       8.0Mi       1.3Gi',
+  ].join('\n');
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-memory-free-evidence',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当前设备内存大概正常。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '根据本轮 free -h，Mem total=1.4Gi，available=563Mi，Swap total=1.3Gi。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-memory-free-evidence'), {
+    maxLoops: 4,
+    streaming: false,
+  }), {
+    registry: createFakeBashRegistry({ 'free -h': freeOutput }),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当前设备内存情况');
+  const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_memory_evidence');
+  const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
+  const i2cCommand = events.find((event) => event.type === 'tool_execution_start' && JSON.stringify(event.args || {}).indexOf('i2cdetect') >= 0);
+  assert(guardTurn, 'current memory guard did not request evidence');
+  assert(bashStart && bashStart.args && bashStart.args.command === 'free -h', 'current memory guard did not call free -h');
+  assert(!i2cCommand, 'current memory question should not trigger I2C collection');
+  assert(result.summary.indexOf('1.4Gi') >= 0 && result.summary.indexOf('563Mi') >= 0, 'final memory answer did not use free output');
+});
+
+test('current memory answer must bind to latest free output', async () => {
+  const freeOutput = [
+    '               total        used        free      shared  buff/cache   available',
+    'Mem:           1.4Gi       615Mi       220Mi        20Mi       566Mi       563Mi',
+    'Swap:          1.3Gi       8.0Mi       1.3Gi',
+  ].join('\n');
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-memory-consistency',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当前设备内存情况可以直接回答。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '根据当前数据，总内存是 9.9Gi，可用内存是 8.8Gi。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-memory-consistency'), {
+    maxLoops: 4,
+    streaming: false,
+  }), {
+    registry: createFakeBashRegistry({ 'free -h': freeOutput }),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当前设备内存情况');
+  const end = events.find((event) => event.type === 'agent_end');
+  assert(end && end.completionSource === 'evidence_guard_fallback', 'unsupported memory values should use evidence fallback');
+  assert(result.summary.indexOf('1.4Gi') >= 0, 'fallback summary missing supported memory value');
+  assert(result.summary.indexOf('9.9Gi') < 0, 'fallback summary kept unsupported memory value');
 });
 
 test('current I2C hardware question requires bash evidence before final answer', async () => {

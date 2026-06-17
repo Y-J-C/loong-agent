@@ -321,6 +321,27 @@ function isCurrentHardwareQuestion(text) {
   return CURRENT_HARDWARE_PATTERN.test(value) && HARDWARE_CURRENT_PATTERN.test(value);
 }
 
+function isCurrentMemoryQuestion(text) {
+  const value = String(text || '');
+  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return false;
+  return /memory|内存|free\s+-h|swap/i.test(value) &&
+    (/当前|现在|此刻|设备|开发板|current|now|board|device/i.test(value) || temporalIntentForPrompt(value) === 'current');
+}
+
+function hasCurrentObservationSubject(state, subject) {
+  return (state.observations || []).some((item) => {
+    return item && item.subject === subject && item.freshness === 'current';
+  });
+}
+
+function latestObservationBySubject(state, subject) {
+  const items = (state && state.observations) || [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index] && items[index].subject === subject) return items[index];
+  }
+  return null;
+}
+
 function hasObservationFrom(state, toolNames) {
   const names = {};
   (toolNames || []).forEach((name) => {
@@ -522,6 +543,23 @@ function observationEvidenceSources(state) {
 
 function finalAnswerEvidenceGuard(state, currentUserPrompt) {
   const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
+  if (isCurrentMemoryQuestion(prompt) && !hasCurrentObservationSubject(state, 'system.memory')) {
+    return {
+      reason: 'missing_current_memory_evidence',
+      action: {
+        tool: 'bash',
+        input: {
+          command: 'free -h',
+        },
+        reason: 'Required current memory evidence before answering.',
+      },
+      message: [
+        'The user asked for current memory state.',
+        'Do not answer from memory, historical sessions, or loong_env_check summaries alone.',
+        'Use this free -h evidence first, then answer only with values present in the command output.',
+      ].join('\n'),
+    };
+  }
   if (isCurrentHardwareQuestion(prompt) && !hasCommandEvidenceObservation(state)) {
     return {
       reason: 'missing_current_hardware_evidence',
@@ -579,8 +617,71 @@ function finalAnswerEvidenceGuard(state, currentUserPrompt) {
   return null;
 }
 
+function normalizeMemoryQuantity(value, unit) {
+  const normalizedUnit = String(unit || '')
+    .toLowerCase()
+    .replace(/ib$/, 'i')
+    .replace(/b$/, '');
+  return `${String(value || '').toLowerCase()}${normalizedUnit}`;
+}
+
+function memoryQuantities(text) {
+  const quantities = [];
+  const pattern = /(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB|TiB|KB|MB|GB|TB|Ki|Mi|Gi|Ti|K|M|G|T)\b/gi;
+  let match;
+  while ((match = pattern.exec(String(text || ''))) !== null) {
+    const normalized = normalizeMemoryQuantity(match[1], match[2]);
+    if (quantities.indexOf(normalized) < 0) quantities.push(normalized);
+  }
+  return quantities;
+}
+
+function memoryObservationFallbackSummary(observation) {
+  const parsed = (observation && observation.parsed) || {};
+  const mem = parsed.mem || {};
+  const swap = parsed.swap || {};
+  const lines = [
+    '当前设备内存情况以本轮 `free -h` 输出为准：',
+    '```',
+    String((observation && observation.raw) || '').trim(),
+    '```',
+  ];
+  if (mem.total || mem.available || swap.total) {
+    lines.push([
+      '解析：',
+      mem.total ? `Mem total=${mem.total}` : '',
+      mem.used ? `used=${mem.used}` : '',
+      mem.free ? `free=${mem.free}` : '',
+      mem.buffCache ? `buff/cache=${mem.buffCache}` : '',
+      mem.available ? `available=${mem.available}` : '',
+      swap.total ? `Swap total=${swap.total}` : '',
+      swap.used ? `swap used=${swap.used}` : '',
+      swap.free ? `swap free=${swap.free}` : '',
+    ].filter(Boolean).join(' '));
+  }
+  lines.push('说明：已拒绝使用未出现在本轮 `free -h` 输出中的内存数值。');
+  return lines.join('\n');
+}
+
 function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
   const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
+  if (isCurrentMemoryQuestion(prompt)) {
+    const memoryObservation = latestObservationBySubject(state, 'system.memory');
+    if (memoryObservation) {
+      const supported = memoryQuantities(memoryObservation.raw);
+      const answer = memoryQuantities(answerSummary);
+      const unsupported = answer.filter((item) => supported.indexOf(item) < 0);
+      if (!answer.length || unsupported.length) {
+        return {
+          reason: 'answer_memory_value_not_in_current_evidence',
+          fallbackSummary: memoryObservationFallbackSummary(memoryObservation),
+          message: unsupported.length
+            ? `The answer included memory value(s) not present in current free -h output: ${unsupported.join(', ')}`
+            : 'The answer did not include any memory value from the current free -h output.',
+        };
+      }
+    }
+  }
   if (!isBoardEnvironmentQuestion(prompt)) return null;
   const answerVersions = extractSemanticVersions(answerSummary);
   const historical = temporalIntentForPrompt(prompt) === 'historical';

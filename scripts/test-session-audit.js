@@ -183,6 +183,30 @@ test('bashExecution events are audited and replayed', () => {
   assert(replay.indexOf('bash ok: node -v') >= 0, 'replay missing bash execution');
 });
 
+test('excluded bashExecution remains auditable', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'excluded-bash-execution', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'excluded-bash-execution', rootSessionId: 'excluded-bash-execution', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'bash' }),
+    JSON.stringify({
+      type: 'bash_execution',
+      command: 'free -h',
+      output: 'Mem: 1.4Gi',
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+      excludeFromContext: true,
+      details: {},
+    }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const audit = auditSession(session);
+  const replay = renderSessionReplay(session);
+  assert(audit.stats.bashExecutions === 1, 'excluded bash execution should still be audited');
+  assert(replay.indexOf('bash ok: free -h') >= 0, 'replay missing excluded bash execution');
+});
+
 test('exports include capability coverage and knowledge evidence', () => {
   const workspace = tempWorkspace();
   const file = writeSession(workspace, 'coverage', [
