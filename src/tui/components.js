@@ -15,6 +15,12 @@ const { GLYPHS, hline } = require('./glyphs');
 const { renderMarkdownBlock } = require('./markdown');
 const { detailLines, summarizeToolMessage } = require('./tool-display');
 const {
+  handleAutocompleteKey,
+  handleInputKey,
+  handlePanelKey,
+  handleSelectorKey,
+} = require('./interactions');
+const {
   brandTitle,
   toolStatusLabel,
 } = require('../cli-view');
@@ -338,6 +344,12 @@ class MessageListComponent {
 }
 
 class InputEditorComponent {
+  handleKey(key, context) {
+    return handleInputKey(context.state, key, context.actions || {});
+  }
+
+  invalidate() {}
+
   render(width, context) {
     const state = context.state;
     const theme = context.theme;
@@ -396,6 +408,12 @@ class InputEditorComponent {
 }
 
 class AutocompleteComponent {
+  handleKey(key, context) {
+    return handleAutocompleteKey(context.state, key);
+  }
+
+  invalidate() {}
+
   render(width, context) {
     const state = context.state;
     const theme = context.theme;
@@ -429,6 +447,12 @@ class AutocompleteComponent {
 }
 
 class PanelComponent {
+  handleKey(key, context) {
+    return handlePanelKey(context.state, key, context.actions || {});
+  }
+
+  invalidate() {}
+
   render(width, context) {
     const state = context.state;
     const theme = context.theme;
@@ -489,6 +513,12 @@ class PanelComponent {
 }
 
 class SessionSelectorComponent {
+  handleKey(key, context) {
+    return handleSelectorKey(context.state, key, context.actions || {});
+  }
+
+  invalidate() {}
+
   render(width, context) {
     const state = context.state;
     const theme = context.theme;
@@ -564,11 +594,26 @@ class SessionSelectorComponent {
 }
 
 class EditorSlotComponent {
+  activeComponent(state) {
+    if (state && state.selector) return new SessionSelectorComponent();
+    if (state && (state.activePanel || state.settingsMenu || state.modelSelector)) {
+      return new PanelComponent();
+    }
+    return new InputEditorComponent();
+  }
+
+  handleKey(key, context) {
+    const component = this.activeComponent(context.state);
+    if (component && typeof component.handleKey === 'function') {
+      return component.handleKey(key, context);
+    }
+    return false;
+  }
+
+  invalidate() {}
+
   render(width, context) {
-    const state = context.state;
-    if (state.selector) return new SessionSelectorComponent().render(width, context);
-    if (state.activePanel || state.settingsMenu || state.modelSelector) return new PanelComponent().render(width, context);
-    return new InputEditorComponent().render(width, context);
+    return this.activeComponent(context.state).render(width, context);
   }
 
   isOccupied(state) {

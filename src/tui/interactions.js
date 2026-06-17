@@ -296,10 +296,17 @@ async function handleInputKey(state, key, actions) {
 
 async function handleFocusedKey(state, key, actions) {
   const focus = getFocusedSurface(state);
-  if (focus.id === 'selector') return handleSelectorKey(state, key, actions);
-  if (focus.id === 'panel') return handlePanelKey(state, key, actions);
-  if (focus.id === 'autocomplete' && handleAutocompleteKey(state, key)) return true;
-  return handleInputKey(state, key, actions);
+  const {
+    AutocompleteComponent,
+    EditorSlotComponent,
+  } = require('./components');
+  const component = focus.id === 'autocomplete'
+    ? new AutocompleteComponent()
+    : new EditorSlotComponent().activeComponent(state);
+  if (component && typeof component.handleKey === 'function') {
+    return component.handleKey(key, { state, actions: actions || {} });
+  }
+  return false;
 }
 
 module.exports = {

@@ -16,7 +16,7 @@ Loong-Agent 是一个面向龙芯 LoongArch 开发板的轻量级 Pi-style Agent
 - 事件契约：`agent_start`、`turn_start`、`message_start`、`message_update`、`message_end`、`tool_execution_start`、`tool_execution_end`、`turn_end`、`agent_end`。
 - Tool System：definition-first 工具定义、统一结果 envelope、metadata、evidence、Pi-style 通用 bash。
 - Session：JSONL v2、audit、recover、trace、Markdown/HTML export、offline replay、fork、resume、lineage、session tree。
-- TUI：小终端、中文、长输出、工具错误、安全拒绝、session selector、export。
+- TUI：小终端、中文、长输出、工具错误、安全拒绝、组件化 editor slot、session selector、session tree、model panel、running steer/follow-up、Pi-style tool block、export。
 - Knowledge Layer：`kb/` topic、metadata、只读知识工具、结构化上下文注入、context budget、`context_update` 事件。
 - Provider Layer：OpenAI-compatible `/chat/completions`、DeepSeek profile、Ollama/custom profile 预留、SSE streaming、fallback、abort、usage 审计。
 - DeepSeek native thinking：`deepseek-v4-pro` / `deepseek-v4-flash` 支持 native thinking 参数；session 只记录元数据，不保存思维链正文。
@@ -25,7 +25,7 @@ Loong-Agent 是一个面向龙芯 LoongArch 开发板的轻量级 Pi-style Agent
 
 ## 不在当前范围
 
-- 上游 Pi Agent 的完整 UI 组件系统、OAuth、登录、设置页、模型选择器、分享等产品能力。
+- 上游 Pi Agent 的完整可扩展 UI 组件生态、OAuth、登录、分享等产品能力。
 - 原生 OpenAI `tool_calls` 协议；当前仍使用严格 JSON 工具协议。
 - parallel tool execution；当前统一顺序执行。
 - 复杂 RAG、向量库、embedding、外部抓取或知识自动更新。
@@ -189,17 +189,25 @@ node src/index.js session resume latest "继续分析..."
 node src/index.js tui
 ```
 
+第五阶段 Pi 化交互重点：
+
+- 普通问答：隐藏协议 JSON，最终回答以自然 Markdown 流展示，成功 meta 默认收起。
+- 工具调用：默认只显示工具摘要、状态、耗时、evidence/warnings；完整 JSON/detail 通过 `Ctrl+O` 展开。
+- 运行中追问：运行中 `Enter` steer 当前任务，`Alt+Enter` 排队 follow-up，并在底部 editor slot 显示队列预览。
+- 模型选择：`/model` 或 `Ctrl+L` 打开底部 model panel，显示 provider 分组、favorite 和 current 标记。
+- Session tree：`/tree` 使用底部树形 selector，支持过滤和 `Ctrl+T` 切换 tree filter mode。
+
 常用快捷键：
 
 ```text
-Enter              发送
+Enter              发送；运行中 steer 当前任务
 Ctrl+Enter         插入换行，如果终端支持
-Alt+Enter          插入换行
+Alt+Enter          非运行中插入换行；运行中排队 follow-up
 \ + Enter          插入换行 fallback
 Esc                中断、返回或清空输入
 Ctrl+C             运行中中断；空闲且输入为空时退出
 Ctrl+D             输入为空时退出
-Ctrl+L             清空当前可见 transcript
+Ctrl+L             打开模型选择面板
 Ctrl+O             展开或折叠工具详情
 Ctrl+A / Home      跳到行首
 Ctrl+E / End       跳到行尾
@@ -208,6 +216,7 @@ Ctrl+W             删除前一个词
 Up / Down          浏览历史输入
 Ctrl+P / Ctrl+N    浏览历史输入
 PageUp / PageDown  滚动 transcript
+Tree Ctrl+T        切换 session tree 过滤模式
 ```
 
 核心命令：
@@ -504,6 +513,7 @@ node scripts/test-tui-session-selector.js
 node scripts/test-tui-events.js
 node scripts/test-tui-theme.js
 node scripts/test-tui-stats.js
+node scripts/test-tui-interactions.js
 node scripts/test-tui-export-demo.js
 ```
 

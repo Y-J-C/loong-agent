@@ -8,6 +8,13 @@ const {
   handlePanelKey,
   handleSelectorKey,
 } = require('../src/tui/interactions');
+const {
+  AutocompleteComponent,
+  EditorSlotComponent,
+  InputEditorComponent,
+  PanelComponent,
+  SessionSelectorComponent,
+} = require('../src/tui/components');
 const { setInput } = require('../src/tui/input');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
 
@@ -50,6 +57,20 @@ test('autocomplete controller accepts tab and clears list', async () => {
   assert(state.inputBuffer !== '/se', 'autocomplete did not change the input');
 });
 
+test('autocomplete component accepts tab and clears list', async () => {
+  const state = createTuiState({});
+  setInput(state, '/se');
+  updateAutocomplete(state);
+  assert(state.autoItems.length > 0, 'missing autocomplete items');
+  new AutocompleteComponent().handleKey({ type: 'down' }, { state });
+  assert(state.autoIndex >= 0, 'autocomplete component should move selected candidate');
+  new AutocompleteComponent().handleKey({ type: 'text', text: '\t' }, { state });
+  assert(state.inputBuffer.charAt(0) === '/', 'autocomplete component should insert slash command');
+  assert(state.inputBuffer !== '/se', 'autocomplete component should accept a full command');
+  new AutocompleteComponent().handleKey({ type: 'escape' }, { state });
+  assert(state.autoItems.length === 0, 'autocomplete component escape should clear candidates');
+});
+
 test('selector controller filters and opens action submenu', async () => {
   const state = createTuiState({});
   state.selector = {
@@ -67,6 +88,24 @@ test('selector controller filters and opens action submenu', async () => {
   assert(state.selectedSessionId === 'beta-session', 'selector did not select filtered item');
   assert(state.selector.subMode === 'actions', 'selector did not open action submenu');
   assert(state.selector.actions.some((item) => item.action === 'resume'), 'action submenu missing resume');
+});
+
+test('session selector component filters and opens action submenu', async () => {
+  const state = createTuiState({});
+  state.selector = {
+    view: 'recent',
+    query: '',
+    selectedIndex: 0,
+    items: [
+      { id: 'alpha-session', command: 'tui' },
+      { id: 'beta-session', command: 'ask' },
+    ],
+  };
+  await new SessionSelectorComponent().handleKey({ type: 'text', text: 'b' }, { state, actions: {} });
+  assert(state.selector.query === 'b', 'selector component query did not update');
+  await new SessionSelectorComponent().handleKey({ type: 'enter' }, { state, actions: {} });
+  assert(state.selectedSessionId === 'beta-session', 'selector component did not select filtered item');
+  assert(state.selector.subMode === 'actions', 'selector component did not open action submenu');
 });
 
 test('selector action submenu executes injected action', async () => {
@@ -116,6 +155,31 @@ test('panel controller cycles settings and confirms model', async () => {
   assert(state.activePanel === null, 'model panel did not close');
 });
 
+test('panel component cycles settings and confirms model', async () => {
+  const state = createTuiState({ model: 'old' });
+  let settingApplied = 0;
+  state.activePanel = {
+    type: 'settings',
+    selectedIndex: 0,
+    items: [{
+      label: 'Mode',
+      value: () => state.modeValue || 'a',
+      onCycle: (s, dir) => { s.modeValue = dir > 0 ? 'b' : 'a'; },
+      onSelect: (s) => { s.modeValue = 'selected'; },
+    }],
+  };
+  new PanelComponent().handleKey({ type: 'right' }, {
+    state,
+    actions: { applySettingsSelection: () => { settingApplied += 1; } },
+  });
+  assert(state.modeValue === 'b' && settingApplied === 1, 'panel component settings cycle failed');
+  new PanelComponent().handleKey({ type: 'enter' }, {
+    state,
+    actions: { applySettingsSelection: () => { settingApplied += 1; } },
+  });
+  assert(state.activePanel === null && state.modeValue === 'selected', 'panel component settings confirm failed');
+});
+
 test('focused input dispatch submits enter and edits text', async () => {
   const state = createTuiState({});
   let submitted = '';
@@ -125,6 +189,36 @@ test('focused input dispatch submits enter and edits text', async () => {
     submit: async (text) => { submitted = text; },
   });
   assert(submitted === 'hi', `unexpected submitted text: ${submitted}`);
+});
+
+test('input editor component submits, edits, steers and queues', async () => {
+  const state = createTuiState({});
+  const component = new InputEditorComponent();
+  let submitted = '';
+  await component.handleKey({ type: 'text', text: 'o' }, { state, actions: {} });
+  await component.handleKey({ type: 'text', text: 'k' }, { state, actions: {} });
+  await component.handleKey({ type: 'enter' }, {
+    state,
+    actions: { submit: async (text) => { submitted = text; } },
+  });
+  assert(submitted === 'ok', `input component submitted wrong text: ${submitted}`);
+
+  state.mode = 'running';
+  state.inputBuffer = 'steer';
+  let steered = '';
+  await component.handleKey({ type: 'enter' }, {
+    state,
+    actions: { steer: async (text) => { steered = text; } },
+  });
+  assert(steered === 'steer', 'input component did not steer running input');
+
+  state.inputBuffer = 'queue';
+  let queued = '';
+  await component.handleKey({ type: 'alt_enter' }, {
+    state,
+    actions: { queueFollowUp: async (text) => { queued = text; } },
+  });
+  assert(queued === 'queue', 'input component did not queue follow-up');
 });
 
 test('running input dispatch steers enter and queues alt-enter', async () => {
@@ -143,6 +237,23 @@ test('running input dispatch steers enter and queues alt-enter', async () => {
     queueFollowUp: async (text) => { queued = text; },
   });
   assert(queued === 'after this', 'alt-enter did not queue running follow-up');
+});
+
+test('editor slot resolves active component by focused surface state', async () => {
+  const slot = new EditorSlotComponent();
+  const state = createTuiState({});
+  assert(slot.activeComponent(state) instanceof InputEditorComponent, 'default slot should resolve input component');
+  state.activePanel = { type: 'model', items: [] };
+  assert(slot.activeComponent(state) instanceof PanelComponent, 'panel should resolve panel component');
+  state.selector = { items: [] };
+  assert(slot.activeComponent(state) instanceof SessionSelectorComponent, 'selector should resolve selector component');
+});
+
+test('focused dispatcher uses component-dispatched input behavior', async () => {
+  const state = createTuiState({});
+  const handled = await handleFocusedKey(state, { type: 'text', text: 'x' }, {});
+  assert(handled === true, 'focused dispatcher should return component handled state');
+  assert(state.inputBuffer === 'x', 'focused dispatcher did not apply input component behavior');
 });
 
 test('tree selector cycles filter mode with ctrl-t', async () => {
