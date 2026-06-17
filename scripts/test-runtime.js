@@ -1159,6 +1159,49 @@ test('long task workflow blocks bash cat log and redirects to process_logs', asy
   assert(blocked && blocked.result.recommendedTool === 'process_logs', 'bash cat log was not redirected to process_logs');
 });
 
+test('long task workflow blocks finite flags on unsupported legacy sensor script', async () => {
+  const workspace = tempWorkspace();
+  const legacyScript = path.join(workspace, 'bmp280.py');
+  fs.writeFileSync(legacyScript, [
+    'import time',
+    'while True:',
+    '    print("legacy loop")',
+    '    time.sleep(10)',
+    '',
+  ].join('\n'), 'utf8');
+  let calls = 0;
+  registerProvider({
+    name: 'test-long-task-blocks-unsupported-finite-script',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'bash',
+          input: {
+            command: `cd ${JSON.stringify(workspace)} && python3 bmp280.py --samples 2 --interval 1 --output ${JSON.stringify(path.join(workspace, 'bmp280.csv'))}`,
+          },
+          reason: 'run legacy script as finite test',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: 'legacy script blocked',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const cfg = Object.assign(config('test-long-task-blocks-unsupported-finite-script', workspace), { streaming: false, maxLoops: 3 });
+  const agent = createAgentSession(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('BMP280 传感器测试运行，保存 CSV');
+  const blocked = events.find((event) => event.type === 'tool_execution_end' && event.errorType === 'long_task_workflow');
+  assert(result.summary === 'legacy script blocked', 'unsupported legacy script run did not recover');
+  assert(blocked && blocked.result.recommendedTool === 'write', 'unsupported legacy script was not redirected to write/edit');
+  assert(/does not support --samples/.test(blocked.result.error || ''), 'unsupported script block reason missing');
+});
+
 test('agent session default safety does not block general bash command content', async () => {
   let calls = 0;
   registerProvider({

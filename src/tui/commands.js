@@ -19,7 +19,13 @@ const {
 const { collectTuiStats, fileSize, formatBranchInfo, formatStats } = require('./stats');
 const { hasTheme, listThemes } = require('./theme');
 const { toggleGlobalToolDetails } = require('./tool-focus');
+const { buildTreeSelector } = require('./session-tree');
+const { shortcutHint } = require('./keybindings');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
+
+function keyHint(namespace, action) {
+  return shortcutHint(namespace, action);
+}
 
 function formatTree(nodes, depth) {
   const lines = [];
@@ -98,27 +104,18 @@ function currentSessionWriter(state) {
   return openJsonlSession(state.currentSession.path, state.currentSession.id);
 }
 
-function flattenTree(nodes, depth) {
-  let items = [];
-  for (const node of nodes || []) {
-    items.push(Object.assign({ depth: depth || 0, entryCount: node.entryCount || 0 }, node));
-    items = items.concat(flattenTree(node.children || [], (depth || 0) + 1));
-  }
-  return items;
-}
-
 function openSessionSelector(state, manager, view) {
-  const items =
-    view === 'tree'
-      ? flattenTree(manager.tree({ limit: 200 }), 0)
-      : manager.list({ limit: 50 }).map((item) => Object.assign({ depth: 0 }, item));
   state.mode = 'session_selector';
+  if (view === 'tree') {
+    state.selector = buildTreeSelector(manager, state);
+    return;
+  }
   state.selector = {
     view: view || 'recent',
-    items,
+    items: manager.list({ limit: 50 }).map((item) => Object.assign({ depth: 0 }, item)),
     query: '',
     selectedIndex: 0,
-    treeFilterMode: view === 'tree' ? 'default' : '',
+    treeFilterMode: '',
   };
 }
 
@@ -238,7 +235,7 @@ function createSettingsPanel(state) {
   return {
     type: 'settings',
     title: '设置 / Settings',
-    hint: '← → 切换值 - Enter 确认 - Esc 返回',
+    hint: `${keyHint('panel', 'cycleLeft')}/${keyHint('panel', 'cycleRight')} 切换值 - ${keyHint('panel', 'confirm')} 确认 - ${keyHint('panel', 'close')} 返回`,
     items,
     selectedIndex: 0,
   };
@@ -266,7 +263,7 @@ function createModelPanel(config, state) {
   return {
     type: 'model',
     title: '模型选择 / Model Selector',
-    hint: '输入筛选 - 上下选择 - Enter 使用 - Esc 取消',
+    hint: `输入筛选 - ${keyHint('panel', 'prev')}/${keyHint('panel', 'next')} 选择 - ${keyHint('panel', 'confirm')} 使用 - ${keyHint('panel', 'close')} 取消`,
     query: '',
     items,
     models: known.models,

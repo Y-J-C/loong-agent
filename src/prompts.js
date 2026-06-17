@@ -49,6 +49,7 @@ Rules:
 - Do not recommend nohup, systemd, cron, or manual terminal backgrounding for agent-managed long-running tasks unless the user explicitly asks for OS-level service setup. Prefer bash background=true with process_status/process_wait/process_logs/process_stop.
 - If a foreground bash command times out and the result says likelyLongRunning or includes recoveryHint, recover by rerunning the appropriate command with background=true instead of treating the task as failed.
 - Sensor logger scripts that are written for "test run first" must support --interval, --samples, --output, --bus, and --addr. For BMP280 default to bus=1 and addr=0x76, validate chip id 0x58, append CSV with a header when needed, flush/fsync after each row, and print with flush=True.
+- Before reusing an existing sensor Python script with --samples/--output/--interval, verify the script supports those arguments. If it does not, use write/edit to create or update a finite-test logger script first.
 - For sensor CSV requests, first run a finite smoke test such as --samples 2 --interval 10, then read the CSV and answer from the sampled rows. Only start an indefinite background logger when the user asks to keep it running.
 - Do not repeat the same command policy query tool with the same input. If the existing tool result is enough, answer the user directly.
 - The finish tool is legacy compatibility. Prefer type="answer" or natural language for final answers.`;

@@ -4,29 +4,62 @@ const { applyKey, setInput } = require('./input');
 const { addMessage, autocompleteCommand, updateAutocomplete } = require('./state');
 const { getFocusedSurface } = require('./focus');
 const { selectToolByDelta } = require('./tool-focus');
+const { matchesAction, resolveKeyAction } = require('./keybindings');
+const {
+  collapseTreeNode,
+  cycleTreeFilterMode,
+  expandTreeNode,
+  selectParent,
+  syncTreeSelection,
+  toggleTreeNode,
+} = require('./session-tree');
+
+function sessionActions() {
+  return [
+    { key: 'r', label: 'Resume', action: 'resume' },
+    { key: 's', label: 'Session trace', action: 'session' },
+    { key: 'a', label: 'Audit', action: 'audit' },
+    { key: 'e', label: 'Export HTML', action: 'export' },
+    { key: 'n', label: 'Set name', action: 'name' },
+  ];
+}
 
 function filteredSelectorItems(state) {
   const selector = state.selector;
   if (!selector) return [];
+  if (selector.view === 'tree') return syncTreeSelection(selector, state);
   const query = selector.query ? selector.query.toLowerCase() : '';
-  const mode = selector.treeFilterMode || 'default';
   return (selector.items || []).filter((item) => {
     const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''} ${item.sessionName || ''} ${item.name || ''}`.toLowerCase();
     if (query && haystack.indexOf(query) < 0) return false;
-    if (selector.view === 'tree') {
-      if (mode === 'named' && !(item.sessionName || item.name || item.branchName)) return false;
-      if (mode === 'branches' && !item.branchName && !(item.children && item.children.length)) return false;
-    }
     return true;
   });
 }
 
-function cycleTreeFilter(selector) {
-  const modes = ['default', 'named', 'branches', 'all'];
-  const current = selector.treeFilterMode || 'default';
-  const index = modes.indexOf(current);
-  selector.treeFilterMode = modes[(index + 1 + modes.length) % modes.length];
-  selector.selectedIndex = 0;
+function selectSessionItem(state, selector, selected) {
+  if (!selected) return false;
+  state.selectedSessionId = selected.id;
+  selector.selectedItem = selected;
+  selector.selectedEntryId = selected.latestEntryId || selected.forkedFromEntryId || '';
+  return true;
+}
+
+function openSessionActionMenu(state, selector, selected) {
+  if (!selectSessionItem(state, selector, selected)) return false;
+  selector.subMode = 'actions';
+  selector.actions = sessionActions();
+  selector.actionIndex = 0;
+  return true;
+}
+
+async function executeSessionShortcut(state, selector, selected, actionKey, actions) {
+  const list = sessionActions();
+  const action = list.find((item) => item.key === actionKey || item.action === actionKey);
+  if (!action || !selectSessionItem(state, selector, selected)) return false;
+  if (actions && actions.executeSessionAction) {
+    await actions.executeSessionAction(action, selected);
+  }
+  return true;
 }
 
 function activePanel(state) {
@@ -75,36 +108,27 @@ function acceptAutocomplete(state) {
 
 function handleAutocompleteKey(state, key) {
   if (!state.autoItems.length) return false;
-  if (key.type === 'ctrl_enter') {
+  if (matchesAction('autocomplete', 'newline', key)) {
     applyKey(state, key);
     updateAutocomplete(state);
     return true;
   }
-  if (key.type === 'shift_tab') {
-    state.autoIndex = Math.max(0, (state.autoIndex || 0) - 1);
-    return true;
-  }
-  if (key.type === 'text' && key.text === '\t') {
+  if (matchesAction('autocomplete', 'accept', key)) {
     acceptAutocomplete(state);
     updateAutocomplete(state);
     return true;
   }
-  if (key.type === 'up' || key.type === 'ctrl_p') {
+  if (matchesAction('autocomplete', 'prev', key)) {
     state.autoIndex = Math.max(0, (state.autoIndex || 0) - 1);
     return true;
   }
-  if (key.type === 'down' || key.type === 'ctrl_n') {
+  if (matchesAction('autocomplete', 'next', key)) {
     state.autoIndex = Math.min(state.autoItems.length - 1, (state.autoIndex || 0) + 1);
     return true;
   }
-  if (key.type === 'escape') {
+  if (matchesAction('autocomplete', 'close', key)) {
     state.autoItems = [];
     state.autoIndex = -1;
-    return true;
-  }
-  if (key.type === 'enter') {
-    acceptAutocomplete(state);
-    updateAutocomplete(state);
     return true;
   }
   return false;
@@ -118,20 +142,20 @@ async function handleSelectorKey(state, key, actions) {
   }
   if (selector.subMode === 'actions') {
     const actionsList = selector.actions || [];
-    if (key.type === 'escape') {
+    if (matchesAction('selector', 'close', key)) {
       selector.subMode = '';
-      selector.selectedIndex = 0;
+      if (selector.view === 'tree') syncTreeSelection(selector, state);
       return true;
     }
-    if (key.type === 'up' || key.type === 'ctrl_p') {
+    if (matchesAction('selector', 'prev', key)) {
       selector.actionIndex = Math.max(0, (selector.actionIndex || 0) - 1);
       return true;
     }
-    if (key.type === 'down' || key.type === 'ctrl_n') {
+    if (matchesAction('selector', 'next', key)) {
       selector.actionIndex = Math.min(actionsList.length - 1, (selector.actionIndex || 0) + 1);
       return true;
     }
-    if (key.type === 'enter') {
+    if (matchesAction('selector', 'openActions', key)) {
       const action = actionsList[selector.actionIndex || 0];
       if (action && actions && actions.executeSessionAction) {
         await actions.executeSessionAction(action, selector.selectedItem);
@@ -152,29 +176,57 @@ async function handleSelectorKey(state, key, actions) {
     return true;
   }
 
-  if (key.type === 'escape') {
+  if (matchesAction('selector', 'close', key)) {
     state.mode = 'idle';
     state.selector = null;
     return true;
   }
-  if (selector.view === 'tree' && key.type === 'ctrl_t') {
-    cycleTreeFilter(selector);
+  if (selector.view === 'tree' && matchesAction('tree', 'cycleFilter', key)) {
+    cycleTreeFilterMode(selector, state);
     return true;
   }
-  if (key.type === 'up' || key.type === 'ctrl_p') {
+  if (matchesAction('selector', 'prev', key)) {
     selector.selectedIndex = Math.max(0, (selector.selectedIndex || 0) - 1);
+    if (selector.view === 'tree') syncTreeSelection(selector, state);
     return true;
   }
-  if (key.type === 'down' || key.type === 'ctrl_n') {
+  if (matchesAction('selector', 'next', key)) {
     const items = filteredSelectorItems(state);
     selector.selectedIndex = Math.min(Math.max(0, items.length - 1), (selector.selectedIndex || 0) + 1);
+    if (selector.view === 'tree') syncTreeSelection(selector, state);
     return true;
   }
-  if (key.type === 'text' && key.text === '\t') {
+  if (matchesAction('selector', 'switchView', key)) {
     if (actions && actions.switchSessionView) await actions.switchSessionView(selector.view);
     return true;
   }
-  if (key.type === 'enter') {
+  if (selector.view === 'tree') {
+    const items = filteredSelectorItems(state);
+    const selected = items[selector.selectedIndex || 0];
+    const treeAction = resolveKeyAction('tree', key);
+    if (treeAction === 'collapseOrParent') {
+      if (!collapseTreeNode(selector, selected, state)) selectParent(selector, selected, state);
+      return true;
+    }
+    if (treeAction === 'expandOrActions') {
+      if (!expandTreeNode(selector, selected, state)) openSessionActionMenu(state, selector, selected);
+      return true;
+    }
+    if (treeAction === 'toggleFold') {
+      toggleTreeNode(selector, selected, state);
+      syncTreeSelection(selector, state);
+      return true;
+    }
+    if (treeAction === 'openActions') {
+      openSessionActionMenu(state, selector, selected);
+      return true;
+    }
+    if (treeAction === 'resume' || treeAction === 'session' || treeAction === 'export' || treeAction === 'name') {
+      await executeSessionShortcut(state, selector, selected, treeAction, actions);
+      return true;
+    }
+  }
+  if (matchesAction('selector', 'openActions', key)) {
     const items = filteredSelectorItems(state);
     const selected = items[selector.selectedIndex || 0];
     if (selected) {
@@ -192,14 +244,16 @@ async function handleSelectorKey(state, key, actions) {
     }
     return true;
   }
-  if (key.type === 'backspace') {
+  if (matchesAction('selector', 'filterBackspace', key)) {
     selector.query = String(selector.query || '').slice(0, -1);
     selector.selectedIndex = 0;
+    if (selector.view === 'tree') syncTreeSelection(selector, state);
     return true;
   }
-  if (key.type === 'text') {
+  if (matchesAction('selector', 'filterAppend', key)) {
     selector.query = `${selector.query || ''}${key.text}`;
     selector.selectedIndex = 0;
+    if (selector.view === 'tree') syncTreeSelection(selector, state);
     return true;
   }
   return true;
@@ -212,39 +266,39 @@ function handlePanelKey(state, key, actions) {
     return true;
   }
   const items = filteredPanelItems(state);
-  if (key.type === 'escape') {
+  if (matchesAction('panel', 'close', key)) {
     closePanel(state);
     return true;
   }
-  if (key.type === 'up' || key.type === 'ctrl_p') {
+  if (matchesAction('panel', 'prev', key)) {
     panel.selectedIndex = Math.max(0, (panel.selectedIndex || 0) - 1);
     return true;
   }
-  if (key.type === 'down' || key.type === 'ctrl_n') {
+  if (matchesAction('panel', 'next', key)) {
     panel.selectedIndex = Math.min(Math.max(0, items.length - 1), (panel.selectedIndex || 0) + 1);
     return true;
   }
-  if (panel.type === 'settings' && (key.type === 'left' || key.type === 'right')) {
+  if (panel.type === 'settings' && (matchesAction('panel', 'cycleLeft', key) || matchesAction('panel', 'cycleRight', key))) {
     const item = items[panel.selectedIndex || 0];
     if (item && item.onCycle) {
-      item.onCycle(state, key.type === 'left' ? -1 : 1);
+      item.onCycle(state, matchesAction('panel', 'cycleLeft', key) ? -1 : 1);
       if (actions && actions.applySettingsSelection) actions.applySettingsSelection();
     }
     return true;
   }
   if (panel.type === 'model') {
-    if (key.type === 'backspace') {
+    if (matchesAction('panel', 'filterBackspace', key)) {
       panel.query = String(panel.query || '').slice(0, -1);
       panel.selectedIndex = 0;
       return true;
     }
-    if (key.type === 'text' && key.text !== '\t') {
+    if (matchesAction('panel', 'filterAppend', key) && key.text !== '\t') {
       panel.query = `${panel.query || ''}${key.text}`;
       panel.selectedIndex = 0;
       return true;
     }
   }
-  if (key.type === 'enter') {
+  if (matchesAction('panel', 'confirm', key)) {
     const item = items[panel.selectedIndex || 0];
     if (panel.type === 'settings') {
       if (item && item.onSelect) item.onSelect(state);
@@ -267,22 +321,27 @@ function handlePanelKey(state, key, actions) {
 }
 
 async function handleInputKey(state, key, actions) {
-  if (key.type === 'enter') {
-    if (state.mode === 'running' && actions && actions.steer) {
+  if (state.mode === 'running' && matchesAction('runningEditor', 'steer', key)) {
+    if (actions && actions.steer) {
       await actions.steer(state.inputBuffer);
-      return true;
     }
+    return true;
+  }
+  if (state.mode !== 'running' && matchesAction('editor', 'submit', key)) {
     if (actions && actions.submit) await actions.submit(state.inputBuffer);
     return true;
   }
-  if (key.type === 'alt_enter' && state.mode === 'running' && String(state.inputBuffer || '').trim()) {
+  if (state.mode === 'running' && matchesAction('runningEditor', 'queueFollowUp', key) && String(state.inputBuffer || '').trim()) {
     if (actions && actions.queueFollowUp) await actions.queueFollowUp(state.inputBuffer);
     return true;
   }
-  if (key.type === 'escape') {
-    if (state.mode === 'running') {
-      if (actions && actions.abortRunning) actions.abortRunning();
-    } else if (state.mode === 'help' || state.mode === 'more') {
+  if (state.mode === 'running' && matchesAction('runningEditor', 'abort', key)) {
+    if (actions && actions.abortRunning) actions.abortRunning();
+    updateAutocomplete(state);
+    return true;
+  }
+  if (matchesAction('editor', 'clearOrBack', key)) {
+    if (state.mode === 'help' || state.mode === 'more') {
       state.mode = 'idle';
     } else {
       setInput(state, '');
@@ -291,8 +350,8 @@ async function handleInputKey(state, key, actions) {
     return true;
   }
   applyKey(state, key);
-  if (key.type === 'page_up') selectToolByDelta(state, -1);
-  if (key.type === 'page_down') selectToolByDelta(state, 1);
+  if (matchesAction('editor', 'pageUp', key)) selectToolByDelta(state, -1);
+  if (matchesAction('editor', 'pageDown', key)) selectToolByDelta(state, 1);
   updateAutocomplete(state);
   return true;
 }

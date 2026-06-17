@@ -53,6 +53,9 @@ async function main() {
   state.selector.query = '';
   await handleCommand(context, '/tree');
   assert(state.selector.view === 'tree', 'tree did not open tree selector');
+  assert(Array.isArray(state.selector.treeNodes), 'tree selector did not build treeNodes');
+  assert(state.selector.treeFilterMode === 'all', 'tree selector should default to all filter');
+  assert(state.selector.items.length > 0, 'tree selector has no visible items');
   const tree = renderTui(state, { columns: 100, rows: 30 });
   assert(tree.indexOf('Session tree') >= 0, 'tree selector did not render as tree');
   console.log('PASS tui session selector recent/tree/filter render');

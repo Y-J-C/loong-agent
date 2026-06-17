@@ -305,19 +305,95 @@ test('tool focus helper handles empty tool list safely', async () => {
   assert(state.selectedMessageId === '', 'empty tool navigation should not set selection');
 });
 
-test('tree selector cycles filter mode with ctrl-t', async () => {
+function treeSelectorFixture() {
   const state = createTuiState({});
   state.selector = {
     view: 'tree',
-    treeFilterMode: 'default',
+    treeFilterMode: 'all',
     query: '',
-    selectedIndex: 1,
+    selectedIndex: 0,
+    collapsedIds: {},
+    treeNodes: [{
+      id: 'root',
+      command: 'tui',
+      depth: 0,
+      hasChildren: true,
+      isActivePath: true,
+      children: [{
+        id: 'child',
+        command: 'fork',
+        branchName: 'fix',
+        sessionName: 'Fix build',
+        depth: 1,
+        hasChildren: false,
+        latestEntryId: 'entry-child',
+        children: [],
+      }],
+    }, {
+      id: 'error-tools',
+      command: 'debug',
+      depth: 0,
+      hasChildren: false,
+      errorCount: 1,
+      toolCount: 6,
+      latestEntryId: 'entry-error',
+      children: [],
+    }],
     items: [
       { id: 'root', command: 'tui', depth: 0 },
-      { id: 'branch', command: 'fork', branchName: 'fix', depth: 1 },
     ],
   };
+  return state;
+}
+
+test('tree selector cycles filter mode with ctrl-t', async () => {
+  const state = treeSelectorFixture();
   await handleSelectorKey(state, { type: 'ctrl_t' }, {});
-  assert(state.selector.treeFilterMode === 'named', 'ctrl-t did not cycle tree filter');
+  assert(state.selector.treeFilterMode === 'branch', 'ctrl-t did not cycle tree filter');
   assert(state.selector.selectedIndex === 0, 'tree filter should reset selection');
+  assert(state.selectedSessionId === 'root', 'tree filter should sync selected session');
+});
+
+test('tree selector enter and space fold without opening actions', async () => {
+  const state = treeSelectorFixture();
+  await handleSelectorKey(state, { type: 'enter' }, {});
+  assert(state.selector.subMode !== 'actions', 'tree enter should not open action submenu');
+  assert(state.selector.collapsedIds.root === true, 'tree enter should collapse selected node');
+  await handleSelectorKey(state, { type: 'text', text: ' ' }, {});
+  assert(state.selector.collapsedIds.root !== true, 'tree space should expand selected node');
+});
+
+test('tree selector right and a open action submenu', async () => {
+  const state = treeSelectorFixture();
+  await handleSelectorKey(state, { type: 'enter' }, {});
+  await handleSelectorKey(state, { type: 'right' }, {});
+  assert(state.selector.collapsedIds.root !== true, 'right should expand collapsed node first');
+  await handleSelectorKey(state, { type: 'right' }, {});
+  assert(state.selector.subMode === 'actions', 'right on expanded node should open action submenu');
+  assert(state.selector.selectedItem.id === 'root', 'action submenu should use selected tree node');
+
+  const other = treeSelectorFixture();
+  await handleSelectorKey(other, { type: 'text', text: 'a' }, {});
+  assert(other.selector.subMode === 'actions', 'a should open action submenu in tree mode');
+});
+
+test('tree selector shortcut executes current node action', async () => {
+  const state = treeSelectorFixture();
+  let called = '';
+  await handleSelectorKey(state, { type: 'text', text: 'r' }, {
+    executeSessionAction: async (action, selected) => {
+      called = `${action.action}:${selected.id}`;
+    },
+  });
+  assert(called === 'resume:root', `wrong tree shortcut action: ${called}`);
+  assert(state.selector.subMode !== 'actions', 'shortcut should not open action submenu');
+});
+
+test('tree selector left collapses or selects parent', async () => {
+  const state = treeSelectorFixture();
+  state.selector.selectedIndex = 1;
+  await handleSelectorKey(state, { type: 'left' }, {});
+  assert(state.selector.selectedItem.id === 'root', 'left on child should select parent');
+  await handleSelectorKey(state, { type: 'left' }, {});
+  assert(state.selector.collapsedIds.root === true, 'left on expanded parent should collapse it');
 });

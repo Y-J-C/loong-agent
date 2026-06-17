@@ -12,6 +12,7 @@ const { addMessage, clearMessages, createTuiState, updateAutocomplete } = requir
 const { createDiffRenderer } = require('./diff');
 const { handleFocusedKey } = require('./interactions');
 const { toggleGlobalToolDetails, toggleSelectedToolDetail } = require('./tool-focus');
+const { matchesAction } = require('./keybindings');
 
 const ENABLE_MODIFIED_KEYS = '\x1b[>4;2m';
 const DISABLE_MODIFIED_KEYS = '\x1b[>4;0m';
@@ -284,7 +285,7 @@ async function runTui(config, options) {
     });
     if (state.recentKeys.length > 30) state.recentKeys = state.recentKeys.slice(-30);
 
-    if (key.type === 'ctrl_c') {
+    if (matchesAction('global', 'abortOrExit', key)) {
       if (state.mode === 'running') {
         abortRunning();
         render();
@@ -297,11 +298,11 @@ async function runTui(config, options) {
       }
       return;
     }
-    if (key.type === 'ctrl_d') {
+    if (matchesAction('global', 'exitIfEmpty', key)) {
       if (!state.inputBuffer) stop();
       return;
     }
-    if (key.type === 'ctrl_l') {
+    if (matchesAction('global', 'openModel', key)) {
       await handleCommand({
         config: activeConfig,
         state,
@@ -319,12 +320,12 @@ async function runTui(config, options) {
       render();
       return;
     }
-    if (key.type === 'ctrl_o') {
+    if (matchesAction('tool', 'toggleCurrentDetail', key)) {
       toggleSelectedToolDetail(state);
       render();
       return;
     }
-    if (key.type === 'shift_ctrl_o') {
+    if (matchesAction('tool', 'toggleGlobalDetails', key)) {
       toggleGlobalToolDetails(state);
       render();
       return;

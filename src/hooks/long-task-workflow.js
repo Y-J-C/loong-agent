@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 function text(value) {
   return String(value || '');
 }
@@ -58,6 +61,59 @@ function commandLooksLikeLogCat(command, state) {
   return /\.(log|out|err)(\s|$|["'])/i.test(value);
 }
 
+function unquote(value) {
+  const raw = text(value).trim();
+  if (
+    (raw[0] === '"' && raw[raw.length - 1] === '"') ||
+    (raw[0] === '\'' && raw[raw.length - 1] === '\'')
+  ) {
+    return raw.slice(1, -1);
+  }
+  return raw;
+}
+
+function shellCdDirectory(command) {
+  const match = /(?:^|[;&|]\s*)cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*&&/i.exec(text(command));
+  return match ? unquote(match[1]) : '';
+}
+
+function pythonScriptFromCommand(command) {
+  const match = /(?:^|[;&|]\s*)(?:python3?|python)\s+("[^"]+\.py"|'[^']+\.py'|[^\s;&|]+\.py)(?:\s|$)/i.exec(text(command));
+  return match ? unquote(match[1]) : '';
+}
+
+function commandUsesFiniteScriptFlags(command) {
+  return /--samples\b|--output\b|--interval\b|--bus\b|--addr\b/i.test(text(command));
+}
+
+function resolveScriptPath(config, command) {
+  const script = pythonScriptFromCommand(command);
+  if (!script) return '';
+  if (path.isAbsolute(script)) return path.resolve(script);
+  const cd = shellCdDirectory(command);
+  if (cd) return path.resolve(cd, script);
+  const workspace = config && config.workspace ? config.workspace : process.cwd();
+  return path.resolve(workspace, script);
+}
+
+function scriptSupportsFiniteFlags(scriptPath) {
+  if (!scriptPath || !fs.existsSync(scriptPath) || !fs.statSync(scriptPath).isFile()) return null;
+  const content = fs.readFileSync(scriptPath, 'utf8').slice(0, 200000);
+  return /--samples\b/.test(content) &&
+    /--output\b/.test(content) &&
+    /--interval\b/.test(content);
+}
+
+function unsupportedFiniteScriptCommand(context, command) {
+  if (!commandUsesFiniteScriptFlags(command)) return null;
+  const scriptPath = resolveScriptPath(context && context.config, command);
+  const supports = scriptSupportsFiniteFlags(scriptPath);
+  if (supports !== false) return null;
+  return {
+    scriptPath,
+  };
+}
+
 function blockedResult(message, replacementTool, input) {
   return {
     blocked: true,
@@ -86,6 +142,17 @@ async function longTaskBeforeToolCallHook(context) {
   if (!action || action.tool !== 'bash') return null;
   const command = action.input && action.input.command;
   if (!hasLongTaskContext(context.state, context.currentUserPrompt)) return null;
+  const unsupportedScript = unsupportedFiniteScriptCommand(context, command);
+  if (unsupportedScript) {
+    return blockedResult(
+      `Long-task workflow active: ${unsupportedScript.scriptPath} does not support --samples/--output/--interval. Use write/edit to create or update a finite-test logger script before running it.`,
+      'write',
+      {
+        path: unsupportedScript.scriptPath,
+        requiredArguments: ['--interval', '--samples', '--output', '--bus', '--addr'],
+      }
+    );
+  }
   if (commandLooksLikeSleep(command)) {
     return blockedResult(
       'Long-task workflow active: use process_wait instead of bash sleep.',

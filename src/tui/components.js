@@ -15,6 +15,8 @@ const { GLYPHS, hline } = require('./glyphs');
 const { renderMarkdownBlock } = require('./markdown');
 const { detailLines, summarizeToolMessage } = require('./tool-display');
 const { CURSOR_MARKER } = require('./cursor');
+const { syncTreeSelection } = require('./session-tree');
+const { shortcutHint } = require('./keybindings');
 const {
   handleAutocompleteKey,
   handleInputKey,
@@ -164,20 +166,19 @@ function selectedLine(theme, text, width) {
   return fullLine(text, width, theme, 'selectedBg');
 }
 
-function selectorFilterMode(selector) {
-  return selector && selector.treeFilterMode ? selector.treeFilterMode : 'default';
+function hint(namespace, action) {
+  return shortcutHint(namespace, action);
 }
 
-function filterSelectorItems(items, selector) {
+function selectorFilterMode(selector) {
+  return selector && selector.treeFilterMode ? selector.treeFilterMode : 'all';
+}
+
+function filterRecentSelectorItems(items, selector) {
   const query = selector && selector.query ? String(selector.query).toLowerCase() : '';
-  const mode = selectorFilterMode(selector);
   return (items || []).filter((item) => {
     const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''} ${item.sessionName || ''} ${item.name || ''}`.toLowerCase();
     if (query && haystack.indexOf(query) < 0) return false;
-    if (selector && selector.view === 'tree') {
-      if (mode === 'named' && !(item.sessionName || item.name || item.branchName)) return false;
-      if (mode === 'branches' && !item.branchName && !(item.children && item.children.length)) return false;
-    }
     return true;
   });
 }
@@ -191,13 +192,13 @@ class HeaderComponent {
     const tiny = height < 14;
     const lines = tiny ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch'),
-      paint(theme, 'dim', '/help - Esc abort - Ctrl+O tool - /more all'),
+      paint(theme, 'dim', `/help - ${hint('editor', 'clearOrBack')} abort - ${hint('tool', 'toggleCurrentDetail')} tool - /more all`),
     ] : compact ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch coding terminal'),
-      paint(theme, 'dim', 'Esc abort/back - / commands - Ctrl+O tool - /more all'),
+      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} abort/back - / commands - ${hint('tool', 'toggleCurrentDetail')} tool - /more all`),
     ] : [
       paint(theme, 'accent', `loong-agent v0.x | ${brandTitle()}`),
-      paint(theme, 'dim', 'Esc back - Ctrl+C/Ctrl+D exit - / commands - Ctrl+L model - Ctrl+O tool - /more all tools'),
+      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} back - ${hint('global', 'abortOrExit')}/${hint('global', 'exitIfEmpty')} exit - / commands - ${hint('global', 'openModel')} model - ${hint('tool', 'toggleCurrentDetail')} tool - /more all tools`),
     ];
     if (state && state.headerHidden) return [];
     return lines.map((line) => padRight(fitLine(line, width), width));
@@ -419,7 +420,7 @@ class InputEditorComponent {
       lines.push(paint(theme, 'system', fitLine(pasteText, width)));
     }
     if (state.mode === 'running') {
-      lines.push(paint(theme, 'accent', fitLine('running: Enter steers current run - Alt+Enter queues follow-up - Esc aborts', width)));
+      lines.push(paint(theme, 'accent', fitLine(`running: ${hint('runningEditor', 'steer')} steers current run - ${hint('runningEditor', 'queueFollowUp')} queues follow-up - ${hint('runningEditor', 'abort')} aborts`, width)));
     }
     if (hasQueued) {
       lines.push(paint(theme, 'dim', fitLine(`queued follow-ups: ${state.queuedFollowUps.length}`, width)));
@@ -517,11 +518,11 @@ class PanelComponent {
     });
     if ((panel.selectedIndex || 0) >= items.length) panel.selectedIndex = Math.max(0, items.length - 1);
     const title = panel.title || (panel.models ? 'Model Selector' : 'Settings');
-    const hint = panel.hint || 'Up/Down select - Enter confirm - Esc back';
+    const panelHint = panel.hint || `${hint('panel', 'prev')}/${hint('panel', 'next')} select - ${hint('panel', 'confirm')} confirm - ${hint('panel', 'close')} back`;
     const lines = [
       divider(theme, width, false),
       paint(theme, 'header', fitLine(title, width)),
-      paint(theme, 'dim', fitLine(hint, width)),
+      paint(theme, 'dim', fitLine(panelHint, width)),
     ];
     if (panel.type === 'model') {
       lines.push(paint(theme, 'dim', fitLine(`filter: ${panel.query || ''}  current=${state.model || '(env)'}`, width)));
@@ -581,7 +582,17 @@ class SessionSelectorComponent {
       const selectedItem = selector.selectedItem || {};
       const actions = selector.actions || [];
       lines.push(paint(theme, 'header', fitLine(`Session action: ${truncateToWidth(String(selectedItem.id || ''), 24)}`, width)));
-      lines.push(paint(theme, 'dim', fitLine('Up/Down select - Enter confirm - Esc back', width)));
+      lines.push(paint(theme, 'dim', fitLine(`${hint('selector', 'prev')}/${hint('selector', 'next')} select - ${hint('selector', 'openActions')} confirm - ${hint('selector', 'close')} back`, width)));
+      const entryHints = [];
+      if (selectedItem.forkedFromEntryId || selectedItem.shortForkedFromEntryId) {
+        entryHints.push(`fork@${selectedItem.shortForkedFromEntryId || selectedItem.forkedFromEntryId}`);
+      }
+      if (selectedItem.latestEntryId || selectedItem.shortLatestEntryId) {
+        entryHints.push(`latest@${selectedItem.shortLatestEntryId || selectedItem.latestEntryId}`);
+      }
+      if (entryHints.length) {
+        lines.push(paint(theme, 'muted', fitLine(entryHints.join('  '), width)));
+      }
       if (!actions.length) {
         lines.push(paint(theme, 'dim', fitLine('No actions available.', width)));
         lines.push(divider(theme, width, false));
@@ -607,11 +618,11 @@ class SessionSelectorComponent {
     lines.push(paint(theme, 'header', fitLine(`${isTree ? 'Session tree' : 'Session selector'}${selector.query ? ` filter="${selector.query}"` : ''}`, width)));
     lines.push(paint(theme, 'dim', fitLine(
       isTree
-        ? (width < 72 ? `Tree filter=${mode} - Ctrl+T - Up/Down - Enter - Tab - Esc` : `Tree filter=${mode} - Ctrl+T cycle filter - Up/Down select - Enter actions - Tab recent/tree - Esc back`)
-        : (width < 60 ? 'Type filter - Up/Down - Enter - Tab - Esc' : 'Type to filter - Up/Down select - Enter actions - Tab recent/tree - Esc back'),
+        ? (width < 72 ? `filter=${mode} - ${hint('tree', 'toggleFold')} fold - ${hint('tree', 'expandOrActions')}/${hint('tree', 'openActions')} actions - ${hint('tree', 'cycleFilter')} - ${hint('selector', 'close')}` : `filter=${mode} - ${hint('tree', 'toggleFold')} fold - ${hint('tree', 'expandOrActions')}/${hint('tree', 'openActions')} actions - ${hint('tree', 'resume')} resume - ${hint('tree', 'session')} session - ${hint('tree', 'export')} export - ${hint('tree', 'name')} name - ${hint('tree', 'cycleFilter')} - ${hint('selector', 'close')}`)
+        : (width < 60 ? `Type filter - ${hint('selector', 'prev')}/${hint('selector', 'next')} - ${hint('selector', 'openActions')} - ${hint('selector', 'switchView')} - ${hint('selector', 'close')}` : `Type to filter - ${hint('selector', 'prev')}/${hint('selector', 'next')} select - ${hint('selector', 'openActions')} actions - ${hint('selector', 'switchView')} recent/tree - ${hint('selector', 'close')} back`),
       width
     )));
-    const items = filterSelectorItems(selector.items || [], selector);
+    const items = isTree ? syncTreeSelection(selector, state) : filterRecentSelectorItems(selector.items || [], selector);
     if ((selector.selectedIndex || 0) >= items.length) selector.selectedIndex = Math.max(0, items.length - 1);
     if (!items.length) {
       lines.push(paint(theme, 'dim', fitLine('No sessions match the current filter.', width)));
@@ -631,12 +642,22 @@ class SessionSelectorComponent {
       const name = item.sessionName || item.name || '';
       const nameStr = name ? ` "${truncateToWidth(name, 12)}"` : '';
       const count = item.entryCount !== undefined ? ` ${item.entryCount} entries` : '';
-      const currentId = state.currentSession && state.currentSession.id ? state.currentSession.id : '';
-      const isCurrent = currentId && item.id && (item.id.indexOf(currentId.slice(0, 8)) === 0 || currentId.indexOf(item.id) === 0);
-      const cur = isCurrent ? ' <- active' : '';
+      const tags = [];
+      if (isTree && item.isCurrent) tags.push('[active]');
+      else if (isTree && item.isActivePath) tags.push('[path]');
+      if (isTree && item.branchName) tags.push('[branch]');
+      if (isTree && name) tags.push('[name]');
+      if (isTree && item.errorCount) tags.push('[error]');
+      if (isTree && (item.toolCount || 0) >= 5) tags.push(`[tools:${item.toolCount}]`);
+      const cur = !isTree && item.isCurrent ? ' <- active' : '';
       const mod = item.modifiedAt ? ` ${String(item.modifiedAt).slice(0, 10)}` : '';
-      const treeGlyph = isTree ? (item.depth ? '└─ ' : '● ') : '';
-      const text = `${prefix}${depth}${treeGlyph}${item.id}${branch}${nameStr} [${item.command || 'session'}]${count}${mod}${cur}`;
+      const foldGlyph = item.hasChildren ? (item.collapsed ? '▸' : '▾') : '•';
+      const treeGlyph = isTree ? `${foldGlyph} ` : '';
+      const restore = isTree
+        ? (item.shortForkedFromEntryId ? ` fork@${item.shortForkedFromEntryId}` : item.shortLatestEntryId ? ` latest@${item.shortLatestEntryId}` : '')
+        : '';
+      const tagText = tags.length ? ` ${tags.join(' ')}` : '';
+      const text = `${prefix}${depth}${treeGlyph}${item.id}${branch}${nameStr}${tagText}${restore} [${item.command || 'session'}]${count}${mod}${cur}`;
       lines.push(selected ? selectedLine(theme, fitLine(text, width), width) : fitLine(text, width));
     }
     lines.push(divider(theme, width, false));

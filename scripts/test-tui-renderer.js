@@ -478,6 +478,121 @@ test('renderer uses editor slot for selector and hides autocomplete', () => {
   assert(output.indexOf('/settings') < 0, 'autocomplete should be hidden while selector is open');
 });
 
+test('renderer shows deep session tree semantics', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.currentSession = { id: 'child-session' };
+  state.mode = 'session_selector';
+  state.selector = {
+    view: 'tree',
+    query: '',
+    selectedIndex: 1,
+    treeFilterMode: 'all',
+    collapsedIds: {},
+    treeNodes: [{
+      id: 'root-session',
+      command: 'tui',
+      depth: 0,
+      hasChildren: true,
+      isActivePath: true,
+      branchName: 'main',
+      latestEntryId: 'entry-root-1234567890',
+      children: [{
+        id: 'child-session',
+        command: 'resume',
+        depth: 1,
+        hasChildren: false,
+        isCurrent: true,
+        isActivePath: true,
+        sessionName: 'Named child',
+        errorCount: 1,
+        toolCount: 5,
+        forkedFromEntryId: 'entry-fork-1234567890',
+        latestEntryId: 'entry-child-1234567890',
+        children: [],
+      }],
+    }],
+  };
+  const plain = stripAnsi(renderTui(state, { columns: 120, rows: 24 }));
+  assert(plain.indexOf('Session tree') >= 0, 'tree title missing');
+  assert(plain.indexOf('▾ root-session') >= 0, 'expanded root glyph missing');
+  assert(plain.indexOf('• child-session') >= 0, 'leaf glyph missing');
+  assert(plain.indexOf('[path]') >= 0, 'active path tag missing');
+  assert(plain.indexOf('[active]') >= 0, 'active node tag missing');
+  assert(plain.indexOf('[branch]') >= 0, 'branch tag missing');
+  assert(plain.indexOf('[name]') >= 0, 'name tag missing');
+  assert(plain.indexOf('[error]') >= 0, 'error tag missing');
+  assert(plain.indexOf('[tools:5]') >= 0, 'tool-heavy tag missing');
+  assert(plain.indexOf('fork@entry-fork') >= 0, 'fork entry summary missing');
+});
+
+test('renderer hides collapsed tree children and keeps narrow lines bounded', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.mode = 'session_selector';
+  state.selector = {
+    view: 'tree',
+    query: '',
+    selectedIndex: 0,
+    treeFilterMode: 'all',
+    collapsedIds: { parent: true },
+    treeNodes: [{
+      id: 'parent',
+      command: 'tui',
+      depth: 0,
+      hasChildren: true,
+      children: [{
+        id: 'hidden-child',
+        command: 'resume',
+        depth: 1,
+        hasChildren: false,
+        children: [],
+      }],
+    }],
+  };
+  const output = renderTui(state, { columns: 42, rows: 14 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('▸ parent') >= 0, 'collapsed glyph missing');
+  assert(plain.indexOf('hidden-child') < 0, 'collapsed child should be hidden');
+  for (const line of output.split('\n')) {
+    assert(visibleWidth(line) <= 42, `tree line exceeds width: ${stripAnsi(line)}`);
+  }
+});
+
+test('renderer tree filter keeps matching descendants with ancestors', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.mode = 'session_selector';
+  state.selector = {
+    view: 'tree',
+    query: '',
+    selectedIndex: 0,
+    treeFilterMode: 'errored',
+    collapsedIds: {},
+    treeNodes: [{
+      id: 'ancestor',
+      command: 'tui',
+      depth: 0,
+      hasChildren: true,
+      children: [{
+        id: 'errored-child',
+        command: 'debug',
+        depth: 1,
+        hasChildren: false,
+        errorCount: 1,
+        children: [],
+      }, {
+        id: 'clean-child',
+        command: 'ask',
+        depth: 1,
+        hasChildren: false,
+        children: [],
+      }],
+    }],
+  };
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 20 }));
+  assert(plain.indexOf('ancestor') >= 0, 'filter should keep ancestor for context');
+  assert(plain.indexOf('errored-child') >= 0, 'filter should keep matching child');
+  assert(plain.indexOf('clean-child') < 0, 'filter should hide non-matching sibling');
+});
+
 test('renderer shows running editor steer queue hints', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.mode = 'running';
