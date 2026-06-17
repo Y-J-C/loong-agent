@@ -3,6 +3,7 @@
 const { applyKey, setInput } = require('./input');
 const { addMessage, autocompleteCommand, updateAutocomplete } = require('./state');
 const { getFocusedSurface } = require('./focus');
+const { selectToolByDelta } = require('./tool-focus');
 
 function filteredSelectorItems(state) {
   const selector = state.selector;
@@ -290,6 +291,8 @@ async function handleInputKey(state, key, actions) {
     return true;
   }
   applyKey(state, key);
+  if (key.type === 'page_up') selectToolByDelta(state, -1);
+  if (key.type === 'page_down') selectToolByDelta(state, 1);
   updateAutocomplete(state);
   return true;
 }
@@ -304,9 +307,10 @@ async function handleFocusedKey(state, key, actions) {
     ? new AutocompleteComponent()
     : new EditorSlotComponent().activeComponent(state);
   if (component && typeof component.handleKey === 'function') {
-    return component.handleKey(key, { state, actions: actions || {} });
+    const handled = await component.handleKey(key, { state, actions: actions || {} });
+    if (handled || focus.id !== 'autocomplete') return handled;
   }
-  return false;
+  return new EditorSlotComponent().activeComponent(state).handleKey(key, { state, actions: actions || {} });
 }
 
 module.exports = {

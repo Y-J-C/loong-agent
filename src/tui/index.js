@@ -11,6 +11,7 @@ const { ANSI, terminalSize } = require('./screen');
 const { addMessage, clearMessages, createTuiState, updateAutocomplete } = require('./state');
 const { createDiffRenderer } = require('./diff');
 const { handleFocusedKey } = require('./interactions');
+const { toggleGlobalToolDetails, toggleSelectedToolDetail } = require('./tool-focus');
 
 const ENABLE_MODIFIED_KEYS = '\x1b[>4;2m';
 const DISABLE_MODIFIED_KEYS = '\x1b[>4;0m';
@@ -319,8 +320,12 @@ async function runTui(config, options) {
       return;
     }
     if (key.type === 'ctrl_o') {
-      state.expandedTools = !state.expandedTools;
-      state.mode = state.expandedTools ? 'more' : 'idle';
+      toggleSelectedToolDetail(state);
+      render();
+      return;
+    }
+    if (key.type === 'shift_ctrl_o') {
+      toggleGlobalToolDetails(state);
       render();
       return;
     }

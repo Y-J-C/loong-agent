@@ -117,6 +117,8 @@ test('new name clone more debug copy compact reload and unsupported commands wor
   await handleCommand(context, '/name demo-name');
   await handleCommand(context, '/clone clone-demo');
   await handleCommand(context, '/more');
+  assert(context.state.expandedTools === true, '/more should enable global tool details');
+  assert(context.state.mode === 'more', '/more should enter global detail mode');
   await handleCommand(context, '/debug');
   await handleCommand(context, '/copy');
   await handleCommand(context, '/compact');

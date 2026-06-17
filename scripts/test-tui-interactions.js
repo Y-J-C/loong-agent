@@ -17,6 +17,11 @@ const {
 } = require('../src/tui/components');
 const { setInput } = require('../src/tui/input');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
+const {
+  selectToolByDelta,
+  toggleGlobalToolDetails,
+  toggleSelectedToolDetail,
+} = require('../src/tui/tool-focus');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -254,6 +259,50 @@ test('focused dispatcher uses component-dispatched input behavior', async () => 
   const handled = await handleFocusedKey(state, { type: 'text', text: 'x' }, {});
   assert(handled === true, 'focused dispatcher should return component handled state');
   assert(state.inputBuffer === 'x', 'focused dispatcher did not apply input component behavior');
+});
+
+test('tool detail toggle selects latest tool when none is focused', async () => {
+  const state = createTuiState({});
+  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', detail: { stdout: 'one' } });
+  state.messages.push({ id: 'tool-two', type: 'tool', toolName: 'bash', detail: { stdout: 'two' } });
+  assert(toggleSelectedToolDetail(state) === true, 'tool detail toggle should handle latest tool');
+  assert(state.selectedMessageId === 'tool-two', 'latest tool should become selected');
+  assert(state.messages[1].expanded === true, 'latest tool should expand');
+  toggleSelectedToolDetail(state);
+  assert(state.messages[1].expanded === false, 'second toggle should collapse selected tool');
+  assert(state.messages[0].expanded !== true, 'older tool should remain unchanged');
+});
+
+test('tool focus navigation preserves scroll behavior through focused input', async () => {
+  const state = createTuiState({});
+  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash' });
+  state.messages.push({ id: 'tool-two', type: 'tool', toolName: 'bash' });
+  await handleFocusedKey(state, { type: 'page_up' }, {});
+  assert(state.scrollOffset === 5, 'page up should still scroll');
+  assert(state.selectedMessageId === 'tool-two', 'first page navigation should select latest tool');
+  await handleFocusedKey(state, { type: 'page_up' }, {});
+  assert(state.scrollOffset === 10, 'second page up should still scroll');
+  assert(state.selectedMessageId === 'tool-one', 'page up should move to previous tool');
+  await handleFocusedKey(state, { type: 'page_down' }, {});
+  assert(state.scrollOffset === 5, 'page down should still scroll back');
+  assert(state.selectedMessageId === 'tool-two', 'page down should move to next tool');
+});
+
+test('global tool detail toggle stays independent from selected tool state', async () => {
+  const state = createTuiState({});
+  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', expanded: true });
+  assert(toggleGlobalToolDetails(state) === true, 'global toggle should expand globally');
+  assert(state.expandedTools === true && state.mode === 'more', 'global expanded state missing');
+  assert(state.messages[0].expanded === true, 'global toggle should not rewrite per-tool state');
+  assert(toggleGlobalToolDetails(state) === false, 'global toggle should collapse globally');
+  assert(state.expandedTools === false && state.mode === 'idle', 'global collapsed state missing');
+});
+
+test('tool focus helper handles empty tool list safely', async () => {
+  const state = createTuiState({});
+  assert(toggleSelectedToolDetail(state) === false, 'empty tool toggle should not handle');
+  assert(selectToolByDelta(state, 1) === null, 'empty tool navigation should return null');
+  assert(state.selectedMessageId === '', 'empty tool navigation should not set selection');
 });
 
 test('tree selector cycles filter mode with ctrl-t', async () => {

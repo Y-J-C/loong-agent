@@ -191,6 +191,7 @@ test('renderer removes raw answer envelopes and markdown emphasis markers', () =
 test('renderer uses pi-style tool blocks', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({
+    id: 'tool-one',
     type: 'tool',
     toolName: 'bash',
     summary: 'listed files',
@@ -202,6 +203,73 @@ test('renderer uses pi-style tool blocks', () => {
   assert(plain.indexOf('╭─ tool bash /') >= 0, 'missing tool block header');
   assert(plain.indexOf('│ listed files') >= 0, 'missing compact tool summary');
   assert(plain.indexOf('╰─') >= 0, 'missing tool block footer');
+});
+
+test('renderer expands only selected tool detail by message state', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    summary: 'first summary',
+    done: true,
+    args: { command: 'first' },
+    detail: { hiddenDetail: 'first detail' },
+  });
+  state.messages.push({
+    id: 'tool-two',
+    type: 'tool',
+    toolName: 'bash',
+    summary: 'second summary',
+    done: true,
+    args: { command: 'second' },
+    detail: { hiddenDetail: 'second detail' },
+    expanded: true,
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 30 }));
+  assert(plain.indexOf('first summary') >= 0, 'first compact summary missing');
+  assert(plain.indexOf('second detail') >= 0, 'expanded tool detail missing');
+  assert(plain.indexOf('first detail') < 0, 'collapsed tool detail should stay hidden');
+});
+
+test('renderer expands all tools in global detail mode', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.expandedTools = true;
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    summary: 'first summary',
+    done: true,
+    detail: { stdout: 'first detail' },
+  });
+  state.messages.push({
+    id: 'tool-two',
+    type: 'tool',
+    toolName: 'bash',
+    summary: 'second summary',
+    done: true,
+    detail: { stdout: 'second detail' },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 30 }));
+  assert(plain.indexOf('first detail') >= 0, 'global detail should expand first tool');
+  assert(plain.indexOf('second detail') >= 0, 'global detail should expand second tool');
+});
+
+test('renderer marks selected tool block', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.selectedMessageId = 'tool-one';
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    summary: 'selected summary',
+    done: true,
+    detail: { stdout: 'selected detail' },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 20 }));
+  assert(plain.indexOf('> ╭─ tool bash') >= 0, 'selected tool marker missing');
+  assert(plain.indexOf('Ctrl+O details') >= 0, 'selected tool hint missing');
 });
 
 test('renderer keeps json tool summaries compact by default', () => {

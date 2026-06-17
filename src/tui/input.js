@@ -108,6 +108,11 @@ function parseKey(buffer) {
   if (text === '\x19') return { type: 'ctrl_y' };
   if (text === '\x1a') return { type: 'ctrl_z' };
   if (
+    text === '\x1b[79;6u' ||
+    text === '\x1b[111;6u' ||
+    text === '\x1b[15;6u'
+  ) return { type: 'shift_ctrl_o' };
+  if (
     text === '\x1b[13;5u' ||
     text === '\x1b[10;5u' ||
     text === '\x1b[27;5;13~' ||

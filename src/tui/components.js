@@ -191,13 +191,13 @@ class HeaderComponent {
     const tiny = height < 14;
     const lines = tiny ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch'),
-      paint(theme, 'dim', '/help - Esc abort - Ctrl+O tools'),
+      paint(theme, 'dim', '/help - Esc abort - Ctrl+O tool - /more all'),
     ] : compact ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch coding terminal'),
-      paint(theme, 'dim', 'Esc abort/back - / commands - ! readonly - Ctrl+O details'),
+      paint(theme, 'dim', 'Esc abort/back - / commands - Ctrl+O tool - /more all'),
     ] : [
       paint(theme, 'accent', `loong-agent v0.x | ${brandTitle()}`),
-      paint(theme, 'dim', 'Esc back - Ctrl+C/Ctrl+D exit - / commands - Ctrl+L model - Ctrl+O details'),
+      paint(theme, 'dim', 'Esc back - Ctrl+C/Ctrl+D exit - / commands - Ctrl+L model - Ctrl+O tool - /more all tools'),
     ];
     if (state && state.headerHidden) return [];
     return lines.map((line) => padRight(fitLine(line, width), width));
@@ -303,10 +303,11 @@ class ToolMessageComponent {
     const theme = context.theme;
     const expanded = Boolean(context.state.expandedTools || this.message.expanded);
     const message = this.message;
+    const selected = context.state.selectedMessageId && context.state.selectedMessageId === message.id;
     const rawStatus = message.errorType || message.status || (message.isError ? 'tool_error' : message.done ? 'ok' : 'running');
     const isError = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error';
     const statusToken = isError ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
-    const blockToken = isError ? 'toolErrorBg' : message.done ? 'toolSuccessBg' : 'toolPendingBg';
+    const blockToken = selected ? 'selectedBg' : isError ? 'toolErrorBg' : message.done ? 'toolSuccessBg' : 'toolPendingBg';
     const displayStatus = toolStatusLabel(rawStatus, message.isError);
     const meta = [];
     if (message.durationMs !== undefined) meta.push(`${message.durationMs}ms`);
@@ -316,7 +317,9 @@ class ToolMessageComponent {
     const toolName = message.toolName || 'unknown';
     const lines = [];
 
-    lines.push(fullLine(`${GLYPHS.toolTop} tool ${toolName} / ${displayStatus}${suffix}`, width, theme, blockToken));
+    const marker = selected ? '> ' : '';
+    const hint = selected ? '  Ctrl+O details / /more all' : '';
+    lines.push(fullLine(`${marker}${GLYPHS.toolTop} tool ${toolName} / ${displayStatus}${suffix}${hint}`, width, theme, blockToken));
     if (isError) {
       const errorDetail = message.errorType ? `policy: ${message.errorType}` : `error: ${rawStatus}`;
       lines.push(fullLine(`${GLYPHS.toolMid}${errorDetail}`, width, theme, 'toolError'));
