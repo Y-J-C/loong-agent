@@ -145,7 +145,11 @@ async function runTui(config, options) {
     if (stopped) return;
     try {
       const size = terminalSize(output);
-      const lines = renderTui(state, size, { bodyAlign: 'top', fullHistory: true }).split('\n');
+      const lines = renderTui(state, size, {
+        bodyAlign: 'top',
+        fullHistory: true,
+        showHardwareCursor: state.showHardwareCursor !== false,
+      }).split('\n');
       output.write(diffRenderer.render(lines, size));
     } catch (error) {
       try {

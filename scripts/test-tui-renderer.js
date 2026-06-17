@@ -4,7 +4,8 @@
 const { handleAgentEvent } = require('../src/tui/event-adapter');
 const { createDiffRenderer } = require('../src/tui/diff');
 const { renderTui } = require('../src/tui/renderer');
-const { stripAnsi, visibleWidth } = require('../src/tui/screen');
+const { CURSOR_MARKER, extractCursorPosition } = require('../src/tui/cursor');
+const { ANSI, stripAnsi, visibleWidth } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
 
 function assert(condition, message) {
@@ -27,10 +28,23 @@ test('renderer includes header input and status bar', () => {
   state.inputBuffer = '你好';
   const output = renderTui(state, { columns: 80, rows: 20 });
   const plain = stripAnsi(output);
+  assert(output.indexOf(CURSOR_MARKER) < 0, 'default render should not include cursor marker');
   assert(plain.indexOf('loong-agent v0.x') >= 0, 'missing header');
   assert(plain.indexOf('loong>') < 0, 'old prompt should not be rendered');
   assert(plain.indexOf('你好') >= 0, 'missing input');
   assert(plain.indexOf('mock/m') >= 0, 'missing model status');
+});
+
+test('renderer can mark hardware cursor position for IME', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '\u4f60\u597d';
+  state.cursor = 1;
+  const output = renderTui(state, { columns: 80, rows: 20 }, { showHardwareCursor: true });
+  assert(output.indexOf(CURSOR_MARKER) >= 0, 'hardware cursor marker missing');
+  const extracted = extractCursorPosition(output.split('\n'));
+  assert(extracted.cursor !== null, 'cursor position was not extracted');
+  assert(extracted.cursor.column === 5, `wide char cursor column should be 5, got ${extracted.cursor.column}`);
+  assert(extracted.lines.join('\n').indexOf(CURSOR_MARKER) < 0, 'cursor marker was not stripped');
 });
 
 test('renderer can place startup intro directly below the launch command', () => {
@@ -418,6 +432,35 @@ test('renderer displays multiline input without continuation prompt', () => {
   assert(plain.indexOf('第二行') >= 0, 'missing continuation input line');
 });
 
+test('renderer keeps hardware cursor visible in multiline input window', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = ['line0', 'line1', 'line2', 'line3', 'line4', 'line5', 'line6', 'line7'].join('\n');
+  state.cursor = 'line0'.length;
+  const output = renderTui(state, { columns: 80, rows: 20 }, { showHardwareCursor: true });
+  const extracted = extractCursorPosition(output.split('\n'));
+  assert(extracted.cursor !== null, 'multiline cursor marker missing');
+  assert(extracted.lines.join('\n').indexOf('line0') >= 0, 'cursor line should remain visible');
+});
+
+test('renderer omits hardware cursor marker while editor slot is occupied', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  state.activePanel = {
+    type: 'model',
+    title: 'Model Selector',
+    selectedIndex: 0,
+    items: [{ label: 'Mock', model: { id: 'mock/m' } }],
+  };
+  let output = renderTui(state, { columns: 80, rows: 20 }, { showHardwareCursor: true });
+  assert(output.indexOf(CURSOR_MARKER) < 0, 'panel should not render cursor marker');
+
+  state.activePanel = null;
+  state.selector = { view: 'recent', selectedIndex: 0, items: [{ id: 'session-one', command: 'tui' }] };
+  output = renderTui(state, { columns: 80, rows: 20 }, { showHardwareCursor: true });
+  assert(output.indexOf(CURSOR_MARKER) < 0, 'selector should not render cursor marker');
+});
+
 test('diff renderer only rewrites changed rows after first frame', () => {
   const renderer = createDiffRenderer();
   const first = renderer.render(['alpha', 'beta'], { columns: 20, rows: 4 });
@@ -426,6 +469,35 @@ test('diff renderer only rewrites changed rows after first frame', () => {
   assert(second.indexOf('\x1b[2J') < 0, 'second frame unexpectedly cleared screen');
   assert(second.indexOf('\x1b[2K') >= 0, 'second frame did not clear changed row');
   assert(second.indexOf('gamma') >= 0, 'second frame missing changed content');
+});
+
+test('diff renderer strips cursor marker and shows hardware cursor', () => {
+  const renderer = createDiffRenderer({ initialClear: false });
+  const first = renderer.render([`aa${CURSOR_MARKER}bb`, 'status'], { columns: 20, rows: 4 });
+  assert(first.indexOf(CURSOR_MARKER) < 0, 'diff output leaked cursor marker');
+  assert(first.indexOf(ANSI.showCursor) >= 0, 'hardware cursor should be shown when marker exists');
+  assert(first.indexOf('\x1b[3G') >= 0, 'hardware cursor should move to marker column');
+
+  const second = renderer.render([`aa${CURSOR_MARKER}bb`, 'status'], { columns: 20, rows: 4 });
+  assert(second.indexOf(CURSOR_MARKER) < 0, 'unchanged diff output leaked cursor marker');
+  assert(second.indexOf(ANSI.showCursor) >= 0, 'unchanged frame should still position hardware cursor');
+  assert(second.indexOf('\x1b[3G') >= 0, 'unchanged frame should move hardware cursor to marker column');
+});
+
+test('diff renderer hides cursor when no marker exists', () => {
+  const renderer = createDiffRenderer({ initialClear: false });
+  const output = renderer.render(['plain', 'status'], { columns: 20, rows: 4 });
+  assert(output.indexOf(ANSI.hideCursor) >= 0, 'diff output should hide cursor without marker');
+  assert(output.indexOf(ANSI.showCursor) < 0, 'diff output should not show cursor without marker');
+});
+
+test('diff renderer keeps hardware cursor after width reset', () => {
+  const renderer = createDiffRenderer({ initialClear: false });
+  renderer.render([`aa${CURSOR_MARKER}bb`, 'status'], { columns: 50, rows: 12 });
+  const output = renderer.render([`aa${CURSOR_MARKER}bb`, 'status'], { columns: 60, rows: 12 });
+  assert(output.indexOf(CURSOR_MARKER) < 0, 'width reset leaked cursor marker');
+  assert(output.indexOf('\x1b[2J') >= 0, 'width reset should still clear screen');
+  assert(output.indexOf(ANSI.showCursor) >= 0, 'width reset should restore hardware cursor');
 });
 
 test('diff renderer can append first frame without clearing the shell command', () => {

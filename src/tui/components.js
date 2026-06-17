@@ -14,6 +14,7 @@ const { paint } = require('./theme');
 const { GLYPHS, hline } = require('./glyphs');
 const { renderMarkdownBlock } = require('./markdown');
 const { detailLines, summarizeToolMessage } = require('./tool-display');
+const { CURSOR_MARKER } = require('./cursor');
 const {
   handleAutocompleteKey,
   handleInputKey,
@@ -77,6 +78,57 @@ function cursorToLineCol(text, cursor) {
 function renderCursor(theme, char) {
   if (theme && theme.cursor) return paint(theme, 'cursor', char || ' ');
   return char && char !== ' ' ? `[${char}]` : GLYPHS.cursor;
+}
+
+function prefixToWidth(text, width) {
+  const max = Math.max(0, width || 0);
+  let output = '';
+  let used = 0;
+  for (const char of Array.from(String(text || ''))) {
+    const size = visibleWidth(char);
+    if (used + size > max) break;
+    output += char;
+    used += size;
+  }
+  return output;
+}
+
+function suffixToWidth(text, width) {
+  const max = Math.max(0, width || 0);
+  const chars = Array.from(String(text || ''));
+  let output = '';
+  let used = 0;
+  for (let index = chars.length - 1; index >= 0; index -= 1) {
+    const char = chars[index];
+    const size = visibleWidth(char);
+    if (used + size > max) break;
+    output = `${char}${output}`;
+    used += size;
+  }
+  return output;
+}
+
+function renderInputLine(lineText, cursorCol, width, theme, showHardwareCursor) {
+  const leftPad = '  ';
+  const contentWidth = Math.max(1, width - visibleWidth(leftPad));
+  const chars = Array.from(lineText || '');
+  const col = Math.max(0, Math.min(cursorCol || 0, chars.length));
+  const beforeAll = chars.slice(0, col).join('');
+
+  if (showHardwareCursor) {
+    const before = suffixToWidth(beforeAll, Math.max(0, contentWidth - 1));
+    const after = prefixToWidth(chars.slice(col).join(''), Math.max(0, contentWidth - visibleWidth(before)));
+    return truncateToWidth(`${leftPad}${before}${CURSOR_MARKER}${after}`, width);
+  }
+
+  const atCh = chars[col] || ' ';
+  const cursorText = renderCursor(theme, atCh);
+  const before = suffixToWidth(beforeAll, Math.max(0, contentWidth - Math.max(1, visibleWidth(cursorText))));
+  const after = prefixToWidth(
+    chars.slice(col + 1).join(''),
+    Math.max(0, contentWidth - visibleWidth(before) - visibleWidth(cursorText))
+  );
+  return truncateToWidth(`${leftPad}${before}${cursorText}${after}`, width);
 }
 
 function visibleWindow(items, selectedIndex, maxVisible) {
@@ -377,30 +429,26 @@ class InputEditorComponent {
     }
 
     lines.push(divider(theme, width, true));
-    const maxInputLines = editorMaxRows(context);
-    const start = Math.max(0, sourceLines.length - maxInputLines);
-    if (start > 0) lines.push(paint(theme, 'dim', fitLine(`... ${start} more input line(s)`, width)));
-
     const cursor = state.cursor || 0;
     const cursorPos = cursorToLineCol(state.inputBuffer || '', cursor);
-    const leftPad = '  ';
-    const contentWidth = Math.max(1, width - visibleWidth(leftPad));
+    const maxInputLines = editorMaxRows(context);
+    let start = Math.max(0, cursorPos.line - Math.floor(maxInputLines / 2));
+    if (start + maxInputLines > sourceLines.length) {
+      start = Math.max(0, sourceLines.length - maxInputLines);
+    }
+    if (start > 0) lines.push(paint(theme, 'dim', fitLine(`... ${start} more input line(s)`, width)));
+
+    const showHardwareCursor = Boolean(context.showHardwareCursor);
     for (let index = start; index < sourceLines.length; index += 1) {
       const lineText = sourceLines[index] || '';
       if (index === cursorPos.line && cursorPos.col >= 0) {
-        const chars = Array.from(lineText);
-        const col = Math.min(cursorPos.col, chars.length);
-        const before = chars.slice(0, col).join('');
-        const atCh = chars[col] || ' ';
-        const after = chars.slice(col + 1).join('');
-        const rendered = `${leftPad}${before}${renderCursor(theme, atCh)}${after}`;
-        lines.push(truncateToWidth(rendered, width));
+        lines.push(renderInputLine(lineText, cursorPos.col, width, theme, showHardwareCursor));
       } else {
-        lines.push(truncateToWidth(`${leftPad}${truncateToWidth(lineText, contentWidth)}`, width));
+        lines.push(truncateToWidth(`  ${truncateToWidth(lineText, Math.max(1, width - 2))}`, width));
       }
     }
     if (!sourceLines.length) {
-      lines.push(truncateToWidth(`${leftPad}${renderCursor(theme, ' ')}`, width));
+      lines.push(renderInputLine('', 0, width, theme, showHardwareCursor));
     }
     lines.push(divider(theme, width, true));
     return lines;

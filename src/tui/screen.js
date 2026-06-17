@@ -1,5 +1,7 @@
 'use strict';
 
+const { CURSOR_MARKER, stripCursorMarker } = require('./cursor');
+
 const ANSI = {
   clear: '\x1b[2J',
   home: '\x1b[H',
@@ -65,6 +67,7 @@ function redactJson(key, value) {
 function visibleWidth(text) {
   let width = 0;
   for (const char of Array.from(stripAnsi(text))) {
+    if (char === CURSOR_MARKER) continue;
     const code = char.codePointAt(0);
     width += code > 0x2e80 ? 2 : 1;
   }
@@ -80,6 +83,10 @@ function truncateToWidth(text, width) {
   const ellipsis = '...';
   const limit = Math.max(0, maxWidth - ellipsis.length);
   for (const char of Array.from(stripAnsi(input))) {
+    if (char === CURSOR_MARKER) {
+      output += char;
+      continue;
+    }
     const size = char.codePointAt(0) > 0x2e80 ? 2 : 1;
     if (used + size > limit) break;
     output += char;
@@ -101,6 +108,10 @@ function wrapToWidth(text, width) {
       continue;
     }
     for (const char of chars) {
+      if (char === CURSOR_MARKER) {
+        line += char;
+        continue;
+      }
       const size = char.codePointAt(0) > 0x2e80 ? 2 : 1;
       if (used > 0 && used + size > maxWidth) {
         output.push(line);
@@ -133,7 +144,7 @@ function moveTo(row, column) {
 }
 
 function sanitize(text) {
-  return redactSensitive(stripAnsi(String(text || '').replace(/\r/g, '')));
+  return redactSensitive(stripCursorMarker(stripAnsi(String(text || '').replace(/\r/g, ''))));
 }
 
 module.exports = {

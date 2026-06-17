@@ -1,6 +1,7 @@
 'use strict';
 
 const { ANSI, visibleWidth } = require('./screen');
+const { extractCursorPosition } = require('./cursor');
 
 function padFrameLine(line, columns) {
   const raw = String(line || '');
@@ -29,6 +30,14 @@ function createDiffRenderer(options) {
     return output;
   }
 
+  function moveToFramePosition(cursor) {
+    const row = Math.max(0, cursor.row || 0);
+    const column = Math.max(1, cursor.column || 1);
+    const output = moveBy(row - hardwareCursorRow) + `\x1b[${column}G`;
+    hardwareCursorRow = row;
+    return output;
+  }
+
   function normalizeLines(lines, size) {
     const columns = Math.max(40, (size && size.columns) || 80);
     const rows = Math.max(12, (size && size.rows) || 24);
@@ -40,7 +49,7 @@ function createDiffRenderer(options) {
     return { columns, rows, padded };
   }
 
-  function fullRender(lines, size, clear) {
+  function fullRender(lines, size, clear, cursor) {
     const normalized = normalizeLines(lines, size);
     const columns = normalized.columns;
     const rows = normalized.rows;
@@ -49,23 +58,28 @@ function createDiffRenderer(options) {
     previousSize = { columns, rows };
     hardwareCursorRow = Math.max(0, padded.length - 1);
     previousViewportTop = Math.max(0, padded.length - rows);
-    return `${ANSI.hideCursor}${clear ? `${ANSI.clear}${ANSI.home}` : ''}${padded.join('\n')}`;
+    let output = `${ANSI.hideCursor}${clear ? `${ANSI.clear}${ANSI.home}` : ''}${padded.join('\n')}`;
+    if (cursor) output += moveToFramePosition(cursor) + ANSI.showCursor;
+    return output;
   }
 
   function render(lines, size) {
+    const extracted = extractCursorPosition(lines);
+    const cleanLines = extracted.lines;
+    const cursor = extracted.cursor;
     const columns = Math.max(40, (size && size.columns) || 80);
     const rows = Math.max(12, (size && size.rows) || 24);
     const firstFrame = previousLines.length === 0;
     const widthChanged = previousSize.columns !== 0 && previousSize.columns !== columns;
     const heightChanged = previousSize.rows !== 0 && previousSize.rows !== rows;
-    const padded = normalizeLines(lines, { columns, rows }).padded;
+    const padded = normalizeLines(cleanLines, { columns, rows }).padded;
 
     if (firstFrame) {
-      return fullRender(lines, { columns, rows }, initialClear);
+      return fullRender(cleanLines, { columns, rows }, initialClear, cursor);
     }
 
     if (widthChanged || heightChanged) {
-      return fullRender(lines, { columns, rows }, true);
+      return fullRender(cleanLines, { columns, rows }, true, cursor);
     }
 
     let firstChanged = -1;
@@ -79,11 +93,12 @@ function createDiffRenderer(options) {
     }
 
     if (firstChanged < 0) {
+      if (cursor) return ANSI.hideCursor + moveToFramePosition(cursor) + ANSI.showCursor;
       return ANSI.hideCursor + moveToFrameRow(Math.max(0, padded.length - 1));
     }
 
     if (firstChanged < previousViewportTop) {
-      return fullRender(lines, { columns, rows }, true);
+      return fullRender(cleanLines, { columns, rows }, true, cursor);
     }
 
     let output = ANSI.hideCursor;
@@ -108,6 +123,10 @@ function createDiffRenderer(options) {
     previousLines = padded;
     previousSize = { columns, rows };
     previousViewportTop = Math.max(previousViewportTop, hardwareCursorRow - rows + 1, padded.length - rows);
+    if (cursor) {
+      output += moveToFramePosition(cursor) + ANSI.showCursor;
+      return output;
+    }
     output += moveToFrameRow(Math.max(0, padded.length - 1));
     return output;
   }

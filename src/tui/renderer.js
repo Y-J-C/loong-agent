@@ -19,7 +19,12 @@ function renderTui(state, size, options) {
   const width = Math.max(40, size.columns || 100);
   const height = Math.max(12, size.rows || 32);
   const theme = getTheme(state.theme || 'loong-dark');
-  const context = { state, theme, size: { columns: width, rows: height } };
+  const context = {
+    state,
+    theme,
+    size: { columns: width, rows: height },
+    showHardwareCursor: Boolean(opts.showHardwareCursor),
+  };
 
   const editorSlot = new EditorSlotComponent();
   const slotLines = renderComponentLines(editorSlot, width, context);
