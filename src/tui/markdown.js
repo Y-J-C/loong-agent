@@ -17,9 +17,11 @@ function fit(line, width) {
   return truncateToWidth(String(line || ''), width);
 }
 
-function normalizeLinks(text) {
+function normalizeInline(text) {
   return String(text || '')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
     .replace(/`([^`]+)`/g, '$1');
 }
 
@@ -28,7 +30,7 @@ function pushWrapped(output, raw, width, theme, token, options) {
   const prefix = opts.prefix || '';
   const fill = Boolean(opts.fill);
   const contentWidth = Math.max(1, width - visibleWidth(prefix));
-  const prepared = normalizeLinks(raw);
+  const prepared = normalizeInline(raw);
   const wrapped = wrapToWidth(prepared, contentWidth);
   for (const chunk of (wrapped.length ? wrapped : [''])) {
     const text = fit(`${prefix}${chunk}`, width);
@@ -95,15 +97,15 @@ function renderMarkdownBlock(text, width, theme, options) {
       continue;
     }
 
-    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    const unordered = line.match(/^(\s*)[-*+]\s+(.+)$/);
     if (unordered) {
-      pushWrapped(output, unordered[1], width, theme, token, { prefix: GLYPHS.bullet, fill });
+      pushWrapped(output, unordered[2], width, theme, token, { prefix: `${unordered[1]}${GLYPHS.bullet}`, fill });
       continue;
     }
 
-    const ordered = line.match(/^\s*(\d+)\.\s+(.+)$/);
+    const ordered = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
     if (ordered) {
-      pushWrapped(output, ordered[2], width, theme, token, { prefix: `${ordered[1]}. `, fill });
+      pushWrapped(output, ordered[3], width, theme, token, { prefix: `${ordered[1]}${ordered[2]}. `, fill });
       continue;
     }
 

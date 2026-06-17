@@ -31,6 +31,67 @@ test('message_update updates same assistant item', () => {
   assert(assistants[0].text === 'hello world', 'assistant text not updated');
 });
 
+test('v2 answer message_update hides raw json', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });
+  handleAgentEvent(state, {
+    type: 'message_update',
+    role: 'assistant',
+    content: '{"type":"answer","answer":"你好","status":"ok","evidence":[{"source":"model"}]}',
+  });
+  const assistants = state.messages.filter((message) => message.type === 'assistant');
+  assert(assistants.length === 1, `expected one assistant item, got ${assistants.length}`);
+  assert(assistants[0].text === '你好', 'answer text was not extracted');
+  assert(assistants[0].displayKind === 'model_answer', 'displayKind should mark model answer');
+  assert(JSON.stringify(assistants[0]).indexOf('"answer"') < 0, 'raw answer envelope leaked into message');
+  assert(assistants[0].meta.evidenceCount === 1, 'evidence count missing');
+});
+
+test('v2 answer message_end stays single item and agent_end promotes final', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });
+  handleAgentEvent(state, {
+    type: 'message_end',
+    role: 'assistant',
+    content: '{"type":"answer","answer":"最终回答","status":"ok"}',
+  });
+  handleAgentEvent(state, { type: 'agent_end', status: 'ok', summary: '最终回答', completionSource: 'model_answer' });
+  const finals = state.messages.filter((message) => message.type === 'assistant_final');
+  assert(finals.length === 1, `expected one final item, got ${finals.length}`);
+  assert(finals[0].text === '最终回答', 'final answer text mismatch');
+  assert(finals[0].displayKind === 'model_answer', 'final answer displayKind mismatch');
+  assert(state.messages.length === 1, 'agent_end appended duplicate final answer');
+});
+
+test('legacy and v2 tool envelopes render as tool calls', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });
+  handleAgentEvent(state, { type: 'message_update', role: 'assistant', content: '{"tool":"finish","input":{}}' });
+  assert(state.messages[0].text === 'assistant -> tool: finish', 'legacy tool envelope not normalized');
+  handleAgentEvent(state, { type: 'message_update', role: 'assistant', content: '{"type":"tool","tool":"bash","input":{}}' });
+  assert(state.messages[0].text === 'assistant -> tool: bash', 'v2 tool envelope not normalized');
+});
+
+test('streaming partial structured json does not render raw json', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '', streaming: true });
+  handleAgentEvent(state, {
+    type: 'message_update',
+    role: 'assistant',
+    content: '{"type":"answer","answer":"half',
+    streaming: true,
+  });
+  assert(state.messages[0].displayKind === 'streaming_structured', 'partial structured message kind mismatch');
+  assert(state.messages[0].text.indexOf('{"type":"answer"') < 0, 'partial raw json leaked');
+  handleAgentEvent(state, {
+    type: 'message_update',
+    role: 'assistant',
+    content: '{"type":"answer","answer":"完整","status":"ok"}',
+    streaming: true,
+  });
+  assert(state.messages[0].text === '完整', 'complete structured answer did not replace placeholder');
+});
+
 test('tool start and end update same tool item', () => {
   const state = createTuiState({});
   handleAgentEvent(state, { type: 'tool_execution_start', loop: 1, toolName: 'runtime_health', callSummary: 'health' });

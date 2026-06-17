@@ -1,26 +1,36 @@
 'use strict';
 
 const { addMessage, updateMessage } = require('./state');
+const { normalizeAssistantContent } = require('./message-normalizer');
 const { statusLabel, workflow } = require('../cli-view');
 
-function parseAssistantTool(content) {
-  const text = String(content || '').trim();
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && parsed.tool ? parsed.tool : '';
-  } catch (error) {
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      try {
-        const parsed = JSON.parse(text.slice(start, end + 1));
-        return parsed && parsed.tool ? parsed.tool : '';
-      } catch (innerError) {
-        return '';
-      }
-    }
-    return '';
+function assistantPatch(content, event) {
+  const normalized = normalizeAssistantContent(content, {
+    streaming: Boolean(event && event.streaming),
+  });
+  const patch = {
+    text: normalized.text,
+    displayKind: normalized.displayKind,
+  };
+  if (normalized.status || normalized.evidence) {
+    patch.meta = {
+      status: normalized.status || '',
+      evidenceCount: normalized.evidence ? normalized.evidence.length : 0,
+    };
   }
+  if (normalized.evidence) patch.evidence = normalized.evidence;
+  return { normalized, patch };
+}
+
+function latestAssistantAnswer(state) {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message.type === 'assistant' || message.type === 'assistant_final') {
+      return message.displayKind === 'model_answer' ? message : null;
+    }
+    if (message.type === 'user' || message.type === 'tool' || message.type === 'error') return null;
+  }
+  return null;
 }
 
 function arrayCount(value) {
@@ -84,19 +94,19 @@ function handleAgentEvent(state, event) {
     const msg = addMessage(state, { type: 'assistant', text: '' });
     state.currentAssistantEventId = msg.id;
   } else if (event.type === 'message_update' && event.role === 'assistant') {
-    const tool = parseAssistantTool(event.content || '');
-    updateMessage(state, state.currentAssistantEventId, {
-      text: tool ? `assistant -> tool: ${tool}` : event.content || '',
-    });
-    if (!tool) state.lastAssistantText = event.content || state.lastAssistantText;
+    const result = assistantPatch(event.content || '', event);
+    updateMessage(state, state.currentAssistantEventId, result.patch);
+    if (result.normalized.displayKind === 'plain' || result.normalized.displayKind === 'model_answer') {
+      state.lastAssistantText = result.normalized.text || state.lastAssistantText;
+    }
   } else if (event.type === 'message_end' && event.role === 'user') {
     if (event.internal) return;
   } else if (event.type === 'message_end' && event.role === 'assistant') {
-    const tool = parseAssistantTool(event.content || '');
-    updateMessage(state, state.currentAssistantEventId, {
-      text: tool ? `assistant -> tool: ${tool}` : event.content || '',
-    });
-    if (!tool) state.lastAssistantText = event.content || state.lastAssistantText;
+    const result = assistantPatch(event.content || '', event);
+    updateMessage(state, state.currentAssistantEventId, result.patch);
+    if (result.normalized.displayKind === 'plain' || result.normalized.displayKind === 'model_answer') {
+      state.lastAssistantText = result.normalized.text || state.lastAssistantText;
+    }
   } else if (event.type === 'tool_execution_start') {
     state.toolCount += 1;
     state.status = `tool ${event.toolName || 'unknown'} running`;
@@ -181,13 +191,23 @@ function handleAgentEvent(state, event) {
       if (usage.contextUsed) state.contextUsed = usage.contextUsed;
       if (usage.contextBudget) state.contextBudget = usage.contextBudget;
     }
+    const existingAnswer = !event.error && status === 'ok' ? latestAssistantAnswer(state) : null;
+    if (existingAnswer) {
+      existingAnswer.type = 'assistant_final';
+      existingAnswer.meta = Object.assign({}, existingAnswer.meta || {}, {
+        status,
+        completionSource: event.completionSource || 'model_answer',
+        evidenceCount: Array.isArray(existingAnswer.evidence) ? existingAnswer.evidence.length : existingAnswer.meta && existingAnswer.meta.evidenceCount || 0,
+      });
+      return;
+    }
     addMessage(state, {
       type: event.error || status !== 'ok' ? 'error' : 'assistant_final',
-      text: [
-        workflow(status === 'ok' ? 'report' : 'risk', `${statusLabel(status)} (${status})`),
-        `agent_end status=${status}`,
-        event.summary || event.error || 'done',
-      ].join('\n'),
+      text: event.summary || event.error || 'done',
+      meta: {
+        status,
+        completionSource: event.completionSource || '',
+      },
     });
   } else if (event.type === 'fork_start') {
     addMessage(state, { type: 'system', text: `会话分支开始 / fork_start: ${event.sourceSessionId || 'unknown'}` });

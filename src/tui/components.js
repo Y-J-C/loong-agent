@@ -14,9 +14,7 @@ const { paint } = require('./theme');
 const { GLYPHS, hline } = require('./glyphs');
 const { renderMarkdownBlock } = require('./markdown');
 const {
-  brandMotto,
   brandTitle,
-  instructionFlow,
   toolStatusLabel,
 } = require('../cli-view');
 
@@ -119,14 +117,11 @@ class HeaderComponent {
       paint(theme, 'dim', '/help - Esc abort - Ctrl+O tools'),
     ] : compact ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch coding terminal'),
-      paint(theme, 'dim', 'request -> plan -> tools -> evidence -> summary | /help - ! readonly'),
+      paint(theme, 'dim', 'Esc abort/back - / commands - ! readonly - Ctrl+O details'),
       '',
     ] : [
       paint(theme, 'header', `loong-agent v0.x | ${brandTitle()}`),
-      paint(theme, 'dim', brandMotto()),
-      paint(theme, 'dim', instructionFlow()),
       paint(theme, 'dim', 'Esc abort/back - Ctrl+C/Ctrl+D exit - / commands - ! readonly command - Ctrl+O details'),
-      '',
       paint(theme, 'dim', 'LoongArch board focused: read-first, evidence-driven, auditable sessions.'),
       '',
     ];
@@ -187,27 +182,36 @@ class FinalAnswerComponent {
     const theme = context.theme;
     const text = this.message.text || '';
     if (!String(text).trim()) return [];
-    const lines = String(text).split(/\n/);
-    const meta = lines.slice(0, 2).join('\n');
-    const answer = lines.slice(2).join('\n');
     const output = [];
-    if (meta.trim()) {
-      output.push(...renderMarkdownBlock(meta, width, theme, {
-        token: 'assistant',
-        maxLines: 8,
-      }));
+    const meta = this.message.meta || null;
+    if (meta && (meta.status || meta.completionSource || meta.evidenceCount !== undefined)) {
+      const parts = [];
+      if (meta.status) parts.push(`status=${meta.status}`);
+      if (meta.completionSource) parts.push(`source=${meta.completionSource}`);
+      if (meta.evidenceCount !== undefined) parts.push(`evidence=${meta.evidenceCount}`);
+      output.push(paint(theme, 'dim', fitLine(parts.join(' '), width)));
     }
+
+    let answer = text;
+    if (!meta) {
+      const lines = String(text).split(/\n/);
+      if (lines.length >= 3 && /^agent_end status=/.test(lines[1] || '')) {
+        output.push(...renderMarkdownBlock(lines.slice(0, 2).join('\n'), width, theme, {
+          token: 'assistant',
+          maxLines: 4,
+        }));
+        answer = lines.slice(2).join('\n');
+      }
+    }
+
     if (answer.trim()) {
-      output.push('');
-      output.push(fullLine('', width, theme, 'finalAnswer'));
+      if (output.length) output.push('');
       output.push(...renderMarkdownBlock(answer, width, theme, {
-        token: 'finalAnswer',
-        fill: true,
+        token: 'assistant',
         maxLines: MAX_MESSAGE_LINES,
       }));
-      output.push(fullLine('', width, theme, 'finalAnswer'));
-      output.push('');
     }
+    output.push('');
     return output;
   }
 }
