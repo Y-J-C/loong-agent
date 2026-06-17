@@ -18,6 +18,17 @@ const ANSI = {
   inverse: '\x1b[7m',
   userBg: '\x1b[38;5;255m\x1b[48;5;237m',
   finalAnswerBg: '\x1b[38;5;16m\x1b[48;5;250m',
+  muted: '\x1b[38;5;244m',
+  borderMuted: '\x1b[38;5;240m',
+  editorBorder: '\x1b[38;5;146m',
+  editorActiveBorder: '\x1b[38;5;189m',
+  selectedBg: '\x1b[38;5;255m\x1b[48;5;238m',
+  mdHeading: '\x1b[38;5;222m',
+  mdCode: '\x1b[38;5;116m\x1b[48;5;236m',
+  mdQuote: '\x1b[38;5;250m',
+  toolPendingBg: '\x1b[38;5;230m\x1b[48;5;236m',
+  toolSuccessBg: '\x1b[38;5;194m\x1b[48;5;235m',
+  toolErrorBg: '\x1b[38;5;224m\x1b[48;5;52m',
 };
 
 function color(code, text) {

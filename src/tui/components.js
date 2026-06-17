@@ -11,6 +11,8 @@ const {
 } = require('./screen');
 const { renderStatusBar } = require('./status-bar');
 const { paint } = require('./theme');
+const { GLYPHS, hline } = require('./glyphs');
+const { renderMarkdownBlock } = require('./markdown');
 const {
   brandMotto,
   brandTitle,
@@ -23,6 +25,10 @@ const MAX_TOOL_DETAIL_LINES = 18;
 
 function fitLine(line, width) {
   return truncateToWidth(String(line || ''), width);
+}
+
+function fullLine(line, width, theme, token) {
+  return paint(theme, token, padRight(fitLine(line, width), width));
 }
 
 function clampLines(lines, limit, width, theme) {
@@ -65,7 +71,7 @@ function cursorToLineCol(text, cursor) {
 
 function renderCursor(theme, char) {
   if (theme && theme.cursor) return paint(theme, 'cursor', char || ' ');
-  return char && char !== ' ' ? `[${char}]` : '█';
+  return char && char !== ' ' ? `[${char}]` : GLYPHS.cursor;
 }
 
 function visibleWindow(items, selectedIndex, maxVisible) {
@@ -81,6 +87,24 @@ function visibleWindow(items, selectedIndex, maxVisible) {
 function slotMaxRows(context) {
   const rows = context && context.size ? context.size.rows : 24;
   return Math.min(16, Math.max(6, Math.floor(rows * 0.45)));
+}
+
+function editorMaxRows(context) {
+  const rows = context && context.size ? context.size.rows : 24;
+  return Math.min(8, Math.max(4, Math.floor(rows * 0.3)));
+}
+
+function divider(theme, width, active) {
+  return paint(theme, active ? 'editorActiveBorder' : 'editorBorder', hline(width));
+}
+
+function listPosition(start, end, total) {
+  if (!total) return '0/0';
+  return `${start + 1}-${end}/${total}`;
+}
+
+function selectedLine(theme, text, width) {
+  return fullLine(text, width, theme, 'selectedBg');
 }
 
 class HeaderComponent {
@@ -125,15 +149,15 @@ class UserMessageComponent {
     const lines = [];
     const indent = '  ';
     const contentW = Math.max(1, width - 2);
-    lines.push(paint(theme, 'user', padRight('', width)));
+    lines.push(fullLine('', width, theme, 'user'));
     for (const source of sourceLines) {
       const wrapped = wrapToWidth(source || '', contentW - 2);
       for (const wLine of (wrapped.length ? wrapped : [''])) {
         const line = fitLine(`${indent}${truncateToWidth(wLine, contentW - 2)}`, width);
-        lines.push(paint(theme, 'user', padRight(line, width)));
+        lines.push(fullLine(line, width, theme, 'user'));
       }
     }
-    lines.push(paint(theme, 'user', padRight('', width)));
+    lines.push(fullLine('', width, theme, 'user'));
     lines.push('');
     return lines;
   }
@@ -147,7 +171,10 @@ class AssistantMessageComponent {
   render(width, context) {
     const text = this.message.text || '';
     if (!String(text).trim()) return [];
-    return renderBlock(text, width, context.theme, 'assistant');
+    return renderMarkdownBlock(text, width, context.theme, {
+      token: 'assistant',
+      maxLines: MAX_MESSAGE_LINES,
+    });
   }
 }
 
@@ -164,12 +191,21 @@ class FinalAnswerComponent {
     const meta = lines.slice(0, 2).join('\n');
     const answer = lines.slice(2).join('\n');
     const output = [];
-    if (meta.trim()) output.push(...renderBlock(meta, width, theme, 'assistant'));
+    if (meta.trim()) {
+      output.push(...renderMarkdownBlock(meta, width, theme, {
+        token: 'assistant',
+        maxLines: 8,
+      }));
+    }
     if (answer.trim()) {
       output.push('');
-      output.push(paint(theme, 'finalAnswer', padRight('', width)));
-      output.push(...renderBlock(answer, width, theme, 'finalAnswer', { fill: true }));
-      output.push(paint(theme, 'finalAnswer', padRight('', width)));
+      output.push(fullLine('', width, theme, 'finalAnswer'));
+      output.push(...renderMarkdownBlock(answer, width, theme, {
+        token: 'finalAnswer',
+        fill: true,
+        maxLines: MAX_MESSAGE_LINES,
+      }));
+      output.push(fullLine('', width, theme, 'finalAnswer'));
       output.push('');
     }
     return output;
@@ -186,7 +222,9 @@ class ToolMessageComponent {
     const expanded = Boolean(context.state.expandedTools || this.message.expanded);
     const message = this.message;
     const rawStatus = message.errorType || message.status || (message.isError ? 'tool_error' : message.done ? 'ok' : 'running');
-    const token = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error' ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
+    const isError = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error';
+    const statusToken = isError ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
+    const blockToken = isError ? 'toolErrorBg' : message.done ? 'toolSuccessBg' : 'toolPendingBg';
     const displayStatus = toolStatusLabel(rawStatus, message.isError);
     const meta = [];
     if (message.durationMs !== undefined) meta.push(`${message.durationMs}ms`);
@@ -194,29 +232,46 @@ class ToolMessageComponent {
     if (message.warningCount !== undefined) meta.push(`warnings=${message.warningCount}`);
     const suffix = meta.length ? ` ${meta.join(' ')}` : '';
     const toolName = message.toolName || 'unknown';
-    const contentW = Math.max(1, width - 2);
-    const indent = '鈹?';
     const lines = [];
-    lines.push(paint(theme, 'toolBorder', fitLine(`鈺攢 宸ュ叿 ${toolName} / ${displayStatus}${suffix}`, width)));
-    if (message.isError || rawStatus === 'policy_blocked') {
+
+    lines.push(fullLine(`${GLYPHS.toolTop} tool ${toolName} / ${displayStatus}${suffix}`, width, theme, blockToken));
+    if (isError) {
       const errorDetail = message.errorType ? `policy: ${message.errorType}` : `error: ${rawStatus}`;
-      lines.push(paint(theme, 'toolError', fitLine(`${indent}${errorDetail}`, width)));
+      lines.push(fullLine(`${GLYPHS.toolMid}${errorDetail}`, width, theme, 'toolError'));
     }
-    const summary = redactSensitive(message.summary || '');
+
+    const summary = redactSensitive(message.summary || message.resultSummary || '');
     if (summary && !expanded) {
-      lines.push(paint(theme, 'dim', fitLine(`${indent}${truncateToWidth(summary, contentW - 2)}`, width)));
+      const summaryLines = wrapToWidth(summary, Math.max(1, width - visibleWidth(GLYPHS.toolMid))).slice(0, 2);
+      for (const line of summaryLines) {
+        lines.push(paint(theme, statusToken, fitLine(`${GLYPHS.toolMid}${line}`, width)));
+      }
     }
-    if (expanded && message.detail) {
+
+    if (expanded) {
       if (message.args) {
-        lines.push(...renderBlock(`args: ${JSON.stringify(message.args, redactJson)}`, width, theme, 'dim', { prefix: '  鈹?', maxLines: 4 }));
+        lines.push(...renderBlock(`args: ${JSON.stringify(message.args, redactJson)}`, width, theme, 'dim', {
+          prefix: GLYPHS.toolMid,
+          maxLines: 4,
+        }));
       }
       if (message.resultSummary) {
-        lines.push(...renderBlock(`result: ${message.resultSummary}`, width, theme, 'dim', { prefix: '  鈹?', maxLines: 4 }));
+        lines.push(...renderBlock(`result: ${message.resultSummary}`, width, theme, 'dim', {
+          prefix: GLYPHS.toolMid,
+          maxLines: 4,
+        }));
       }
-      const detail = typeof message.detail === 'string' ? message.detail : JSON.stringify(message.detail, redactJson, 2);
-      lines.push(...renderBlock(detail, width, theme, 'dim', { prefix: '  鈹?', maxLines: MAX_TOOL_DETAIL_LINES }));
+      if (message.detail) {
+        const detail = typeof message.detail === 'string' ? message.detail : JSON.stringify(message.detail, redactJson, 2);
+        lines.push(...renderBlock(detail, width, theme, 'dim', {
+          prefix: GLYPHS.toolMid,
+          maxLines: MAX_TOOL_DETAIL_LINES,
+        }));
+      }
     }
-    return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : 4, width, theme);
+
+    lines.push(paint(theme, 'toolBorder', fitLine(`${GLYPHS.toolBottom}${hline(Math.max(1, width - visibleWidth(GLYPHS.toolBottom)))}`, width)));
+    return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : 5, width, theme);
   }
 }
 
@@ -226,10 +281,10 @@ function renderTurnSeparator(prevType, nextType, width, theme) {
   if ((prevType === 'assistant' || prevType === 'assistant_final') && nextType === 'tool') return [];
   if (prevType === 'tool' && (nextType === 'assistant' || nextType === 'assistant_final')) return [];
   if ((prevType === 'tool' || prevType === 'assistant' || prevType === 'assistant_final') && nextType === 'user') {
-    return [paint(theme, 'turnSeparator', fitLine('路'.repeat(Math.max(2, width - 2)), width))];
+    return [paint(theme, 'turnSeparator', fitLine(hline(Math.max(2, width - 2)), width))];
   }
   if (nextType === 'user') {
-    return [paint(theme, 'turnSeparator', fitLine('路'.repeat(Math.max(2, width - 2)), width))];
+    return [paint(theme, 'turnSeparator', fitLine(hline(Math.max(2, width - 2)), width))];
   }
   return [];
 }
@@ -272,23 +327,29 @@ class InputEditorComponent {
     const state = context.state;
     const theme = context.theme;
     const hasQueued = state.mode === 'running' && state.queuedFollowUps && state.queuedFollowUps.length > 0;
-    const prefix = hasQueued ? 'queued> ' : 'loong> ';
     const input = sanitize(state.inputBuffer || '');
     const sourceLines = String(input).split('\n');
     const pasteCount = state.pasteCount || 0;
     const lines = [];
+
     if (pasteCount > 0) {
       const pasteText = pasteCount === 1 ? '[paste]' : `[paste #${pasteCount}]`;
       lines.push(paint(theme, 'system', fitLine(pasteText, width)));
     }
-    lines.push(paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))));
-    const maxInputLines = 4;
+    if (hasQueued) {
+      lines.push(paint(theme, 'dim', fitLine(`queued follow-ups: ${state.queuedFollowUps.length}`, width)));
+    }
+
+    lines.push(divider(theme, width, true));
+    const maxInputLines = editorMaxRows(context);
     const start = Math.max(0, sourceLines.length - maxInputLines);
     if (start > 0) lines.push(paint(theme, 'dim', fitLine(`... ${start} more input line(s)`, width)));
+
     const cursor = state.cursor || 0;
     const cursorPos = cursorToLineCol(state.inputBuffer || '', cursor);
+    const leftPad = '  ';
+    const contentWidth = Math.max(1, width - visibleWidth(leftPad));
     for (let index = start; index < sourceLines.length; index += 1) {
-      const linePrefix = index === 0 ? prefix : '....> ';
       const lineText = sourceLines[index] || '';
       if (index === cursorPos.line && cursorPos.col >= 0) {
         const chars = Array.from(lineText);
@@ -296,16 +357,16 @@ class InputEditorComponent {
         const before = chars.slice(0, col).join('');
         const atCh = chars[col] || ' ';
         const after = chars.slice(col + 1).join('');
-        const rendered = linePrefix + before + renderCursor(theme, atCh) + after;
+        const rendered = `${leftPad}${before}${renderCursor(theme, atCh)}${after}`;
         lines.push(truncateToWidth(rendered, width));
       } else {
-        lines.push(truncateToWidth(`${linePrefix}${lineText}`, width));
+        lines.push(truncateToWidth(`${leftPad}${truncateToWidth(lineText, contentWidth)}`, width));
       }
     }
     if (!sourceLines.length) {
-      lines.push(truncateToWidth(prefix + renderCursor(theme, ' '), width));
+      lines.push(truncateToWidth(`${leftPad}${renderCursor(theme, ' ')}`, width));
     }
-    lines.push(paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))));
+    lines.push(divider(theme, width, true));
     return lines;
   }
 }
@@ -325,7 +386,7 @@ class AutocompleteComponent {
     const end = Math.min(items.length, start + maxShow);
     for (let index = start; index < end; index += 1) {
       const selected = index === selectedIndex;
-      const prefix = selected ? '> ' : '  ';
+      const prefix = selected ? GLYPHS.selector : GLYPHS.unselected;
       const item = items[index];
       const command = typeof item === 'string' ? item : item.command || '';
       const hint = typeof item === 'string' ? '' : item.argumentHint || '';
@@ -337,7 +398,7 @@ class AutocompleteComponent {
           : `${prefix}${padRight(label, 28)} ${description}`,
         width
       );
-      lines.push(selected ? paint(theme, 'selector', padRight(text, width)) : text);
+      lines.push(selected ? selectedLine(theme, text, width) : text);
     }
     return lines;
   }
@@ -356,21 +417,24 @@ class PanelComponent {
       return !query || haystack.indexOf(query) >= 0;
     });
     if ((panel.selectedIndex || 0) >= items.length) panel.selectedIndex = Math.max(0, items.length - 1);
+    const title = panel.title || (panel.models ? 'Model Selector' : 'Settings');
+    const hint = panel.hint || 'Up/Down select - Enter confirm - Esc back';
     const lines = [
-      paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))),
-      paint(theme, 'header', fitLine(panel.title || (panel.models ? '妯″瀷閫夋嫨 / Model Selector' : '璁剧疆 / Settings'), width)),
-      paint(theme, 'dim', fitLine(panel.hint || '涓婁笅閫夋嫨 - Enter 纭 - Esc 杩斿洖', width)),
+      divider(theme, width, false),
+      paint(theme, 'header', fitLine(title, width)),
+      paint(theme, 'dim', fitLine(hint, width)),
     ];
     if (panel.type === 'model') {
       lines.push(paint(theme, 'dim', fitLine(`filter: ${panel.query || ''}`, width)));
     }
     if (!items.length) {
       lines.push(paint(theme, 'dim', fitLine('No matching items.', width)));
-      lines.push(paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))));
+      lines.push(divider(theme, width, false));
       return lines.slice(0, maxRows);
     }
-    const listRows = Math.max(1, maxRows - lines.length - 1);
+    const listRows = Math.max(1, maxRows - lines.length - 2);
     const win = visibleWindow(items, panel.selectedIndex || 0, listRows);
+    lines.push(paint(theme, 'muted', fitLine(`items ${listPosition(win.start, win.end, items.length)}`, width)));
     let lastGroup = '';
     for (let index = win.start; index < win.end; index += 1) {
       const item = items[index];
@@ -380,20 +444,20 @@ class PanelComponent {
       }
       if (lines.length >= maxRows - 1) break;
       const selected = index === win.selected;
-      const prefix = selected ? '> ' : '  ';
+      const prefix = selected ? GLYPHS.selector : GLYPHS.unselected;
       const value = item.value ? (typeof item.value === 'function' ? item.value() : item.value) : '';
       const description = item.description ? `  ${item.description}` : '';
       const current =
         panel.type === 'model' && item.model && item.model.id === (state.model || '')
-          ? ' <- 当前'
+          ? ' <- current'
           : '';
       const text =
         panel.type === 'settings'
           ? `${prefix}${item.label}: ${value}`
           : `${prefix}${item.label || value}${current}${description}`;
-      lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
+      lines.push(selected ? selectedLine(theme, fitLine(text, width), width) : fitLine(text, width));
     }
-    lines.push(paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))));
+    lines.push(divider(theme, width, false));
     return lines.slice(0, maxRows);
   }
 }
@@ -405,28 +469,34 @@ class SessionSelectorComponent {
     const selector = state.selector;
     if (!selector) return [];
     const maxRows = slotMaxRows(context);
-    const lines = [paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width)))];
+    const lines = [divider(theme, width, false)];
     if (selector.subMode === 'actions') {
       const selectedItem = selector.selectedItem || {};
       const actions = selector.actions || [];
-      lines.push(paint(theme, 'header', fitLine(`鎿嶄綔閫夋嫨 / Action: ${truncateToWidth(String(selectedItem.id || ''), 24)}`, width)));
-      lines.push(paint(theme, 'dim', fitLine('涓婁笅閫夋嫨 - Enter纭 - Esc杩斿洖', width)));
-      const rows = Math.max(1, maxRows - lines.length - 1);
+      lines.push(paint(theme, 'header', fitLine(`Session action: ${truncateToWidth(String(selectedItem.id || ''), 24)}`, width)));
+      lines.push(paint(theme, 'dim', fitLine('Up/Down select - Enter confirm - Esc back', width)));
+      if (!actions.length) {
+        lines.push(paint(theme, 'dim', fitLine('No actions available.', width)));
+        lines.push(divider(theme, width, false));
+        return lines.slice(0, maxRows);
+      }
+      const rows = Math.max(1, maxRows - lines.length - 2);
       const win = visibleWindow(actions, selector.actionIndex || 0, rows);
+      lines.push(paint(theme, 'muted', fitLine(`actions ${listPosition(win.start, win.end, actions.length)}`, width)));
       for (let index = win.start; index < win.end; index += 1) {
         const action = actions[index];
         const selected = index === win.selected;
-        const prefix = selected ? '> ' : '  ';
+        const prefix = selected ? GLYPHS.selector : GLYPHS.unselected;
         const hint = action.key ? `[${action.key}]` : '   ';
         const text = `${prefix}${hint} ${action.label}`;
-        lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
+        lines.push(selected ? selectedLine(theme, fitLine(text, width), width) : fitLine(text, width));
       }
-      lines.push(paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))));
+      lines.push(divider(theme, width, false));
       return lines.slice(0, maxRows);
     }
 
     lines.push(paint(theme, 'header', fitLine(`Session selector (${selector.view || 'recent'})${selector.query ? ` filter="${selector.query}"` : ''}`, width)));
-    lines.push(paint(theme, 'dim', fitLine(width < 60 ? '绛涢€?- 涓婁笅 - Enter - Tab - Esc' : '杈撳叆绛涢€?- 涓婁笅閫夋嫨 - Enter 鑿滃崟 - Tab recent/tree - Esc 杩斿洖', width)));
+    lines.push(paint(theme, 'dim', fitLine(width < 60 ? 'Type filter - Up/Down - Enter - Tab - Esc' : 'Type to filter - Up/Down select - Enter actions - Tab recent/tree - Esc back', width)));
     const query = selector.query ? selector.query.toLowerCase() : '';
     const items = (selector.items || []).filter((item) => {
       const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
@@ -435,15 +505,16 @@ class SessionSelectorComponent {
     if ((selector.selectedIndex || 0) >= items.length) selector.selectedIndex = Math.max(0, items.length - 1);
     if (!items.length) {
       lines.push(paint(theme, 'dim', fitLine('No sessions match the current filter.', width)));
-      lines.push(paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))));
+      lines.push(divider(theme, width, false));
       return lines.slice(0, maxRows);
     }
-    const rows = Math.max(1, maxRows - lines.length - 1);
+    const rows = Math.max(1, maxRows - lines.length - 2);
     const win = visibleWindow(items, selector.selectedIndex || 0, rows);
+    lines.push(paint(theme, 'muted', fitLine(`sessions ${listPosition(win.start, win.end, items.length)}`, width)));
     for (let index = win.start; index < win.end; index += 1) {
       const item = items[index];
       const selected = index === win.selected;
-      const prefix = selected ? '> ' : '  ';
+      const prefix = selected ? GLYPHS.selector : GLYPHS.unselected;
       const branch = item.branchName ? ` (${item.branchName})` : '';
       const maxDepth = width < 60 ? 3 : 8;
       const depth = item.depth ? '  '.repeat(Math.min(item.depth, maxDepth)) : '';
@@ -455,9 +526,9 @@ class SessionSelectorComponent {
       const cur = isCurrent ? ' -> current' : '';
       const mod = item.modifiedAt ? ` ${String(item.modifiedAt).slice(0, 10)}` : '';
       const text = `${prefix}${depth}${item.id}${branch}${nameStr} [${item.command || 'session'}]${count}${mod}${cur}`;
-      lines.push(selected ? paint(theme, 'selector', padRight(fitLine(text, width), width)) : fitLine(text, width));
+      lines.push(selected ? selectedLine(theme, fitLine(text, width), width) : fitLine(text, width));
     }
-    lines.push(paint(theme, 'divider', '鈹€'.repeat(Math.max(1, width))));
+    lines.push(divider(theme, width, false));
     return lines.slice(0, maxRows);
   }
 }

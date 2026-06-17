@@ -28,7 +28,8 @@ test('renderer includes header input and status bar', () => {
   const output = renderTui(state, { columns: 80, rows: 20 });
   const plain = stripAnsi(output);
   assert(plain.indexOf('loong-agent v0.x') >= 0, 'missing header');
-  assert(plain.indexOf('loong>') >= 0 && plain.indexOf('你好') >= 0, 'missing input');
+  assert(plain.indexOf('loong>') < 0, 'old prompt should not be rendered');
+  assert(plain.indexOf('你好') >= 0, 'missing input');
   assert(plain.indexOf('mock/m') >= 0, 'missing model status');
 });
 
@@ -37,7 +38,8 @@ test('renderer can place startup intro directly below the launch command', () =>
   const output = renderTui(state, { columns: 80, rows: 16 }, { bodyAlign: 'top' });
   const rows = output.split('\n').map(stripAnsi);
   assert(rows[0].indexOf('loong-agent v0.x') === 0, 'startup intro should be first rendered row');
-  assert(rows[rows.length - 3].indexOf('loong>') >= 0, 'input prompt should remain pinned near bottom');
+  assert(rows[rows.length - 4].indexOf('─') >= 0, 'editor top border should remain pinned near bottom');
+  assert(rows[rows.length - 2].indexOf('─') >= 0, 'editor bottom border should remain pinned near bottom');
   assert(rows[rows.length - 1].indexOf('mock/m') >= 0, 'status bar should remain at bottom');
 });
 
@@ -50,7 +52,7 @@ test('startup intro scrolls with message history instead of staying fixed', () =
   const plain = stripAnsi(output);
   assert(plain.indexOf('loong-agent v0.x') < 0, 'startup intro stayed fixed at top');
   assert(plain.indexOf('history line 29') >= 0, 'latest history line missing');
-  assert(plain.indexOf('loong>') >= 0, 'input area missing');
+  assert(plain.indexOf('─') >= 0, 'editor area missing');
 });
 
 test('full history mode keeps startup intro and old messages in the rendered stream', () => {
@@ -65,7 +67,7 @@ test('full history mode keeps startup intro and old messages in the rendered str
   assert(plain.indexOf('loong-agent v0.x') >= 0, 'startup intro should remain in full history stream');
   assert(plain.indexOf('history line 0') >= 0, 'oldest history line should remain in full history stream');
   assert(plain.indexOf('history line 29') >= 0, 'latest history line missing from full history stream');
-  assert(plain.indexOf('loong>') >= 0, 'input area missing from full history stream');
+  assert(plain.indexOf('─') >= 0, 'editor area missing from full history stream');
 });
 
 test('renderer does not expose api key-like text from state', () => {
@@ -126,6 +128,48 @@ test('renderer wraps long assistant messages instead of truncating final answer'
   const output = renderTui(state, { columns: 40, rows: 30 });
   assert(output.indexOf('Loong-Agent can inspect runtime') >= 0, 'missing first wrapped line');
   assert(output.indexOf('concrete next steps') >= 0, 'missing wrapped tail content');
+});
+
+test('renderer renders assistant markdown structure', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    type: 'assistant',
+    text: [
+      '# Plan',
+      '',
+      '- read files',
+      '1. run tests',
+      '> keep evidence',
+      '---',
+      '```js',
+      'console.log("ok")',
+      '```',
+      '[docs](https://example.test/docs)',
+    ].join('\n'),
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 90, rows: 36 }));
+  assert(plain.indexOf('# Plan') >= 0, 'missing markdown heading');
+  assert(plain.indexOf('- read files') >= 0, 'missing markdown bullet');
+  assert(plain.indexOf('1. run tests') >= 0, 'missing markdown ordered item');
+  assert(plain.indexOf('│ keep evidence') >= 0, 'missing markdown quote');
+  assert(plain.indexOf('code js') >= 0 && plain.indexOf('console.log("ok")') >= 0, 'missing code block');
+  assert(plain.indexOf('docs (https://example.test/docs)') >= 0, 'missing normalized markdown link');
+});
+
+test('renderer uses pi-style tool blocks', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    type: 'tool',
+    toolName: 'bash',
+    summary: 'listed files',
+    done: true,
+    resultSummary: 'ok',
+    detail: { stdout: 'ok' },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 80, rows: 20 }));
+  assert(plain.indexOf('╭─ tool bash /') >= 0, 'missing tool block header');
+  assert(plain.indexOf('│ listed files') >= 0, 'missing compact tool summary');
+  assert(plain.indexOf('╰─') >= 0, 'missing tool block footer');
 });
 
 test('renderer keeps output inside small terminal dimensions', () => {
@@ -261,7 +305,7 @@ test('renderer displays focused settings and model panels', () => {
   };
   output = renderTui(state, { columns: 90, rows: 20 });
   assert(output.indexOf('模型选择 / Model Selector') >= 0, 'model panel title missing');
-  assert(output.indexOf('<- 当前') >= 0, 'current model marker missing');
+  assert(output.indexOf('<- current') >= 0, 'current model marker missing');
   assert(output.indexOf('loong>') < 0, 'input area should be replaced while model panel is open');
 });
 
@@ -288,13 +332,14 @@ test('renderer uses editor slot for selector and hides autocomplete', () => {
   assert(output.indexOf('/settings') < 0, 'autocomplete should be hidden while selector is open');
 });
 
-test('renderer displays multiline input with continuation prompt', () => {
+test('renderer displays multiline input without continuation prompt', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.inputBuffer = '第一行\n第二行';
   const output = renderTui(state, { columns: 80, rows: 20 });
   const plain = stripAnsi(output);
-  assert(plain.indexOf('loong>') >= 0 && plain.indexOf('第一行') >= 0, 'missing first input line');
-  assert(plain.indexOf('....>') >= 0 && plain.indexOf('第二行') >= 0, 'missing continuation input line');
+  assert(plain.indexOf('loong>') < 0 && plain.indexOf('....>') < 0, 'old prompts should not be rendered');
+  assert(plain.indexOf('第一行') >= 0, 'missing first input line');
+  assert(plain.indexOf('第二行') >= 0, 'missing continuation input line');
 });
 
 test('diff renderer only rewrites changed rows after first frame', () => {
