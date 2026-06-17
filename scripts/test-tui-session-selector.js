@@ -53,6 +53,8 @@ async function main() {
   state.selector.query = '';
   await handleCommand(context, '/tree');
   assert(state.selector.view === 'tree', 'tree did not open tree selector');
+  const tree = renderTui(state, { columns: 100, rows: 30 });
+  assert(tree.indexOf('Session tree') >= 0, 'tree selector did not render as tree');
   console.log('PASS tui session selector recent/tree/filter render');
 }
 

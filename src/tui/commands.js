@@ -67,6 +67,22 @@ function hotkeysText() {
   ].join('\n');
 }
 
+function hotkeysTextV2() {
+  return [
+    '快捷键:',
+    'Enter: 发送；运行中 steer 当前任务',
+    'Alt+Enter: 非运行中换行；运行中排队 follow-up',
+    'Ctrl+Enter 或 \\ + Enter: 换行',
+    'Esc 中断/返回 / Ctrl+C 中断或退出 / Ctrl+D 空输入退出',
+    'Ctrl+L 模型选择 / Ctrl+O 展开工具细节 / /clear 清屏',
+    'Ctrl+A/Home 行首 / Ctrl+E/End 行尾',
+    'Ctrl+K 删除到行尾 / Ctrl+W 或 Ctrl+Backspace 删除前一词',
+    'Up/Down 或 Ctrl+P/Ctrl+N 历史输入',
+    'PageUp/PageDown 滚动记录',
+    'Tree: Ctrl+T 切换过滤模式',
+  ].join('\n');
+}
+
 function latestAssistantText(state) {
   if (state.lastAssistantText) return state.lastAssistantText;
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
@@ -101,6 +117,7 @@ function openSessionSelector(state, manager, view) {
     items,
     query: '',
     selectedIndex: 0,
+    treeFilterMode: view === 'tree' ? 'default' : '',
   };
 }
 
@@ -241,6 +258,8 @@ function createModelPanel(config, state) {
     label: model.label || model.id || '来自环境变量 / From env',
     value: model.id,
     description: model.fromEnv ? 'env' : `${model.provider || ''}${model.providerProfile ? ` / ${model.providerProfile}` : ''}`,
+    group: model.providerProfile || model.provider || 'env',
+    favorite: model.id === 'deepseek-v4-flash',
     model,
   }));
   return {
@@ -358,7 +377,7 @@ async function runSlashCommandLegacy(context, text) {
   }
 
   if (name === '/hotkeys') {
-    addMessage(state, { type: 'system', text: hotkeysText() });
+    addMessage(state, { type: 'system', text: hotkeysTextV2() });
     return;
   }
 

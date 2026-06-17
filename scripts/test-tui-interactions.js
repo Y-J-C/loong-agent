@@ -126,3 +126,38 @@ test('focused input dispatch submits enter and edits text', async () => {
   });
   assert(submitted === 'hi', `unexpected submitted text: ${submitted}`);
 });
+
+test('running input dispatch steers enter and queues alt-enter', async () => {
+  const state = createTuiState({});
+  state.mode = 'running';
+  state.inputBuffer = 'adjust now';
+  let steered = '';
+  let queued = '';
+  await handleFocusedKey(state, { type: 'enter' }, {
+    steer: async (text) => { steered = text; },
+  });
+  assert(steered === 'adjust now', 'enter did not steer running input');
+
+  state.inputBuffer = 'after this';
+  await handleFocusedKey(state, { type: 'alt_enter' }, {
+    queueFollowUp: async (text) => { queued = text; },
+  });
+  assert(queued === 'after this', 'alt-enter did not queue running follow-up');
+});
+
+test('tree selector cycles filter mode with ctrl-t', async () => {
+  const state = createTuiState({});
+  state.selector = {
+    view: 'tree',
+    treeFilterMode: 'default',
+    query: '',
+    selectedIndex: 1,
+    items: [
+      { id: 'root', command: 'tui', depth: 0 },
+      { id: 'branch', command: 'fork', branchName: 'fix', depth: 1 },
+    ],
+  };
+  await handleSelectorKey(state, { type: 'ctrl_t' }, {});
+  assert(state.selector.treeFilterMode === 'named', 'ctrl-t did not cycle tree filter');
+  assert(state.selector.selectedIndex === 0, 'tree filter should reset selection');
+});

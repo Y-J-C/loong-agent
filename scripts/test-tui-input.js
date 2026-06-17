@@ -94,6 +94,7 @@ test('parseKey recognizes controls', () => {
   assert(parseKey(Buffer.from('\x1b[10;5u')).type === 'ctrl_enter', 'ctrl-enter lf parse failed');
   assert(parseKey(Buffer.from('\x1b\r')).type === 'alt_enter', 'alt-enter parse failed');
   assert(parseKey(Buffer.from('\x1b[Z')).type === 'shift_tab', 'shift-tab parse failed');
+  assert(parseKey(Buffer.from('\x14')).type === 'ctrl_t', 'ctrl-t parse failed');
   assert(parseKey(Buffer.from('\x1b[1;5D')).type === 'ctrl_left', 'ctrl-left parse failed');
   assert(parseKey(Buffer.from('\x1b[1;5C')).type === 'ctrl_right', 'ctrl-right parse failed');
   assert(parseKey(Buffer.from('\x1b[127;5u')).type === 'ctrl_backspace', 'ctrl-backspace parse failed');

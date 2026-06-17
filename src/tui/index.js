@@ -113,13 +113,32 @@ async function runTui(config, options) {
       return;
     }
     if (state.mode === 'running') {
-      agentSession.followUp(value);
-      state.queuedFollowUps.push(value);
-      addMessage(state, { type: 'system', text: `queued follow-up: ${value}` });
+      agentSession.steer(value);
+      addMessage(state, { type: 'system', text: `steer current run: ${value}` });
       render();
       return;
     }
     await startPrompt(value);
+  }
+
+  async function steerInput(text) {
+    const value = String(text || '').trim();
+    if (!value) return;
+    pushHistory(state, value);
+    setInput(state, '');
+    updateAutocomplete(state);
+    agentSession.steer(value);
+    addMessage(state, { type: 'system', text: `steer current run: ${value}` });
+  }
+
+  async function queueFollowUp(text) {
+    const value = String(text || '').trim();
+    if (!value) return;
+    pushHistory(state, value);
+    setInput(state, '');
+    updateAutocomplete(state);
+    agentSession.followUp(value);
+    state.queuedFollowUps.push(value);
   }
 
   function render() {
@@ -278,8 +297,20 @@ async function runTui(config, options) {
       return;
     }
     if (key.type === 'ctrl_l') {
-      clearMessages(state);
-      diffRenderer.reset();
+      await handleCommand({
+        config: activeConfig,
+        state,
+        replaceAgentSession,
+        startPrompt,
+        reloadConfig: (nextConfig) => {
+          activeConfig = nextConfig;
+          state.provider = nextConfig.provider || state.provider;
+          state.model = nextConfig.model || state.model;
+          state.cwd = nextConfig.workspace || state.cwd;
+          refreshBoardStatus(nextConfig);
+        },
+        refreshBoardStatus,
+      }, '/model');
       render();
       return;
     }
@@ -291,6 +322,8 @@ async function runTui(config, options) {
     }
     await handleFocusedKey(state, key, {
       submit,
+      steer: steerInput,
+      queueFollowUp,
       abortRunning,
       executeSessionAction,
       switchSessionView: async (view) => {

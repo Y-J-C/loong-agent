@@ -63,6 +63,60 @@ test('v2 answer message_end stays single item and agent_end promotes final', () 
   assert(state.messages.length === 1, 'agent_end appended duplicate final answer');
 });
 
+test('agent_end promotes earlier model answer after trailing tool messages', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });
+  handleAgentEvent(state, {
+    type: 'message_end',
+    role: 'assistant',
+    content: '{"type":"answer","answer":"内存情况正常","status":"ok","evidence":[{"source":"free"}]}',
+  });
+  assert(state.messages[0].hidden !== true, 'answer should be visible before later tool starts');
+  handleAgentEvent(state, { type: 'tool_execution_start', loop: 1, toolName: 'bash', callSummary: 'i2c scan' });
+  assert(state.messages[0].hidden === true, 'answer should be hidden once a later tool starts');
+  handleAgentEvent(state, {
+    type: 'tool_execution_end',
+    loop: 1,
+    toolName: 'bash',
+    resultSummary: 'ok',
+    result: { evidence: [{ source: 'bash' }] },
+  });
+  handleAgentEvent(state, { type: 'agent_end', status: 'ok', summary: '内存情况正常', completionSource: 'model_answer' });
+  const finals = state.messages.filter((message) => message.type === 'assistant_final');
+  assert(finals.length === 1, `expected one final item, got ${finals.length}`);
+  assert(finals[0].text === '内存情况正常', 'final answer text mismatch after trailing tool');
+  assert(state.messages.filter((message) => message.displayKind === 'model_answer' && !message.hidden).length === 1, 'duplicate visible model answer rendered');
+  assert(state.messages[state.messages.length - 1].type === 'assistant_final', 'final answer should render after trailing tools');
+});
+
+test('agent_end promotes plain assistant answer after tool messages', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'tool_execution_start', loop: 1, toolName: 'bash', callSummary: 'free -h' });
+  handleAgentEvent(state, {
+    type: 'tool_execution_end',
+    loop: 1,
+    toolName: 'bash',
+    resultSummary: '{"exitCode":0,"stdout":"Mem: 3.7Gi 1.0Gi 2.4Gi\\nSwap: 0B 0B 0B"}',
+    result: { evidence: [{ source: 'bash' }] },
+  });
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });
+  handleAgentEvent(state, {
+    type: 'message_end',
+    role: 'assistant',
+    content: '当前设备内存情况如下：\n\n- 总内存：约 3.7 GiB',
+  });
+  handleAgentEvent(state, {
+    type: 'agent_end',
+    status: 'ok',
+    summary: '当前设备内存情况如下：\n\n- 总内存：约 3.7 GiB',
+    completionSource: 'model_answer',
+  });
+  const finals = state.messages.filter((message) => message.type === 'assistant_final');
+  assert(finals.length === 1, `expected one final item, got ${finals.length}`);
+  assert(state.messages.filter((message) => message.type === 'assistant' && !message.hidden).length === 0, 'plain assistant answer was not promoted');
+  assert(state.messages.filter((message) => message.displayKind === 'model_answer' && !message.hidden).length === 1, 'duplicate visible final answer rendered');
+});
+
 test('legacy and v2 tool envelopes render as tool calls', () => {
   const state = createTuiState({});
   handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });

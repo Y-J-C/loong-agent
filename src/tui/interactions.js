@@ -8,10 +8,24 @@ function filteredSelectorItems(state) {
   const selector = state.selector;
   if (!selector) return [];
   const query = selector.query ? selector.query.toLowerCase() : '';
+  const mode = selector.treeFilterMode || 'default';
   return (selector.items || []).filter((item) => {
-    const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
-    return !query || haystack.indexOf(query) >= 0;
+    const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''} ${item.sessionName || ''} ${item.name || ''}`.toLowerCase();
+    if (query && haystack.indexOf(query) < 0) return false;
+    if (selector.view === 'tree') {
+      if (mode === 'named' && !(item.sessionName || item.name || item.branchName)) return false;
+      if (mode === 'branches' && !item.branchName && !(item.children && item.children.length)) return false;
+    }
+    return true;
   });
+}
+
+function cycleTreeFilter(selector) {
+  const modes = ['default', 'named', 'branches', 'all'];
+  const current = selector.treeFilterMode || 'default';
+  const index = modes.indexOf(current);
+  selector.treeFilterMode = modes[(index + 1 + modes.length) % modes.length];
+  selector.selectedIndex = 0;
 }
 
 function activePanel(state) {
@@ -142,6 +156,10 @@ async function handleSelectorKey(state, key, actions) {
     state.selector = null;
     return true;
   }
+  if (selector.view === 'tree' && key.type === 'ctrl_t') {
+    cycleTreeFilter(selector);
+    return true;
+  }
   if (key.type === 'up' || key.type === 'ctrl_p') {
     selector.selectedIndex = Math.max(0, (selector.selectedIndex || 0) - 1);
     return true;
@@ -249,7 +267,15 @@ function handlePanelKey(state, key, actions) {
 
 async function handleInputKey(state, key, actions) {
   if (key.type === 'enter') {
+    if (state.mode === 'running' && actions && actions.steer) {
+      await actions.steer(state.inputBuffer);
+      return true;
+    }
     if (actions && actions.submit) await actions.submit(state.inputBuffer);
+    return true;
+  }
+  if (key.type === 'alt_enter' && state.mode === 'running' && String(state.inputBuffer || '').trim()) {
+    if (actions && actions.queueFollowUp) await actions.queueFollowUp(state.inputBuffer);
     return true;
   }
   if (key.type === 'escape') {

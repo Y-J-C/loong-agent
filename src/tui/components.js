@@ -13,6 +13,7 @@ const { renderStatusBar } = require('./status-bar');
 const { paint } = require('./theme');
 const { GLYPHS, hline } = require('./glyphs');
 const { renderMarkdownBlock } = require('./markdown');
+const { detailLines, summarizeToolMessage } = require('./tool-display');
 const {
   brandTitle,
   toolStatusLabel,
@@ -105,6 +106,24 @@ function selectedLine(theme, text, width) {
   return fullLine(text, width, theme, 'selectedBg');
 }
 
+function selectorFilterMode(selector) {
+  return selector && selector.treeFilterMode ? selector.treeFilterMode : 'default';
+}
+
+function filterSelectorItems(items, selector) {
+  const query = selector && selector.query ? String(selector.query).toLowerCase() : '';
+  const mode = selectorFilterMode(selector);
+  return (items || []).filter((item) => {
+    const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''} ${item.sessionName || ''} ${item.name || ''}`.toLowerCase();
+    if (query && haystack.indexOf(query) < 0) return false;
+    if (selector && selector.view === 'tree') {
+      if (mode === 'named' && !(item.sessionName || item.name || item.branchName)) return false;
+      if (mode === 'branches' && !item.branchName && !(item.children && item.children.length)) return false;
+    }
+    return true;
+  });
+}
+
 class HeaderComponent {
   render(width, context) {
     const state = context.state;
@@ -120,8 +139,7 @@ class HeaderComponent {
       paint(theme, 'dim', 'Esc abort/back - / commands - ! readonly - Ctrl+O details'),
     ] : [
       paint(theme, 'accent', `loong-agent v0.x | ${brandTitle()}`),
-      paint(theme, 'dim', 'Esc abort/back - Ctrl+C/Ctrl+D exit - / commands - ! readonly command - Ctrl+O details'),
-      paint(theme, 'dim', 'LoongArch board focused: read-first, evidence-driven, auditable sessions.'),
+      paint(theme, 'dim', 'Esc back - Ctrl+C/Ctrl+D exit - / commands - Ctrl+L model - Ctrl+O details'),
     ];
     if (state && state.headerHidden) return [];
     return lines.map((line) => padRight(fitLine(line, width), width));
@@ -182,7 +200,11 @@ class FinalAnswerComponent {
     if (!String(text).trim()) return [];
     const output = [];
     const meta = this.message.meta || null;
-    if (meta && (meta.status || meta.completionSource || meta.evidenceCount !== undefined)) {
+    const showMeta = meta && (
+      context.state.expandedTools ||
+      (meta.status && meta.status !== 'ok')
+    );
+    if (showMeta && (meta.status || meta.completionSource || meta.evidenceCount !== undefined)) {
       const parts = [];
       if (meta.status) parts.push(`status=${meta.status}`);
       if (meta.completionSource) parts.push(`source=${meta.completionSource}`);
@@ -242,29 +264,19 @@ class ToolMessageComponent {
       lines.push(fullLine(`${GLYPHS.toolMid}${errorDetail}`, width, theme, 'toolError'));
     }
 
-    const summary = redactSensitive(message.summary || message.resultSummary || '');
-    if (summary && !expanded) {
-      const summaryLines = wrapToWidth(summary, Math.max(1, width - visibleWidth(GLYPHS.toolMid))).slice(0, 2);
+    const compactSummary = summarizeToolMessage(message);
+    if (!expanded) {
+      const summaryLines = (compactSummary.length ? compactSummary : [redactSensitive(message.summary || message.resultSummary || '')])
+        .filter(Boolean)
+        .slice(0, 3);
       for (const line of summaryLines) {
-        lines.push(paint(theme, statusToken, fitLine(`${GLYPHS.toolMid}${line}`, width)));
+        const wrapped = wrapToWidth(line, Math.max(1, width - visibleWidth(GLYPHS.toolMid))).slice(0, 1);
+        for (const part of wrapped) lines.push(paint(theme, statusToken, fitLine(`${GLYPHS.toolMid}${part}`, width)));
       }
     }
 
     if (expanded) {
-      if (message.args) {
-        lines.push(...renderBlock(`args: ${JSON.stringify(message.args, redactJson)}`, width, theme, 'dim', {
-          prefix: GLYPHS.toolMid,
-          maxLines: 4,
-        }));
-      }
-      if (message.resultSummary) {
-        lines.push(...renderBlock(`result: ${message.resultSummary}`, width, theme, 'dim', {
-          prefix: GLYPHS.toolMid,
-          maxLines: 4,
-        }));
-      }
-      if (message.detail) {
-        const detail = typeof message.detail === 'string' ? message.detail : JSON.stringify(message.detail, redactJson, 2);
+      for (const detail of detailLines(message)) {
         lines.push(...renderBlock(detail, width, theme, 'dim', {
           prefix: GLYPHS.toolMid,
           maxLines: MAX_TOOL_DETAIL_LINES,
@@ -310,6 +322,7 @@ class MessageListComponent {
     body.push(...new HeaderComponent().render(width, context));
     let prevType = '';
     for (const message of state.messages) {
+      if (message.hidden) continue;
       body.push(...renderTurnSeparator(prevType, message.type, width, theme));
       body.push(...createMessageComponent(message).render(width, context));
       prevType = message.type;
@@ -338,8 +351,17 @@ class InputEditorComponent {
       const pasteText = pasteCount === 1 ? '[paste]' : `[paste #${pasteCount}]`;
       lines.push(paint(theme, 'system', fitLine(pasteText, width)));
     }
+    if (state.mode === 'running') {
+      lines.push(paint(theme, 'accent', fitLine('running: Enter steers current run - Alt+Enter queues follow-up - Esc aborts', width)));
+    }
     if (hasQueued) {
       lines.push(paint(theme, 'dim', fitLine(`queued follow-ups: ${state.queuedFollowUps.length}`, width)));
+      for (const item of state.queuedFollowUps.slice(0, 2)) {
+        lines.push(paint(theme, 'dim', fitLine(`  - ${item}`, width)));
+      }
+      if (state.queuedFollowUps.length > 2) {
+        lines.push(paint(theme, 'dim', fitLine(`  ... ${state.queuedFollowUps.length - 2} more`, width)));
+      }
     }
 
     lines.push(divider(theme, width, true));
@@ -427,7 +449,7 @@ class PanelComponent {
       paint(theme, 'dim', fitLine(hint, width)),
     ];
     if (panel.type === 'model') {
-      lines.push(paint(theme, 'dim', fitLine(`filter: ${panel.query || ''}`, width)));
+      lines.push(paint(theme, 'dim', fitLine(`filter: ${panel.query || ''}  current=${state.model || '(env)'}`, width)));
     }
     if (!items.length) {
       lines.push(paint(theme, 'dim', fitLine('No matching items.', width)));
@@ -440,9 +462,10 @@ class PanelComponent {
     let lastGroup = '';
     for (let index = win.start; index < win.end; index += 1) {
       const item = items[index];
-      if (panel.type === 'settings' && item.group && item.group !== lastGroup && lines.length < maxRows - 1) {
-        lastGroup = item.group;
-        lines.push(paint(theme, 'dim', fitLine(`  ${lastGroup}`, width)));
+      const group = item.group || item.provider || item.providerProfile || (item.model && (item.model.providerProfile || item.model.provider)) || '';
+      if ((panel.type === 'settings' || panel.type === 'model') && group && group !== lastGroup && lines.length < maxRows - 1) {
+        lastGroup = group;
+        lines.push(paint(theme, 'dim', fitLine(`  ${group}`, width)));
       }
       if (lines.length >= maxRows - 1) break;
       const selected = index === win.selected;
@@ -453,10 +476,11 @@ class PanelComponent {
         panel.type === 'model' && item.model && item.model.id === (state.model || '')
           ? ' <- current'
           : '';
+      const favorite = panel.type === 'model' && item.favorite ? ' *' : '';
       const text =
         panel.type === 'settings'
           ? `${prefix}${item.label}: ${value}`
-          : `${prefix}${item.label || value}${current}${description}`;
+          : `${prefix}${item.label || value}${favorite}${current}${description}`;
       lines.push(selected ? selectedLine(theme, fitLine(text, width), width) : fitLine(text, width));
     }
     lines.push(divider(theme, width, false));
@@ -497,13 +521,16 @@ class SessionSelectorComponent {
       return lines.slice(0, maxRows);
     }
 
-    lines.push(paint(theme, 'header', fitLine(`Session selector (${selector.view || 'recent'})${selector.query ? ` filter="${selector.query}"` : ''}`, width)));
-    lines.push(paint(theme, 'dim', fitLine(width < 60 ? 'Type filter - Up/Down - Enter - Tab - Esc' : 'Type to filter - Up/Down select - Enter actions - Tab recent/tree - Esc back', width)));
-    const query = selector.query ? selector.query.toLowerCase() : '';
-    const items = (selector.items || []).filter((item) => {
-      const haystack = `${item.id || ''} ${item.branchName || ''} ${item.command || ''} ${item.path || ''}`.toLowerCase();
-      return !query || haystack.indexOf(query) >= 0;
-    });
+    const isTree = selector.view === 'tree';
+    const mode = selectorFilterMode(selector);
+    lines.push(paint(theme, 'header', fitLine(`${isTree ? 'Session tree' : 'Session selector'}${selector.query ? ` filter="${selector.query}"` : ''}`, width)));
+    lines.push(paint(theme, 'dim', fitLine(
+      isTree
+        ? (width < 72 ? `Tree filter=${mode} - Ctrl+T - Up/Down - Enter - Tab - Esc` : `Tree filter=${mode} - Ctrl+T cycle filter - Up/Down select - Enter actions - Tab recent/tree - Esc back`)
+        : (width < 60 ? 'Type filter - Up/Down - Enter - Tab - Esc' : 'Type to filter - Up/Down select - Enter actions - Tab recent/tree - Esc back'),
+      width
+    )));
+    const items = filterSelectorItems(selector.items || [], selector);
     if ((selector.selectedIndex || 0) >= items.length) selector.selectedIndex = Math.max(0, items.length - 1);
     if (!items.length) {
       lines.push(paint(theme, 'dim', fitLine('No sessions match the current filter.', width)));
@@ -512,7 +539,7 @@ class SessionSelectorComponent {
     }
     const rows = Math.max(1, maxRows - lines.length - 2);
     const win = visibleWindow(items, selector.selectedIndex || 0, rows);
-    lines.push(paint(theme, 'muted', fitLine(`sessions ${listPosition(win.start, win.end, items.length)}`, width)));
+    lines.push(paint(theme, 'muted', fitLine(`${isTree ? 'nodes' : 'sessions'} ${listPosition(win.start, win.end, items.length)}`, width)));
     for (let index = win.start; index < win.end; index += 1) {
       const item = items[index];
       const selected = index === win.selected;
@@ -525,9 +552,10 @@ class SessionSelectorComponent {
       const count = item.entryCount !== undefined ? ` ${item.entryCount} entries` : '';
       const currentId = state.currentSession && state.currentSession.id ? state.currentSession.id : '';
       const isCurrent = currentId && item.id && (item.id.indexOf(currentId.slice(0, 8)) === 0 || currentId.indexOf(item.id) === 0);
-      const cur = isCurrent ? ' -> current' : '';
+      const cur = isCurrent ? ' <- active' : '';
       const mod = item.modifiedAt ? ` ${String(item.modifiedAt).slice(0, 10)}` : '';
-      const text = `${prefix}${depth}${item.id}${branch}${nameStr} [${item.command || 'session'}]${count}${mod}${cur}`;
+      const treeGlyph = isTree ? (item.depth ? '└─ ' : '● ') : '';
+      const text = `${prefix}${depth}${treeGlyph}${item.id}${branch}${nameStr} [${item.command || 'session'}]${count}${mod}${cur}`;
       lines.push(selected ? selectedLine(theme, fitLine(text, width), width) : fitLine(text, width));
     }
     lines.push(divider(theme, width, false));

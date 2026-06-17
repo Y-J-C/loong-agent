@@ -102,6 +102,7 @@ function parseKey(buffer) {
   if (text === '\x0e') return { type: 'ctrl_n' };
   if (text === '\x0f') return { type: 'ctrl_o' };
   if (text === '\x10') return { type: 'ctrl_p' };
+  if (text === '\x14') return { type: 'ctrl_t' };
   if (text === '\x15') return { type: 'ctrl_u' };
   if (text === '\x17') return { type: 'ctrl_w' };
   if (text === '\x19') return { type: 'ctrl_y' };

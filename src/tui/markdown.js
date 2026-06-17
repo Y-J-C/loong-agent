@@ -63,13 +63,14 @@ function renderMarkdownBlock(text, width, theme, options) {
     if (fence) {
       inCode = !inCode;
       codeLang = inCode ? String(fence[1] || '').trim() : '';
-      const label = inCode && codeLang ? `code ${codeLang}` : 'code';
-      output.push(paint(theme, 'mdCode', padRight(fit(` ${label}`, width), width)));
+      if (inCode && codeLang) {
+        output.push(paint(theme, 'mdCode', padRight(fit(` code ${codeLang}`, width), width)));
+      }
       continue;
     }
 
     if (inCode) {
-      pushWrapped(output, line, width, theme, 'mdCode', { prefix: '  ', fill: true });
+      pushWrapped(output, line, width, theme, 'mdCodeBlock', { prefix: '  ', fill: true });
       continue;
     }
 
@@ -99,7 +100,7 @@ function renderMarkdownBlock(text, width, theme, options) {
 
     const unordered = line.match(/^(\s*)[-*+]\s+(.+)$/);
     if (unordered) {
-      pushWrapped(output, unordered[2], width, theme, token, { prefix: `${unordered[1]}${GLYPHS.bullet}`, fill });
+      pushWrapped(output, unordered[2], width, theme, 'mdListBullet', { prefix: `${unordered[1]}${GLYPHS.bullet}`, fill });
       continue;
     }
 

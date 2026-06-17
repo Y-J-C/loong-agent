@@ -26,11 +26,39 @@ function latestAssistantAnswer(state) {
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
     const message = state.messages[index];
     if (message.type === 'assistant' || message.type === 'assistant_final') {
-      return message.displayKind === 'model_answer' ? message : null;
+      if (message.displayKind === 'model_answer') return message;
+      if (message.displayKind === 'plain' && String(message.text || '').trim()) return message;
+      continue;
     }
-    if (message.type === 'user' || message.type === 'tool' || message.type === 'error') return null;
+    if (message.type === 'user' || message.type === 'error') return null;
   }
   return null;
+}
+
+function hideLatestProvisionalAnswer(state) {
+  const answer = latestAssistantAnswer(state);
+  if (answer && answer.type === 'assistant' && (answer.displayKind === 'model_answer' || answer.displayKind === 'plain')) {
+    answer.hidden = true;
+    answer.provisional = true;
+  }
+}
+
+function parseMaybeJsonObject(text) {
+  const value = String(text || '').trim();
+  if (!value || value.charAt(0) !== '{') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function compactText(text, limit) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  const max = Math.max(20, limit || 180);
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
 }
 
 function arrayCount(value) {
@@ -39,7 +67,25 @@ function arrayCount(value) {
 
 function toolResultSummary(event) {
   const result = event.result || {};
-  return event.resultSummary || result.summary || result.error || '';
+  const rawSummary = event.resultSummary || result.summary || result.error || '';
+  const parsedSummary = parseMaybeJsonObject(rawSummary);
+  const source = parsedSummary || result;
+  if (source && typeof source === 'object') {
+    if (source.error) return compactText(source.error, 180);
+    const exit = source.exitCode !== undefined ? `exit=${source.exitCode}` : '';
+    const output = source.stdout || source.output || source.stderr || '';
+    if (output) {
+      const prefix = exit ? `${exit} ` : '';
+      return compactText(`${prefix}${output}`, 180);
+    }
+    if (source.summary && source.summary !== rawSummary) return compactText(source.summary, 180);
+    if (Array.isArray(source.evidence) || Array.isArray(source.warnings)) {
+      const evidence = Array.isArray(source.evidence) ? source.evidence.length : 0;
+      const warnings = Array.isArray(source.warnings) ? source.warnings.length : 0;
+      return `evidence=${evidence} warnings=${warnings}`;
+    }
+  }
+  return compactText(rawSummary, 180);
 }
 
 function toolErrorType(event) {
@@ -108,6 +154,7 @@ function handleAgentEvent(state, event) {
       state.lastAssistantText = result.normalized.text || state.lastAssistantText;
     }
   } else if (event.type === 'tool_execution_start') {
+    hideLatestProvisionalAnswer(state);
     state.toolCount += 1;
     state.status = `tool ${event.toolName || 'unknown'} running`;
     state.lastEventTime = Date.now();
@@ -193,7 +240,22 @@ function handleAgentEvent(state, event) {
     }
     const existingAnswer = !event.error && status === 'ok' ? latestAssistantAnswer(state) : null;
     if (existingAnswer) {
+      if (existingAnswer.hidden) {
+        addMessage(state, {
+          type: 'assistant_final',
+          text: existingAnswer.text || event.summary || 'done',
+          displayKind: 'model_answer',
+          evidence: existingAnswer.evidence || event.evidence || [],
+          meta: Object.assign({}, existingAnswer.meta || {}, {
+            status,
+            completionSource: event.completionSource || 'model_answer',
+            evidenceCount: Array.isArray(existingAnswer.evidence) ? existingAnswer.evidence.length : existingAnswer.meta && existingAnswer.meta.evidenceCount || 0,
+          }),
+        });
+        return;
+      }
       existingAnswer.type = 'assistant_final';
+      existingAnswer.displayKind = 'model_answer';
       existingAnswer.meta = Object.assign({}, existingAnswer.meta || {}, {
         status,
         completionSource: event.completionSource || 'model_answer',

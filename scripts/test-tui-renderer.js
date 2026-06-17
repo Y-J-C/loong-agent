@@ -108,7 +108,10 @@ test('renderer highlights user block and renders final answer as markdown flow',
   assert(output.indexOf('\x1b[38;5;255m\x1b[48;5;237massistant -> tool') < 0, 'assistant tool line used user background');
   assert(output.indexOf('\x1b[38;5;16m\x1b[48;5;250m最终回答') < 0, 'final answer should not use gray background');
   assert(output.indexOf('最终回答') >= 0, 'missing final answer text');
-  assert(output.indexOf('status=ok source=model_answer evidence=0') >= 0, 'missing final answer metadata');
+  assert(output.indexOf('status=ok source=model_answer evidence=0') < 0, 'ok final metadata should stay hidden by default');
+  state.expandedTools = true;
+  assert(renderTui(state, { columns: 60, rows: 24 }).indexOf('status=ok source=model_answer evidence=0') >= 0, 'expanded details should show final answer metadata');
+  state.expandedTools = false;
   const rows = output.split('\n');
   const userRow = rows.findIndex((line) => line.indexOf('\x1b[38;5;255m\x1b[48;5;237m  你好') >= 0);
   assert(userRow > 0, 'missing user row index');
@@ -185,6 +188,48 @@ test('renderer uses pi-style tool blocks', () => {
   assert(plain.indexOf('╭─ tool bash /') >= 0, 'missing tool block header');
   assert(plain.indexOf('│ listed files') >= 0, 'missing compact tool summary');
   assert(plain.indexOf('╰─') >= 0, 'missing tool block footer');
+});
+
+test('renderer keeps json tool summaries compact by default', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  handleAgentEvent(state, {
+    type: 'tool_execution_start',
+    loop: 1,
+    toolName: 'bash',
+    callSummary: 'free -h',
+  });
+  handleAgentEvent(state, {
+    type: 'tool_execution_end',
+    loop: 1,
+    toolName: 'bash',
+    resultSummary: '{"exitCode":0,"background":false,"stdout":"Mem: 3.7Gi 1.0Gi 2.4Gi\\nSwap: 0B 0B 0B","output":"Mem: 3.7Gi 1.0Gi 2.4Gi"}',
+    result: { evidence: [{ source: 'bash' }] },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('"exitCode"') < 0, 'raw json tool summary leaked in compact mode');
+  assert(plain.indexOf('exit=0 Mem: 3.7Gi') >= 0, 'compact tool summary missing useful stdout');
+});
+
+test('renderer shows specialized loong env tool summary', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    type: 'tool',
+    toolName: 'loong_env_check',
+    done: true,
+    durationMs: 12,
+    evidenceCount: 2,
+    warningCount: 1,
+    detail: {
+      arch: 'loongarch64',
+      node: 'v14.16.1',
+      board: 'LS2K1000',
+      evidence: [{}, {}],
+      warnings: ['low swap'],
+    },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('arch=loongarch64, node=v14.16.1') >= 0, 'loong env compact summary missing arch/node');
+  assert(plain.indexOf('board=LS2K1000') >= 0, 'loong env compact summary missing board');
 });
 
 test('renderer keeps output inside small terminal dimensions', () => {
@@ -314,12 +359,16 @@ test('renderer displays focused settings and model panels', () => {
         label: 'DeepSeek V4 Flash',
         value: 'deepseek-v4-flash',
         description: 'openai-compatible / deepseek',
+        group: 'deepseek',
+        favorite: true,
         model: { id: 'deepseek-v4-flash' },
       },
     ],
   };
   output = renderTui(state, { columns: 90, rows: 20 });
   assert(output.indexOf('模型选择 / Model Selector') >= 0, 'model panel title missing');
+  assert(output.indexOf('deepseek') >= 0, 'model provider group missing');
+  assert(output.indexOf('DeepSeek V4 Flash * <- current') >= 0, 'model favorite/current marker missing');
   assert(output.indexOf('<- current') >= 0, 'current model marker missing');
   assert(output.indexOf('loong>') < 0, 'input area should be replaced while model panel is open');
 });
@@ -345,6 +394,18 @@ test('renderer uses editor slot for selector and hides autocomplete', () => {
   assert(output.indexOf('session-one') >= 0, 'selector item missing');
   assert(output.indexOf('loong>') < 0, 'input area should be replaced while selector is open');
   assert(output.indexOf('/settings') < 0, 'autocomplete should be hidden while selector is open');
+});
+
+test('renderer shows running editor steer queue hints', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.mode = 'running';
+  state.inputBuffer = 'next instruction';
+  state.queuedFollowUps = ['after this run', 'then summarize'];
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('running: Enter steers current run') >= 0, 'running steer hint missing');
+  assert(plain.indexOf('Alt+Enter queues follow-up') >= 0, 'running queue hint missing');
+  assert(plain.indexOf('queued follow-ups: 2') >= 0, 'queued follow-up count missing');
+  assert(plain.indexOf('after this run') >= 0, 'queued follow-up preview missing');
 });
 
 test('renderer displays multiline input without continuation prompt', () => {
@@ -414,7 +475,7 @@ test('selector clamps filtered selected index and fits narrow width', () => {
   };
   const output = renderTui(state, { columns: 40, rows: 12 });
   assert(state.selector.selectedIndex === 0, 'selected index was not clamped');
-  assert(output.indexOf('Session selector') >= 0, 'selector missing');
+  assert(output.indexOf('Session tree') >= 0, 'tree selector missing');
   for (const line of output.split('\n')) {
     assert(visibleWidth(line) <= 40, `selector line exceeds width: ${stripAnsi(line)}`);
   }
