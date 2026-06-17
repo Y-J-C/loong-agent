@@ -118,12 +118,10 @@ class HeaderComponent {
     ] : compact ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch coding terminal'),
       paint(theme, 'dim', 'Esc abort/back - / commands - ! readonly - Ctrl+O details'),
-      '',
     ] : [
-      paint(theme, 'header', `loong-agent v0.x | ${brandTitle()}`),
+      paint(theme, 'accent', `loong-agent v0.x | ${brandTitle()}`),
       paint(theme, 'dim', 'Esc abort/back - Ctrl+C/Ctrl+D exit - / commands - ! readonly command - Ctrl+O details'),
       paint(theme, 'dim', 'LoongArch board focused: read-first, evidence-driven, auditable sessions.'),
-      '',
     ];
     if (state && state.headerHidden) return [];
     return lines.map((line) => padRight(fitLine(line, width), width));
