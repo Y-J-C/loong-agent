@@ -64,6 +64,12 @@ i2cdetect -y 0
 i2cdetect -y 1
 ```
 
+I2C scan boundary:
+
+- `i2cdetect -y 0` and `i2cdetect -y 1` are the only current I2C address scans listed as L1 diagnostics because `/dev/i2c-0` and `/dev/i2c-1` were confirmed present.
+- These commands must be presented with their L1 warning and a concrete diagnostic purpose.
+- Do not generalize this exception to other I2C buses, SPI transfers, GPIO writes, wiring tests, or unlisted peripheral probing.
+
 Risky command families and operations:
 
 ```text
@@ -97,7 +103,7 @@ Commands and operations that require explicit user intent and should not be sugg
 - `apt upgrade` or broad package modification.
 - `fsck`, `fdisk`, `parted`, `mkfs`, `dd`, partition rewriting, or filesystem repair.
 - Modifying `/boot`, EFI files, device tree, kernel parameters, or network configuration.
-- Peripheral bus scanning or wiring tests before hardware details are confirmed, except the explicitly listed `i2cdetect -y 0` and `i2cdetect -y 1` recommendation entries.
+- Peripheral bus scanning or wiring tests before hardware details are confirmed, except the explicitly listed `i2cdetect -y 0` and `i2cdetect -y 1` L1 diagnostic entries.
 - Deploying services or agent runtime as part of knowledge package validation.
 
 Recommended diagnostic posture:

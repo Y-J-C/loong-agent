@@ -190,7 +190,7 @@ node scripts/test-knowledge-layer.js
 - `fsck`、`fdisk`、`parted`、`mkfs`、`dd`。
 - 修改 `/boot`、EFI、设备树、内核参数或启动配置。
 - 修改 `eth0` / `eth1` 网络配置。
-- 未确认电压、引脚、权限和接线前的 GPIO/I2C/SPI/UART 操作或盲扫。
+- 未确认电压、引脚、权限和接线前的 GPIO/I2C/SPI/UART 操作、未知 bus 扫描或未列入 `READONLY_COMMAND_METADATA` 的外设探测；`i2cdetect -y 0/1` 仅作为 L1 例外诊断项使用。
 
 `command_reference.md` 是推荐诊断命令说明。`READONLY_COMMAND_METADATA` 仍是允许作为 agent 只读诊断建议的命令元数据来源，不能由普通文档替代。
 

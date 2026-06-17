@@ -90,6 +90,8 @@ Fact rules:
 
 Structured fact files may be listed in `kb/index.json`, but they must use `defaultSearch: false` unless a future contract explicitly changes that behavior.
 
+Current normative P6 fact ids include `peripherals.display.drm` for display/DRM status and `risk.package_install` for package-install risk. Verification checklists should use these ids rather than `peripherals.display.status` or `risks.package_install`.
+
 ## P6 Troubleshooting Playbooks
 
 `kb/troubleshooting.md` is the troubleshooting index. Detailed issue handling lives in `kb/playbooks/*.md`.
@@ -120,7 +122,7 @@ Each playbook must include these sections:
 ## 证据路径
 ```
 
-Playbooks must only recommend read-only diagnostics. They must not present `apt install`, `apt upgrade`, `fsck`, `fdisk`, `parted`, `mkfs`, `dd`, boot changes, network rewrites, or GPIO/I2C/SPI/UART writes as executable agent suggestions.
+Playbooks must only recommend read-only diagnostics. They must not present `apt install`, `apt upgrade`, `fsck`, `fdisk`, `parted`, `mkfs`, `dd`, boot changes, network rewrites, GPIO/I2C/SPI/UART writes, SPI transfers, unknown bus scans, or peripheral probes outside `READONLY_COMMAND_METADATA` as executable agent suggestions. `i2cdetect -y 0` and `i2cdetect -y 1` are the current L1 I2C scan exceptions and must be described with their warning and diagnostic purpose.
 
 ## Evidence Map And Maintenance Docs
 
@@ -267,6 +269,8 @@ The allowed read-only diagnostic command reference is `READONLY_COMMAND_METADATA
 - L0: low-risk read-only diagnostic commands from `READONLY_COMMAND_METADATA`
 - L1: cautious read-only diagnostic commands from `READONLY_COMMAND_METADATA`
 - forbiddenExamples: documented operation families that must not be presented as executable agent commands
+
+The current L1 I2C scan exceptions are `i2cdetect -y 0` and `i2cdetect -y 1` only. They do not authorize arbitrary I2C bus scans, SPI transfers, GPIO writes, wiring tests, or unlisted peripheral probing.
 
 `risk_lookup` returns a structured risk envelope with `riskLevel`, `forbiddenOperations`, `readOnlyAlternatives`, and `pendingConfirmations`. It is advisory context only; tool execution remains controlled by the safety policy and command policy.
 

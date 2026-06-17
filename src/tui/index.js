@@ -196,6 +196,14 @@ async function runTui(config, options) {
     state.modelSelector = null;
   }
 
+  function focusedSlot() {
+    if (state.selector) return 'selector';
+    if (state.activePanel) return 'panel';
+    if (state.settingsMenu) return 'settings';
+    if (state.modelSelector) return 'model';
+    return 'input';
+  }
+
   async function executeSessionAction(action, selected) {
     if (!selected) {
       state.mode = 'idle';
@@ -523,22 +531,23 @@ async function runTui(config, options) {
     });
     if (state.recentKeys.length > 30) state.recentKeys = state.recentKeys.slice(-30);
 
-    if (state.mode === 'panel') {
+    const slot = focusedSlot();
+    if (slot === 'panel') {
       handlePanelKey(key);
       render();
       return;
     }
-    if (state.mode === 'session_selector') {
+    if (slot === 'selector') {
       await handleSelectorKey(key);
       render();
       return;
     }
-    if (state.mode === 'settings') {
+    if (slot === 'settings') {
       handleSettingsKey(key);
       render();
       return;
     }
-    if (state.mode === 'model_selector') {
+    if (slot === 'model') {
       handleModelKey(key);
       render();
       return;

@@ -45,7 +45,7 @@
   },
   {
     "id": "risk.peripheral_electrical",
-    "value": "Do not connect, export, write, or scan GPIO/I2C/SPI/UART until pinout and electrical limits are confirmed",
+    "value": "Do not connect, export, write, perform SPI transfers, scan unknown buses, or run peripheral probes outside READONLY_COMMAND_METADATA until pinout and electrical limits are confirmed; i2cdetect -y 0/1 are L1 exceptions with warnings",
     "status": "sourced",
     "confidence": "high",
     "last_updated": "2026-06-14",

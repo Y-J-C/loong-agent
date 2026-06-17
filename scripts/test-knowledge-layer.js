@@ -285,6 +285,27 @@ test('P6 facts distinguish runtime availability, package candidates, missing, an
   );
 });
 
+test('P6 fact verification uses current normative ids', () => {
+  const peripheralFacts = readJsonWorkspaceFile('kb/facts/peripherals.json');
+  const riskFacts = readJsonWorkspaceFile('kb/facts/risks.json');
+  assert(
+    peripheralFacts.some((fact) => fact.id === 'peripherals.display.drm'),
+    'display fact id must be peripherals.display.drm'
+  );
+  assert(
+    riskFacts.some((fact) => fact.id === 'risk.package_install'),
+    'package install risk fact id must be risk.package_install'
+  );
+  assert(
+    !peripheralFacts.some((fact) => fact.id === 'peripherals.display.status'),
+    'legacy display fact id should not be required'
+  );
+  assert(
+    !riskFacts.some((fact) => fact.id === 'risks.package_install'),
+    'legacy package risk fact id should not be required'
+  );
+});
+
 test('P6 evidence map links conclusions to topics, preview docs, raw evidence, and confidence', () => {
   const text = readWorkspaceFile(path.join('kb', 'evidence_map.md'));
   [
@@ -686,6 +707,30 @@ testAsync('P3 command_reference reports allowed I2C scan commands', async () => 
   assert(commands.includes('i2cdetect -l'), 'missing i2c bus listing');
   assert(commands.includes('i2cdetect -y 0'), 'missing i2c bus 0 scan');
   assert(commands.includes('i2cdetect -y 1'), 'missing i2c bus 1 scan');
+  ['i2cdetect -y 0', 'i2cdetect -y 1'].forEach((command) => {
+    const item = result.commands.find((candidate) => candidate.command === command);
+    assert(item && item.level === 'L1', `${command} must remain L1`);
+    assert(Array.isArray(item.warnings) && item.warnings.length > 0, `${command} must include scan warning`);
+  });
+});
+
+test('P6 I2C scan documentation limits the L1 exception to bus 0 and bus 1', () => {
+  const commandReference = readWorkspaceFile(path.join('kb', 'command_reference.md'));
+  const gpioPlaybook = readWorkspaceFile(path.join('kb', 'playbooks', 'gpio-i2c-spi-uart.md'));
+  const scriptsReadme = readWorkspaceFile(path.join('kb', 'scripts', 'README.md'));
+  const riskFacts = readWorkspaceFile(path.join('kb', 'facts', 'risks.json'));
+  [
+    commandReference,
+    gpioPlaybook,
+    scriptsReadme,
+    riskFacts,
+  ].forEach((text, index) => {
+    assert(text.indexOf('i2cdetect -y 0') >= 0 || text.indexOf('i2cdetect -y 0/1') >= 0, `I2C exception missing bus 0 reference in document ${index}`);
+    assert(text.indexOf('L1') >= 0, `I2C exception missing L1 boundary in document ${index}`);
+    assert(text.indexOf('READONLY_COMMAND_METADATA') >= 0, `I2C exception missing metadata boundary in document ${index}`);
+  });
+  assert(/unknown bus|未知 bus/.test(commandReference + gpioPlaybook + scriptsReadme + riskFacts), 'missing unknown bus boundary');
+  assert(/SPI/.test(commandReference + gpioPlaybook + scriptsReadme + riskFacts), 'missing SPI boundary');
 });
 
 test('P4 session_summary metadata describes historical evidence use', () => {

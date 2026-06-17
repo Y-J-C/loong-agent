@@ -61,7 +61,7 @@
 必须禁止：
 
 - 不接线测试。
-- 不盲扫 I2C/SPI。
+- 不进行未列入 `READONLY_COMMAND_METADATA` 的 I2C/SPI 扫描；`i2cdetect -y 0/1` 只能作为 L1 例外诊断项并附风险说明。
 - 不导出或写 GPIO。
 - 不修改设备树、内核参数或驱动配置。
 
@@ -89,4 +89,4 @@
 - `mkfs`
 - `dd`
 - 修改 `/boot`、EFI、设备树、内核参数、网络配置的命令
-- 外设盲扫或写 GPIO 的命令
+- 未列入 `READONLY_COMMAND_METADATA` 的外设扫描、未知 bus 扫描、SPI 传输或写 GPIO 的命令

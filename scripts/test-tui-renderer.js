@@ -226,6 +226,7 @@ test('slash autocomplete keeps all commands selectable and prioritizes settings 
 
 test('renderer displays focused settings and model panels', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'deepseek-v4-flash' });
+  state.messages.push({ type: 'assistant', text: 'history remains visible' });
   state.mode = 'panel';
   state.activePanel = {
     type: 'settings',
@@ -240,7 +241,8 @@ test('renderer displays focused settings and model panels', () => {
   let output = renderTui(state, { columns: 90, rows: 20 });
   assert(output.indexOf('设置 / Settings') >= 0, 'settings panel title missing');
   assert(output.indexOf('主题 / Theme') >= 0, 'settings panel item missing');
-  assert(output.indexOf('loong>') >= 0, 'input area missing while panel is open');
+  assert(output.indexOf('history remains visible') >= 0, 'message history hidden while panel is open');
+  assert(output.indexOf('loong>') < 0, 'input area should be replaced while panel is open');
 
   state.activePanel = {
     type: 'model',
@@ -260,6 +262,30 @@ test('renderer displays focused settings and model panels', () => {
   output = renderTui(state, { columns: 90, rows: 20 });
   assert(output.indexOf('模型选择 / Model Selector') >= 0, 'model panel title missing');
   assert(output.indexOf('<- 当前') >= 0, 'current model marker missing');
+  assert(output.indexOf('loong>') < 0, 'input area should be replaced while model panel is open');
+});
+
+test('renderer uses editor slot for selector and hides autocomplete', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ type: 'assistant', text: 'chat content above selector' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  state.mode = 'session_selector';
+  state.selector = {
+    view: 'recent',
+    query: '',
+    selectedIndex: 0,
+    items: [
+      { id: 'session-one', command: 'tui', entryCount: 2 },
+      { id: 'session-two', command: 'ask', entryCount: 3 },
+    ],
+  };
+  const output = renderTui(state, { columns: 80, rows: 18 });
+  assert(output.indexOf('chat content above selector') >= 0, 'message history hidden while selector is open');
+  assert(output.indexOf('Session selector') >= 0, 'selector missing from editor slot');
+  assert(output.indexOf('session-one') >= 0, 'selector item missing');
+  assert(output.indexOf('loong>') < 0, 'input area should be replaced while selector is open');
+  assert(output.indexOf('/settings') < 0, 'autocomplete should be hidden while selector is open');
 });
 
 test('renderer displays multiline input with continuation prompt', () => {
