@@ -18,6 +18,12 @@ const { CURSOR_MARKER } = require('./cursor');
 const { syncTreeSelection } = require('./session-tree');
 const { shortcutHint } = require('./keybindings');
 const {
+  createRenderCache,
+  listCacheKey,
+  messageCacheKey,
+  stableHash,
+} = require('./render-cache');
+const {
   handleAutocompleteKey,
   handleInputKey,
   handlePanelKey,
@@ -30,6 +36,46 @@ const {
 
 const MAX_MESSAGE_LINES = 80;
 const MAX_TOOL_DETAIL_LINES = 18;
+const markdownRenderCache = createRenderCache(300);
+const finalAnswerRenderCache = createRenderCache(300);
+const toolRenderCache = createRenderCache(300);
+const selectorRenderCache = createRenderCache(120);
+const panelRenderCache = createRenderCache(120);
+
+function cloneLines(lines) {
+  return Array.isArray(lines) ? lines.slice() : [];
+}
+
+function cacheEnabled(context) {
+  return !context || context.renderCacheEnabled !== false;
+}
+
+function cachedLines(context, cache, key, render) {
+  if (!cacheEnabled(context)) return render();
+  const cached = cache.get(key);
+  if (cached) return cloneLines(cached);
+  const lines = render();
+  cache.set(key, cloneLines(lines));
+  return lines;
+}
+
+function clearTuiRenderCaches() {
+  markdownRenderCache.clear();
+  finalAnswerRenderCache.clear();
+  toolRenderCache.clear();
+  selectorRenderCache.clear();
+  panelRenderCache.clear();
+}
+
+function renderCacheStats() {
+  return {
+    markdown: markdownRenderCache.stats(),
+    finalAnswer: finalAnswerRenderCache.stats(),
+    tool: toolRenderCache.stats(),
+    selector: selectorRenderCache.stats(),
+    panel: panelRenderCache.stats(),
+  };
+}
 
 function fitLine(line, width) {
   return truncateToWidth(String(line || ''), width);
@@ -183,6 +229,40 @@ function filterRecentSelectorItems(items, selector) {
   });
 }
 
+function panelItemSnapshot(items) {
+  return (items || []).map((item) => ({
+    label: item && item.label,
+    value: item && (typeof item.value === 'function' ? item.value() : item.value),
+    description: item && item.description,
+    group: item && (item.group || item.provider || item.providerProfile),
+    favorite: item && item.favorite,
+    modelId: item && item.model && item.model.id,
+    modelProvider: item && item.model && (item.model.providerProfile || item.model.provider),
+  }));
+}
+
+function selectorSnapshot(selector) {
+  return {
+    view: selector && selector.view,
+    subMode: selector && selector.subMode,
+    query: selector && selector.query,
+    selectedIndex: selector && selector.selectedIndex,
+    actionIndex: selector && selector.actionIndex,
+    treeFilterMode: selector && selector.treeFilterMode,
+    collapsedIds: selector && selector.collapsedIds,
+    selectedItem: selector && selector.selectedItem && {
+      id: selector.selectedItem.id,
+      latestEntryId: selector.selectedItem.latestEntryId,
+      forkedFromEntryId: selector.selectedItem.forkedFromEntryId,
+      shortLatestEntryId: selector.selectedItem.shortLatestEntryId,
+      shortForkedFromEntryId: selector.selectedItem.shortForkedFromEntryId,
+    },
+    actions: selector && selector.actions,
+    items: selector && selector.view === 'tree' ? null : selector && selector.items,
+    treeNodes: selector && selector.view === 'tree' ? selector.treeNodes : null,
+  };
+}
+
 class HeaderComponent {
   render(width, context) {
     const state = context.state;
@@ -241,10 +321,19 @@ class AssistantMessageComponent {
   render(width, context) {
     const text = this.message.text || '';
     if (!String(text).trim()) return [];
-    return renderMarkdownBlock(text, width, context.theme, {
+    const key = messageCacheKey(this.message, width, context, {
+      component: 'assistant',
       token: 'assistant',
       maxLines: MAX_MESSAGE_LINES,
     });
+    return cachedLines(context, markdownRenderCache, key, () => renderMarkdownBlock(text, width, context.theme, {
+      token: 'assistant',
+      maxLines: MAX_MESSAGE_LINES,
+    }));
+  }
+
+  invalidate() {
+    markdownRenderCache.clear();
   }
 }
 
@@ -257,6 +346,11 @@ class FinalAnswerComponent {
     const theme = context.theme;
     const text = this.message.text || '';
     if (!String(text).trim()) return [];
+    const key = messageCacheKey(this.message, width, context, {
+      component: 'final',
+      globalExpanded: Boolean(context.state.expandedTools),
+    });
+    return cachedLines(context, finalAnswerRenderCache, key, () => {
     const output = [];
     const meta = this.message.meta || null;
     const showMeta = meta && (
@@ -292,6 +386,11 @@ class FinalAnswerComponent {
     }
     output.push('');
     return output;
+    });
+  }
+
+  invalidate() {
+    finalAnswerRenderCache.clear();
   }
 }
 
@@ -305,6 +404,13 @@ class ToolMessageComponent {
     const expanded = Boolean(context.state.expandedTools || this.message.expanded);
     const message = this.message;
     const selected = context.state.selectedMessageId && context.state.selectedMessageId === message.id;
+    const cacheKey = messageCacheKey(message, width, context, {
+      component: 'tool',
+      expanded,
+      selected,
+      globalExpanded: Boolean(context.state.expandedTools),
+    });
+    return cachedLines(context, toolRenderCache, cacheKey, () => {
     const rawStatus = message.errorType || message.status || (message.isError ? 'tool_error' : message.done ? 'ok' : 'running');
     const isError = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error';
     const statusToken = isError ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
@@ -348,6 +454,11 @@ class ToolMessageComponent {
 
     lines.push(paint(theme, 'toolBorder', fitLine(`${GLYPHS.toolBottom}${hline(Math.max(1, width - visibleWidth(GLYPHS.toolBottom)))}`, width)));
     return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : 5, width, theme);
+    });
+  }
+
+  invalidate() {
+    toolRenderCache.clear();
   }
 }
 
@@ -503,7 +614,9 @@ class PanelComponent {
     return handlePanelKey(context.state, key, context.actions || {});
   }
 
-  invalidate() {}
+  invalidate() {
+    panelRenderCache.clear();
+  }
 
   render(width, context) {
     const state = context.state;
@@ -511,6 +624,18 @@ class PanelComponent {
     const panel = state.activePanel || state.settingsMenu || state.modelSelector;
     if (!panel) return [];
     const maxRows = slotMaxRows(context);
+    const cacheKey = listCacheKey(width, context, {
+      component: 'panel',
+      maxRows,
+      type: panel.type,
+      title: panel.title,
+      hint: panel.hint,
+      query: panel.query,
+      selectedIndex: panel.selectedIndex,
+      currentModel: state.model,
+      items: panelItemSnapshot(panel.items || panel.models || []),
+    });
+    return cachedLines(context, panelRenderCache, cacheKey, () => {
     const query = panel.query ? String(panel.query).toLowerCase() : '';
     const items = (panel.items || panel.models || []).filter((item) => {
       const haystack = `${item.label || ''} ${item.value || ''} ${item.description || ''}`.toLowerCase();
@@ -561,6 +686,7 @@ class PanelComponent {
     }
     lines.push(divider(theme, width, false));
     return lines.slice(0, maxRows);
+    });
   }
 }
 
@@ -569,7 +695,9 @@ class SessionSelectorComponent {
     return handleSelectorKey(context.state, key, context.actions || {});
   }
 
-  invalidate() {}
+  invalidate() {
+    selectorRenderCache.clear();
+  }
 
   render(width, context) {
     const state = context.state;
@@ -577,6 +705,12 @@ class SessionSelectorComponent {
     const selector = state.selector;
     if (!selector) return [];
     const maxRows = slotMaxRows(context);
+    const cacheKey = listCacheKey(width, context, {
+      component: 'selector',
+      maxRows,
+      selector: selectorSnapshot(selector),
+    });
+    return cachedLines(context, selectorRenderCache, cacheKey, () => {
     const lines = [divider(theme, width, false)];
     if (selector.subMode === 'actions') {
       const selectedItem = selector.selectedItem || {};
@@ -662,6 +796,7 @@ class SessionSelectorComponent {
     }
     lines.push(divider(theme, width, false));
     return lines.slice(0, maxRows);
+    });
   }
 }
 
@@ -682,7 +817,10 @@ class EditorSlotComponent {
     return false;
   }
 
-  invalidate() {}
+  invalidate(state) {
+    const component = this.activeComponent(state);
+    if (component && typeof component.invalidate === 'function') component.invalidate();
+  }
 
   render(width, context) {
     return this.activeComponent(context.state).render(width, context);
@@ -713,6 +851,8 @@ module.exports = {
   ToolMessageComponent,
   UserMessageComponent,
   clampLines,
+  clearTuiRenderCaches,
   fitLine,
   renderBlock,
+  renderCacheStats,
 };

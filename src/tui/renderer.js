@@ -24,6 +24,7 @@ function renderTui(state, size, options) {
     theme,
     size: { columns: width, rows: height },
     showHardwareCursor: Boolean(opts.showHardwareCursor),
+    renderCacheEnabled: !opts.disableRenderCache,
   };
 
   const editorSlot = new EditorSlotComponent();
