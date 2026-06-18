@@ -14,6 +14,10 @@ const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } 
 const { registerProvider } = require('../src/llm');
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
 const { buildMessagesFromTurnContext } = require('../src/prompts');
+const { waitForChildProcess, spawnProcess } = require('../src/runtime/child-process');
+const { runShell } = require('../src/runtime/bash-executor');
+const { OutputAccumulator } = require('../src/runtime/output-accumulator');
+const { getShellConfig, killProcessTree, sanitizeBinaryOutput } = require('../src/runtime/shell');
 const { createSessionManager } = require('../src/session-manager');
 const { renderSessionTrace } = require('../src/session');
 const { COMMAND_POLICY_METADATA, COMMAND_POLICY_COMMANDS, evaluateCommand } = require('../src/command-policy');
@@ -1162,6 +1166,88 @@ test('tool registry supports unified tool execution signature', async () => {
   assert(result.data.value === 9, 'unified params not passed');
   assert(result.data.turn === 3, 'unified ctx not passed');
   assert(updates.length === 1 && /tool-call-1/.test(updates[0].output), 'unified onUpdate not called');
+});
+
+test('runtime shell config resolves a usable shell', async () => {
+  const shell = getShellConfig();
+  assert(shell && shell.shell, 'shell config missing shell');
+  assert(Array.isArray(shell.args), 'shell config missing args');
+  if (process.platform !== 'win32' && fs.existsSync('/bin/bash')) {
+    assert(shell.shell === '/bin/bash', `expected /bin/bash, got ${shell.shell}`);
+  }
+});
+
+test('runtime output accumulator preserves split utf8 chunks', async () => {
+  const accumulator = new OutputAccumulator({ maxBytes: 1024, maxLines: 20, tempFilePrefix: 'loong-test-utf8' });
+  const buffer = Buffer.from('温度=24.5 气压=101325\n', 'utf8');
+  accumulator.append(buffer.slice(0, 5));
+  accumulator.append(buffer.slice(5));
+  const value = accumulator.value();
+  assert(value.indexOf('温度=24.5') >= 0, `split utf8 output corrupted: ${value}`);
+  assert(value.indexOf('气压=101325') >= 0, `split utf8 output missing tail: ${value}`);
+});
+
+test('runtime output sanitizer removes unsafe control characters', async () => {
+  const sanitized = sanitizeBinaryOutput(`ok\u0000\u001b[31mred\u0007\nnext`);
+  assert(sanitized.indexOf('\u0000') < 0, 'NUL was not removed');
+  assert(sanitized.indexOf('\u001b') < 0, 'ESC was not removed');
+  assert(sanitized.indexOf('\u0007') < 0, 'BEL was not removed');
+  assert(sanitized.indexOf('\nnext') >= 0, 'newline should be preserved');
+});
+
+test('runtime output accumulator writes full output path when truncated', async () => {
+  const accumulator = new OutputAccumulator({ maxBytes: 32, maxLines: 3, tempFilePrefix: 'loong-test-long' });
+  accumulator.append(Buffer.from(Array(20).fill('line').map((item, index) => `${item}-${index}`).join('\n'), 'utf8'));
+  accumulator.flush();
+  const snapshot = accumulator.snapshot({ persistIfTruncated: true });
+  assert(snapshot.truncated === true, 'long output was not truncated');
+  assert(snapshot.fullOutputPath && fs.existsSync(snapshot.fullOutputPath), 'full output path missing');
+  const full = fs.readFileSync(snapshot.fullOutputPath, 'utf8');
+  assert(full.indexOf('line-0') >= 0 && full.indexOf('line-19') >= 0, 'full output log is incomplete');
+});
+
+test('runtime waitForChildProcess resolves when descendants keep stdio open', async () => {
+  if (childProcessSpawnBlocked()) return;
+  const workspace = tempWorkspace();
+  const pidFile = path.join(workspace, 'grandchild.pid');
+  const script = [
+    "const fs=require('fs')",
+    "const cp=require('child_process')",
+    "const child=cp.spawn(process.execPath,['-e','setTimeout(()=>{},60000)'],{stdio:'inherit',detached:true})",
+    "fs.writeFileSync(process.argv[1], String(child.pid))",
+    'child.unref()',
+    "console.log('child-exiting')",
+  ].join(';');
+  const child = spawnProcess(process.execPath, ['-e', script, pidFile], {
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  const started = Date.now();
+  const exitCode = await Promise.race([
+    waitForChildProcess(child),
+    new Promise((resolve) => setTimeout(() => resolve('timeout'), 3000)),
+  ]);
+  try {
+    const pid = fs.existsSync(pidFile) ? Number(fs.readFileSync(pidFile, 'utf8').trim()) : 0;
+    if (pid) killProcessTree(pid);
+  } catch (error) {
+    // Cleanup best effort only.
+  }
+  assert(exitCode !== 'timeout', 'waitForChildProcess hung on inherited stdio');
+  assert(Date.now() - started < 3000, 'waitForChildProcess returned too slowly');
+});
+
+test('runtime runShell supports AbortSignal cancellation', async () => {
+  if (typeof AbortController === 'undefined') return;
+  if (childProcessSpawnBlocked()) return;
+  const controller = new AbortController();
+  const command = `${JSON.stringify(process.execPath)} -e "setTimeout(()=>{}, 5000)"`;
+  const promise = runShell(command, 5000, { signal: controller.signal });
+  setTimeout(() => controller.abort(), 50).unref();
+  const result = await promise;
+  assert(result.cancelled === true, 'cancelled flag missing');
+  assert(result.exitCode === 130, `unexpected cancel exit code: ${result.exitCode}`);
 });
 
 test('default tools expose metadata contract', async () => {
