@@ -13,6 +13,7 @@ const { createAgentSession } = require('../src/agent-session');
 const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
 const { registerProvider } = require('../src/llm');
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
+const { deriveObservations } = require('../src/observation');
 const { buildMessagesFromTurnContext } = require('../src/prompts');
 const { waitForChildProcess, spawnProcess } = require('../src/runtime/child-process');
 const { runShell } = require('../src/runtime/bash-executor');
@@ -182,8 +183,144 @@ test('recordToolResult derives system.memory observation from free -h', () => {
   });
   const observation = state.observations.find((item) => item.subject === 'system.memory');
   assert(observation, 'missing system.memory observation');
+  assert(observation.kind === 'measurement', 'memory observation kind mismatch');
+  assert(observation.confidence === 'high', 'memory observation confidence mismatch');
+  assert(Array.isArray(observation.observationIds) && observation.observationIds.length === 1, 'missing typed observation ids');
+  assert(observation.typedObservations[0].id.indexOf('system.memory') >= 0, 'typed observation id missing subject');
   assert(observation.parsed.mem.total === '1.4Gi', 'memory total was not parsed');
   assert(state.messages.some((item) => item.role === 'observation' && item.subject === 'system.memory'), 'missing observation message');
+});
+
+test('deriveObservations parses disk runtime i2c sensor filesystem and historical subjects', () => {
+  const disk = deriveObservations({
+    tool: 'bash',
+    input: { command: 'df -h' },
+  }, {
+    ok: true,
+    data: {
+      command: 'df -h',
+      exitCode: 0,
+      stdout: 'Filesystem Size Used Avail Use% Mounted on\n/dev/root 14G 4G 10G 29% /\n',
+      stderr: '',
+      output: 'Filesystem Size Used Avail Use% Mounted on\n/dev/root 14G 4G 10G 29% /\n',
+    },
+  }, { turn: 1, observationIndex: 0 });
+  assert(disk[0].subject === 'system.disk', 'df -h did not produce system.disk');
+  assert(disk[0].parsed.filesystems[0].mount === '/', 'df -h mount was not parsed');
+
+  const runtime = deriveObservations({
+    tool: 'bash',
+    input: { command: 'node -v' },
+  }, {
+    ok: true,
+    data: { command: 'node -v', exitCode: 0, stdout: 'v14.16.1\n', output: 'v14.16.1\n' },
+  }, { turn: 1, observationIndex: 1 });
+  assert(runtime[0].subject === 'system.runtime', 'node -v did not produce system.runtime');
+  assert(runtime[0].parsed.nodeVersion === 'v14.16.1', 'node version was not parsed');
+
+  const i2cList = deriveObservations({
+    tool: 'bash',
+    input: { command: 'i2cdetect -l' },
+  }, {
+    ok: true,
+    data: {
+      command: 'i2cdetect -l',
+      exitCode: 0,
+      stdout: 'i2c-1\ti2c       \t1fe21800.i2c                    \tI2C adapter\n',
+      output: 'i2c-1\ti2c       \t1fe21800.i2c                    \tI2C adapter\n',
+    },
+  }, { turn: 1, observationIndex: 2 });
+  assert(i2cList[0].subject === 'hardware.i2c', 'i2cdetect -l did not produce hardware.i2c');
+  assert(i2cList[0].parsed.buses[0].bus === 1, 'i2c bus was not parsed');
+
+  const i2cScanOutput = [
+    '     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f',
+    '70: -- -- -- -- -- -- 76 -- -- -- -- -- -- -- -- --',
+  ].join('\n');
+  const i2cScan = deriveObservations({
+    tool: 'bash',
+    input: { command: 'i2cdetect -y 1' },
+  }, {
+    ok: true,
+    data: { command: 'i2cdetect -y 1', exitCode: 0, stdout: i2cScanOutput, output: i2cScanOutput },
+  }, { turn: 1, observationIndex: 3 });
+  assert(i2cScan[0].subject === 'hardware.i2c', 'i2cdetect -y did not produce hardware.i2c');
+  assert(i2cScan[0].parsed.addresses.some((item) => item.address === '0x76'), 'i2c scan address was not parsed');
+
+  const sensor = deriveObservations({
+    tool: 'bash',
+    input: { command: 'python3 bmp280_detect.py' },
+  }, {
+    ok: true,
+    data: {
+      command: 'python3 bmp280_detect.py',
+      exitCode: 0,
+      stdout: 'BMP280 detected on I2C-1 address 0x76 chip ID: 0x58\n',
+      output: 'BMP280 detected on I2C-1 address 0x76 chip ID: 0x58\n',
+    },
+  }, { turn: 1, observationIndex: 4 });
+  assert(sensor[0].subject === 'hardware.sensor', 'BMP280 output did not produce hardware.sensor');
+  assert(sensor[0].parsed.sensor === 'BMP280', 'BMP280 sensor was not parsed');
+  assert(sensor[0].parsed.chipId === '0x58', 'BMP280 chip id was not parsed');
+
+  const file = deriveObservations({
+    tool: 'read',
+    input: { path: '/tmp/bmp280.csv' },
+  }, {
+    ok: true,
+    data: {
+      path: '/tmp/bmp280.csv',
+      resolvedPath: '/tmp/bmp280.csv',
+      content: 'timestamp,temp,pressure\n2026-06-18T00:00:00Z,25.1,1000\n',
+      bytes: 61,
+    },
+  }, { turn: 1, observationIndex: 5 });
+  assert(file[0].subject === 'filesystem', 'read csv did not produce filesystem observation');
+  assert(file[0].parsed.artifactType === 'csv' && file[0].parsed.rows === 1, 'csv artifact was not parsed');
+
+  const knowledge = deriveObservations({
+    tool: 'kb_topic',
+    input: { topic: 'i2c_history' },
+  }, {
+    ok: true,
+    data: { topic: 'i2c_history', facts: [{ value: '0x76' }] },
+  }, { turn: 1, observationIndex: 6 });
+  assert(knowledge[0].subject === 'knowledge.historical', 'kb_topic did not produce knowledge.historical');
+  assert(knowledge[0].freshness === 'historical', 'knowledge observation freshness mismatch');
+});
+
+test('loong_env_check derives multiple typed observations', () => {
+  const state = createAgentState({ tools: [] });
+  recordToolResult(state, {
+    tool: 'loong_env_check',
+    input: {},
+  }, {
+    ok: true,
+    data: {
+      commands: [
+        {
+          command: 'free -h',
+          exitCode: 0,
+          stdout: 'total used free shared buff/cache available\nMem: 1.4Gi 615Mi 220Mi 20Mi 566Mi 563Mi\nSwap: 1.3Gi 8.0Mi 1.3Gi\n',
+          output: 'total used free shared buff/cache available\nMem: 1.4Gi 615Mi 220Mi 20Mi 566Mi 563Mi\nSwap: 1.3Gi 8.0Mi 1.3Gi\n',
+        },
+        {
+          command: 'df -h',
+          exitCode: 0,
+          stdout: 'Filesystem Size Used Avail Use% Mounted on\n/dev/root 14G 4G 10G 29% /\n',
+          output: 'Filesystem Size Used Avail Use% Mounted on\n/dev/root 14G 4G 10G 29% /\n',
+        },
+        { command: 'node -v', exitCode: 0, stdout: 'v14.16.1\n', output: 'v14.16.1\n' },
+        { command: 'uname -m', exitCode: 0, stdout: 'loongarch64\n', output: 'loongarch64\n' },
+      ],
+    },
+  });
+  const observation = state.observations[0];
+  const subjects = observation.typedObservations.map((item) => item.subject);
+  assert(subjects.indexOf('system.memory') >= 0, 'loong_env_check missing memory observation');
+  assert(subjects.indexOf('system.disk') >= 0, 'loong_env_check missing disk observation');
+  assert(subjects.indexOf('system.runtime') >= 0, 'loong_env_check missing runtime observation');
+  assert(state.messages.filter((item) => item.role === 'observation').length >= 4, 'loong_env_check did not write observation messages');
 });
 
 test('prompt builder no longer includes all observations blindly', () => {
@@ -630,6 +767,46 @@ test('current memory answer must bind to latest free output', async () => {
   assert(result.summary.indexOf('9.9Gi') < 0, 'fallback summary kept unsupported memory value');
 });
 
+test('current disk question requires current df evidence', async () => {
+  const dfOutput = [
+    'Filesystem      Size  Used Avail Use% Mounted on',
+    '/dev/root        14G  4.0G   10G  29% /',
+  ].join('\n');
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-disk-df-evidence',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: 'Current disk looks fine without checking.',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: 'According to this turn df -h, /dev/root is 14G total and 10G available.',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-disk-df-evidence'), {
+    maxLoops: 4,
+    streaming: false,
+  }), {
+    registry: createFakeBashRegistry({ 'df -h': dfOutput }),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('current device disk situation');
+  const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_disk_evidence');
+  const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
+  assert(guardTurn, 'current disk guard did not request evidence');
+  assert(bashStart && bashStart.args && bashStart.args.command === 'df -h', 'current disk guard did not call df -h');
+  assert(result.summary.indexOf('14G') >= 0 && result.summary.indexOf('10G') >= 0, 'final disk answer did not use df output');
+});
+
 test('current I2C hardware question requires bash evidence before final answer', async () => {
   let calls = 0;
   registerProvider({
@@ -658,7 +835,7 @@ test('current I2C hardware question requires bash evidence before final answer',
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('查看当前开发板连接的I2C情况');
   const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
-  const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_hardware_evidence');
+  const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_i2c_evidence');
   assert(bashStart, 'current I2C question did not force bash evidence');
   assert(guardTurn, 'current I2C guard reason missing');
   assert(/bash evidence/.test(result.summary), 'final answer did not use second model response after evidence');

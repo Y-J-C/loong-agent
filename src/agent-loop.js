@@ -300,14 +300,39 @@ function isCurrentMemoryQuestion(text) {
     (/当前|现在|此刻|设备|开发板|current|now|board|device/i.test(value) || temporalIntentForPrompt(value) === 'current');
 }
 
+function isCurrentDiskQuestion(text) {
+  const value = String(text || '');
+  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return false;
+  return /磁盘|存储|硬盘|空间|df\s+-h|filesystem|disk|storage/i.test(value) &&
+    (/当前|现在|此刻|设备|开发板|current|now|board|device/i.test(value) || temporalIntentForPrompt(value) === 'current');
+}
+
+function isI2cQuestion(text) {
+  return /i2c|i²c|iic/i.test(String(text || ''));
+}
+
+function typedObservationsFromState(state) {
+  const out = [];
+  for (const item of (state && state.observations) || []) {
+    if (!item) continue;
+    if (item.subject) out.push(item);
+    if (Array.isArray(item.typedObservations)) {
+      item.typedObservations.forEach((typed) => {
+        if (typed && typed.subject) out.push(typed);
+      });
+    }
+  }
+  return out;
+}
+
 function hasCurrentObservationSubject(state, subject) {
-  return (state.observations || []).some((item) => {
+  return typedObservationsFromState(state).some((item) => {
     return item && item.subject === subject && item.freshness === 'current';
   });
 }
 
 function latestObservationBySubject(state, subject) {
-  const items = (state && state.observations) || [];
+  const items = typedObservationsFromState(state);
   for (let index = items.length - 1; index >= 0; index -= 1) {
     if (items[index] && items[index].subject === subject) return items[index];
   }
@@ -497,9 +522,11 @@ function historicalEnvironmentFallbackSummary(prompt, facts, options) {
 
 function observationEvidenceSources(state) {
   const sources = [];
-  for (const observation of (state && state.observations) || []) {
+  for (const observation of typedObservationsFromState(state)) {
     const result = observation && observation.result ? observation.result : {};
-    const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+    const evidence = Array.isArray(observation && observation.evidence)
+      ? observation.evidence
+      : Array.isArray(result.evidence) ? result.evidence : [];
     for (const item of evidence) {
       if (!item) continue;
       const label = [
@@ -529,6 +556,40 @@ function finalAnswerEvidenceGuard(state, currentUserPrompt) {
         'The user asked for current memory state.',
         'Do not answer from memory, historical sessions, or loong_env_check summaries alone.',
         'Use this free -h evidence first, then answer only with values present in the command output.',
+      ].join('\n'),
+    };
+  }
+  if (isCurrentDiskQuestion(prompt) && !hasCurrentObservationSubject(state, 'system.disk')) {
+    return {
+      reason: 'missing_current_disk_evidence',
+      action: {
+        tool: 'bash',
+        input: {
+          command: 'df -h',
+        },
+        reason: 'Required current disk evidence before answering.',
+      },
+      message: [
+        'The user asked for current disk/storage state.',
+        'Do not answer from memory, historical sessions, or loong_env_check summaries alone.',
+        'Use this df -h evidence first, then answer only with values present in the command output.',
+      ].join('\n'),
+    };
+  }
+  if (isCurrentHardwareQuestion(prompt) && isI2cQuestion(prompt) && !hasCurrentObservationSubject(state, 'hardware.i2c')) {
+    return {
+      reason: 'missing_current_i2c_evidence',
+      action: {
+        tool: 'bash',
+        input: {
+          command: 'ls /dev/i2c*; i2cdetect -l; ls /sys/bus/i2c/devices 2>/dev/null || true',
+        },
+        reason: 'Required current I2C evidence before answering.',
+      },
+      message: [
+        'The user asked for current board I2C state.',
+        'Do not answer from memory, historical sessions, or KB alone.',
+        'Use this typed hardware.i2c evidence first, then decide whether more I2C probing is needed.',
       ].join('\n'),
     };
   }

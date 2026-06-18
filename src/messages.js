@@ -40,9 +40,13 @@ function bashExecutionToText(message) {
 
 function observationToText(message) {
   const subject = message && message.subject ? message.subject : 'unknown';
+  const id = message && message.id ? message.id : '';
+  const kind = message && message.kind ? message.kind : 'unknown';
   const freshness = message && message.freshness ? message.freshness : 'unknown';
   const source = message && message.source ? message.source : 'unknown';
-  const lines = [`Observation: subject=${subject} freshness=${freshness} source=${source}`];
+  const confidence = message && message.confidence ? message.confidence : 'unknown';
+  const lines = [`Observation: subject=${subject} kind=${kind} freshness=${freshness} source=${source} confidence=${confidence}`];
+  if (id) lines.push(`id=${id}`);
   if (message && message.timestamp) lines.push(`timestamp=${message.timestamp}`);
   if (message && message.parsed && Object.keys(message.parsed).length) {
     lines.push(`parsed=${compactJson(message.parsed, 700)}`);
@@ -135,7 +139,13 @@ function classifyPromptSubjects(prompt) {
   const text = String(prompt || '');
   const subjects = [];
   if (/memory|内存|free\s+-h|swap|Mem:/i.test(text)) subjects.push('system.memory');
-  if (/i2c|sensor|sensors|传感器|外设|连接|connected|peripheral/i.test(text)) subjects.push('hardware.i2c');
+  if (/disk|storage|filesystem|df\s+-h|磁盘|存储|空间|硬盘/i.test(text)) subjects.push('system.disk');
+  if (/runtime|toolchain|node|npm|gcc|g\+\+|python|python3|git|clang|uname|lscpu|运行时|工具链|环境|版本/i.test(text)) subjects.push('system.runtime');
+  if (/i2c|i²c|iic/i.test(text)) subjects.push('hardware.i2c');
+  if (/sensor|sensors|传感器|bmp280|bme280|iio|hwmon/i.test(text)) subjects.push('hardware.sensor');
+  if (/process|pid|进程|后台|日志|log/i.test(text)) subjects.push('process');
+  if (/file|filesystem|csv|文件|目录|脚本|路径/i.test(text)) subjects.push('filesystem');
+  if (/历史|上次|之前|当时|session|jsonl|kb|knowledge|historical|previous|last time/i.test(text)) subjects.push('knowledge.historical');
   return subjects;
 }
 
