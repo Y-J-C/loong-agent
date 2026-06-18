@@ -10,6 +10,7 @@ const {
   startRun,
   startTurn,
 } = require('./agent-state');
+const { classifyRequestContext } = require('./context-selector');
 const { executeToolCall } = require('./tool-execution-runtime');
 
 function nowIso() {
@@ -274,11 +275,18 @@ const VERSION_OR_STATUS_PATTERN = /版本|version|情况|状态|可用|available
 const CURRENT_HARDWARE_PATTERN = /i2c|sensor|sensors|传感器|外设|开发板|设备|硬件|连接|connected|peripheral/i;
 const HARDWARE_CURRENT_PATTERN = /当前|现在|此刻|查看|检测|扫描|连接|current|now|connected/i;
 
+function requestContextForPrompt(text) {
+  return classifyRequestContext(text || '');
+}
+
+function contextHasSubject(context, subjects) {
+  const current = (context && context.currentSubjects) || [];
+  const all = (context && context.subjects) || [];
+  return (subjects || []).some((subject) => current.indexOf(subject) >= 0 || all.indexOf(subject) >= 0);
+}
+
 function temporalIntentForPrompt(text) {
-  const value = String(text || '');
-  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return 'historical';
-  if (TEMPORAL_CURRENT_PATTERN.test(value)) return 'current';
-  return 'unknown';
+  return requestContextForPrompt(text).intent || 'unknown';
 }
 
 function isBoardEnvironmentQuestion(text) {
@@ -287,28 +295,22 @@ function isBoardEnvironmentQuestion(text) {
 }
 
 function isCurrentHardwareQuestion(text) {
-  const value = String(text || '');
-  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return false;
-  if (/当时|之前|上次|刚才|那次|历史|记录|previous|last time|earlier/i.test(value)) return false;
-  return CURRENT_HARDWARE_PATTERN.test(value) && HARDWARE_CURRENT_PATTERN.test(value);
+  const context = requestContextForPrompt(text);
+  return context.isCurrent && contextHasSubject(context, ['hardware.i2c', 'hardware.sensor']);
 }
 
 function isCurrentMemoryQuestion(text) {
-  const value = String(text || '');
-  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return false;
-  return /memory|内存|free\s+-h|swap/i.test(value) &&
-    (/当前|现在|此刻|设备|开发板|current|now|board|device/i.test(value) || temporalIntentForPrompt(value) === 'current');
+  const context = requestContextForPrompt(text);
+  return context.isCurrent && context.currentSubjects.indexOf('system.memory') >= 0;
 }
 
 function isCurrentDiskQuestion(text) {
-  const value = String(text || '');
-  if (TEMPORAL_HISTORICAL_PATTERN.test(value)) return false;
-  return /磁盘|存储|硬盘|空间|df\s+-h|filesystem|disk|storage/i.test(value) &&
-    (/当前|现在|此刻|设备|开发板|current|now|board|device/i.test(value) || temporalIntentForPrompt(value) === 'current');
+  const context = requestContextForPrompt(text);
+  return context.isCurrent && context.currentSubjects.indexOf('system.disk') >= 0;
 }
 
 function isI2cQuestion(text) {
-  return /i2c|i²c|iic/i.test(String(text || ''));
+  return contextHasSubject(requestContextForPrompt(text), ['hardware.i2c']);
 }
 
 function typedObservationsFromState(state) {

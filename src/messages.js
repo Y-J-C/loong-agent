@@ -1,5 +1,7 @@
 'use strict';
 
+const { classifyRequestContext, promptSubjects } = require('./context-selector');
+
 function truncateText(value, maxLength) {
   const text = String(value || '');
   const limit = Math.max(0, Number(maxLength) || 0);
@@ -118,13 +120,15 @@ function convertToLlm(messages, options) {
       }
       if (message.role === 'bashExecution') {
         if (message.excludeFromContext) return null;
+        if (!message.includeInContext && !(options && options.includeBashExecutions)) return null;
         return { role: 'user', content: bashExecutionToText(message), timestamp: message.timestamp };
       }
       if (message.role === 'observation') {
-        if (!shouldIncludeObservation(message, subjectSet)) return null;
+        if (!message.includeInContext && !shouldIncludeObservation(message, subjectSet)) return null;
         return { role: 'user', content: observationToText(message), timestamp: message.timestamp };
       }
       if (message.role === 'toolResult') {
+        if (!message.includeInContext && !(options && options.includeToolResults)) return null;
         return { role: 'user', content: toolResultToText(message), timestamp: message.timestamp };
       }
       if (message.role === 'custom' || message.role === 'context') {
@@ -136,17 +140,8 @@ function convertToLlm(messages, options) {
 }
 
 function classifyPromptSubjects(prompt) {
-  const text = String(prompt || '');
-  const subjects = [];
-  if (/memory|内存|free\s+-h|swap|Mem:/i.test(text)) subjects.push('system.memory');
-  if (/disk|storage|filesystem|df\s+-h|磁盘|存储|空间|硬盘/i.test(text)) subjects.push('system.disk');
-  if (/runtime|toolchain|node|npm|gcc|g\+\+|python|python3|git|clang|uname|lscpu|运行时|工具链|环境|版本/i.test(text)) subjects.push('system.runtime');
-  if (/i2c|i²c|iic/i.test(text)) subjects.push('hardware.i2c');
-  if (/sensor|sensors|传感器|bmp280|bme280|iio|hwmon/i.test(text)) subjects.push('hardware.sensor');
-  if (/process|pid|进程|后台|日志|log/i.test(text)) subjects.push('process');
-  if (/file|filesystem|csv|文件|目录|脚本|路径/i.test(text)) subjects.push('filesystem');
-  if (/历史|上次|之前|当时|session|jsonl|kb|knowledge|historical|previous|last time/i.test(text)) subjects.push('knowledge.historical');
-  return subjects;
+  const context = classifyRequestContext(prompt);
+  return context.subjects.length ? context.subjects : promptSubjects(prompt);
 }
 
 module.exports = {

@@ -12,6 +12,7 @@ const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
 const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
 const { registerProvider } = require('../src/llm');
+const { classifyRequestContext, selectContextMessages } = require('../src/context-selector');
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
 const { deriveObservations } = require('../src/observation');
 const { buildMessagesFromTurnContext } = require('../src/prompts');
@@ -148,6 +149,23 @@ test('excluded bashExecution stays out of LLM context', () => {
   assert(messages.length === 0, 'excluded bashExecution should not enter LLM context');
 });
 
+test('toolResult and bashExecution do not enter LLM context by default', () => {
+  const messages = convertToLlm([
+    {
+      role: 'toolResult',
+      tool: 'bash',
+      content: { data: { stdout: 'RAW_TOOL_OUTPUT' } },
+    },
+    {
+      role: 'bashExecution',
+      command: 'free -h',
+      output: 'RAW_BASH_OUTPUT',
+      exitCode: 0,
+    },
+  ]);
+  assert(messages.length === 0, 'raw toolResult/bashExecution should not enter context by default');
+});
+
 test('observation enters LLM context only when subject is selected', () => {
   const observation = {
     role: 'observation',
@@ -162,6 +180,154 @@ test('observation enters LLM context only when subject is selected', () => {
   const selected = convertToLlm([observation], { selectedSubjects: ['system.memory'] });
   assert(selected.length === 1, 'selected observation should enter context');
   assert(selected[0].content.indexOf('subject=system.memory') >= 0, 'selected observation missing subject');
+});
+
+test('context selector classifies current historical and mixed requests', () => {
+  const memory = classifyRequestContext('当前设备内存情况');
+  assert(memory.intent === 'current', `current memory intent mismatch: ${memory.intent}`);
+  assert(memory.currentSubjects.indexOf('system.memory') >= 0, 'current memory subject missing');
+  assert(memory.freshness.indexOf('current') >= 0, 'current freshness missing');
+
+  const i2c = classifyRequestContext('current I2C situation');
+  assert(i2c.intent === 'current', `current I2C intent mismatch: ${i2c.intent}`);
+  assert(i2c.currentSubjects.indexOf('hardware.i2c') >= 0, 'current I2C subject missing');
+
+  const historical = classifyRequestContext('上次 I2C 扫描结果');
+  assert(historical.intent === 'historical', `historical I2C intent mismatch: ${historical.intent}`);
+  assert(historical.historicalSubjects.indexOf('session.history') >= 0, 'historical session subject missing');
+  assert(historical.currentSubjects.indexOf('hardware.i2c') < 0, 'historical I2C should not request current I2C');
+
+  const mixed = classifyRequestContext('now and last time I2C difference');
+  assert(mixed.intent === 'mixed', `mixed I2C intent mismatch: ${mixed.intent}`);
+  assert(mixed.currentSubjects.indexOf('hardware.i2c') >= 0, 'mixed current I2C subject missing');
+  assert(mixed.historicalSubjects.indexOf('session.history') >= 0, 'mixed historical session subject missing');
+});
+
+test('context selector filters unrelated observations and raw tool results', () => {
+  const messages = [
+    { role: 'user', content: 'previous question', turn: 1 },
+    {
+      role: 'toolResult',
+      tool: 'bash',
+      turn: 1,
+      content: { data: { stdout: 'I2C_RAW_SHOULD_NOT_APPEAR 0x76' } },
+    },
+    {
+      role: 'bashExecution',
+      turn: 1,
+      command: 'i2cdetect -l',
+      output: 'I2C_BASH_SHOULD_NOT_APPEAR 0x76',
+      exitCode: 0,
+    },
+    {
+      role: 'observation',
+      turn: 1,
+      subject: 'hardware.i2c',
+      freshness: 'current',
+      source: 'bash',
+      raw: 'I2C_OBS_SHOULD_NOT_APPEAR 0x76',
+      parsed: { buses: [{ bus: 1 }] },
+      evidence: [{ source: 'command', command: 'i2cdetect -l' }],
+    },
+    {
+      role: 'observation',
+      turn: 2,
+      subject: 'system.memory',
+      freshness: 'current',
+      source: 'bash',
+      raw: 'Mem: 1.4Gi 615Mi 220Mi',
+      parsed: { mem: { total: '1.4Gi' } },
+      evidence: [{ source: 'command', command: 'free -h' }],
+    },
+  ];
+  const selected = selectContextMessages(messages, classifyRequestContext('current memory status'));
+  const text = convertToLlm(selected).map((item) => item.content).join('\n');
+  assert(text.indexOf('system.memory') >= 0, 'memory observation missing from selected context');
+  assert(text.indexOf('1.4Gi') >= 0, 'memory raw output missing from selected context');
+  assert(text.indexOf('0x76') < 0, 'unrelated I2C fact leaked into memory context');
+  assert(text.indexOf('Tool result') < 0, 'raw toolResult leaked into context');
+});
+
+test('context selector uses bashExecution only as command-matched fallback', () => {
+  const requestContext = classifyRequestContext('current memory status');
+  const fallbackOnly = selectContextMessages([
+    {
+      role: 'bashExecution',
+      turn: 1,
+      command: 'free -h',
+      output: 'Mem: 2.0Gi',
+      exitCode: 0,
+    },
+  ], requestContext);
+  let text = convertToLlm(fallbackOnly).map((item) => item.content).join('\n');
+  assert(text.indexOf('Ran `free -h`') >= 0, 'matched bashExecution fallback was not included');
+
+  const withObservation = selectContextMessages([
+    {
+      role: 'bashExecution',
+      turn: 1,
+      command: 'free -h',
+      output: 'BASH_SHOULD_NOT_APPEAR',
+      exitCode: 0,
+    },
+    {
+      role: 'observation',
+      turn: 2,
+      subject: 'system.memory',
+      freshness: 'current',
+      source: 'bash',
+      raw: 'Mem: 1.4Gi',
+      parsed: { mem: { total: '1.4Gi' } },
+    },
+  ], requestContext);
+  text = convertToLlm(withObservation).map((item) => item.content).join('\n');
+  assert(text.indexOf('Mem: 1.4Gi') >= 0, 'typed memory observation missing');
+  assert(text.indexOf('BASH_SHOULD_NOT_APPEAR') < 0, 'bashExecution should not be included when typed observation exists');
+});
+
+test('context selector keeps historical evidence separate from current observations', () => {
+  const messages = [
+    {
+      role: 'observation',
+      turn: 1,
+      subject: 'system.memory',
+      freshness: 'current',
+      source: 'bash',
+      raw: 'CURRENT_MEMORY_SHOULD_NOT_APPEAR Mem: 1.4Gi',
+      parsed: { mem: { total: '1.4Gi' } },
+    },
+    {
+      role: 'bashExecution',
+      turn: 1,
+      command: 'free -h',
+      output: 'CURRENT_BASH_SHOULD_NOT_APPEAR',
+      exitCode: 0,
+    },
+    {
+      role: 'observation',
+      turn: 2,
+      subject: 'session.history',
+      freshness: 'historical',
+      source: 'session_summary',
+      raw: 'SESSION_I2C_HISTORY 0x76',
+      parsed: { session: 'latest' },
+    },
+    {
+      role: 'observation',
+      turn: 2,
+      subject: 'knowledge.historical',
+      freshness: 'historical',
+      source: 'kb_search',
+      raw: 'KB_I2C_HISTORY 0x60',
+      parsed: { topic: 'i2c' },
+    },
+  ];
+  const selected = selectContextMessages(messages, classifyRequestContext('上次 I2C 扫描结果'));
+  const text = convertToLlm(selected).map((item) => item.content).join('\n');
+  assert(text.indexOf('SESSION_I2C_HISTORY') >= 0, 'historical session evidence missing');
+  assert(text.indexOf('KB_I2C_HISTORY') >= 0, 'historical knowledge evidence missing');
+  assert(text.indexOf('CURRENT_MEMORY_SHOULD_NOT_APPEAR') < 0, 'current observation leaked into historical context');
+  assert(text.indexOf('CURRENT_BASH_SHOULD_NOT_APPEAR') < 0, 'current bashExecution leaked into historical context');
 });
 
 test('recordToolResult derives system.memory observation from free -h', () => {
@@ -287,6 +453,16 @@ test('deriveObservations parses disk runtime i2c sensor filesystem and historica
   }, { turn: 1, observationIndex: 6 });
   assert(knowledge[0].subject === 'knowledge.historical', 'kb_topic did not produce knowledge.historical');
   assert(knowledge[0].freshness === 'historical', 'knowledge observation freshness mismatch');
+
+  const sessionHistory = deriveObservations({
+    tool: 'session_summary',
+    input: { session: 'latest' },
+  }, {
+    ok: true,
+    data: { session: 'latest', summary: 'I2C scan found 0x76' },
+  }, { turn: 1, observationIndex: 7 });
+  assert(sessionHistory[0].subject === 'session.history', 'session_summary did not produce session.history');
+  assert(sessionHistory[0].freshness === 'historical', 'session history freshness mismatch');
 });
 
 test('loong_env_check derives multiple typed observations', () => {
@@ -337,6 +513,108 @@ test('prompt builder no longer includes all observations blindly', () => {
   const prompt = messages[1] && messages[1].content ? messages[1].content : '';
   assert(prompt.indexOf('Known observations') < 0, 'prompt should not include Known observations block');
   assert(prompt.indexOf('SHOULD_NOT_APPEAR') < 0, 'prompt leaked raw unselected observation');
+});
+
+test('prompt builder includes only selected current memory context', () => {
+  const messages = buildMessagesFromTurnContext({
+    userPrompt: 'current memory status',
+    messages: [
+      {
+        role: 'toolResult',
+        tool: 'bash',
+        turn: 1,
+        content: { data: { stdout: 'I2C_TOOL_RESULT_SHOULD_NOT_APPEAR 0x76' } },
+      },
+      {
+        role: 'observation',
+        turn: 1,
+        subject: 'hardware.i2c',
+        freshness: 'current',
+        source: 'bash',
+        raw: 'I2C_OBS_SHOULD_NOT_APPEAR 0x76',
+        parsed: { buses: [{ bus: 1 }] },
+      },
+      {
+        role: 'observation',
+        turn: 2,
+        subject: 'system.memory',
+        freshness: 'current',
+        source: 'bash',
+        raw: 'Mem: 1.4Gi 615Mi 220Mi',
+        parsed: { mem: { total: '1.4Gi' } },
+      },
+    ],
+    tools: createDefaultTools(),
+    config: {},
+  });
+  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  assert(prompt.indexOf('system.memory') >= 0, 'prompt missing selected memory observation');
+  assert(prompt.indexOf('1.4Gi') >= 0, 'prompt missing selected memory value');
+  assert(prompt.indexOf('0x76') < 0, 'prompt leaked unrelated I2C observation');
+  assert(prompt.indexOf('I2C_TOOL_RESULT_SHOULD_NOT_APPEAR') < 0, 'prompt leaked raw toolResult');
+});
+
+test('prompt builder includes only selected current I2C context', () => {
+  const messages = buildMessagesFromTurnContext({
+    userPrompt: 'current I2C situation',
+    messages: [
+      {
+        role: 'observation',
+        turn: 1,
+        subject: 'system.memory',
+        freshness: 'current',
+        source: 'bash',
+        raw: 'MEMORY_SHOULD_NOT_APPEAR Mem: 1.4Gi',
+        parsed: { mem: { total: '1.4Gi' } },
+      },
+      {
+        role: 'observation',
+        turn: 2,
+        subject: 'hardware.i2c',
+        freshness: 'current',
+        source: 'bash',
+        raw: 'i2c-1 1fe21800.i2c I2C adapter',
+        parsed: { buses: [{ bus: 1 }] },
+      },
+    ],
+    tools: createDefaultTools(),
+    config: {},
+  });
+  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  assert(prompt.indexOf('hardware.i2c') >= 0, 'prompt missing selected I2C observation');
+  assert(prompt.indexOf('i2c-1') >= 0, 'prompt missing selected I2C raw output');
+  assert(prompt.indexOf('MEMORY_SHOULD_NOT_APPEAR') < 0, 'prompt leaked unrelated memory observation');
+});
+
+test('prompt builder keeps historical context separate from current observations', () => {
+  const messages = buildMessagesFromTurnContext({
+    userPrompt: '上次 I2C 扫描结果',
+    messages: [
+      {
+        role: 'observation',
+        turn: 1,
+        subject: 'hardware.i2c',
+        freshness: 'current',
+        source: 'bash',
+        raw: 'CURRENT_I2C_SHOULD_NOT_APPEAR',
+        parsed: { buses: [{ bus: 1 }] },
+      },
+      {
+        role: 'observation',
+        turn: 2,
+        subject: 'session.history',
+        freshness: 'historical',
+        source: 'session_summary',
+        raw: 'SESSION_HISTORY_I2C 0x76',
+        parsed: { session: 'latest' },
+      },
+    ],
+    tools: createDefaultTools(),
+    config: {},
+  });
+  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  assert(prompt.indexOf('SESSION_HISTORY_I2C') >= 0, 'prompt missing historical session observation');
+  assert(prompt.indexOf('CURRENT_I2C_SHOULD_NOT_APPEAR') < 0, 'prompt leaked current observation into historical request');
 });
 
 test('finish event order includes turn_end', async () => {

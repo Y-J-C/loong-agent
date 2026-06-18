@@ -2,7 +2,8 @@
 
 const { createDefaultTools, formatToolsForPrompt } = require('./tool-registry');
 const { resolveProviderCapabilities } = require('./provider-registry');
-const { classifyPromptSubjects, convertToLlm } = require('./messages');
+const { convertToLlm } = require('./messages');
+const { classifyRequestContext, selectContextMessages } = require('./context-selector');
 
 const SYSTEM_PROMPT = `You are Loong Pi Agent, a lightweight coding and diagnostics agent for LoongArch developer boards.
 
@@ -174,9 +175,14 @@ function buildTurnContext(options) {
 
 function buildMessagesFromTurnContext(turnContext) {
   turnContext = turnContext || {};
-  const transcriptText = summarizeMessages(convertToLlm(turnContext.messages || [], {
+  const requestContext = classifyRequestContext(turnContext.userPrompt || '');
+  const selectedMessages = selectContextMessages(turnContext.messages || [], requestContext, {
     maxMessages: 12,
-    selectedSubjects: classifyPromptSubjects(turnContext.userPrompt || ''),
+    observationsPerSubject: 2,
+    conversationMessages: 4,
+  });
+  const transcriptText = summarizeMessages(convertToLlm(selectedMessages, {
+    maxMessages: 12,
   }));
   const parts = [`Current user request:\n${turnContext.userPrompt || 'Continue from current context.'}`];
   if (transcriptText) parts.push(`Recent conversation:\n${transcriptText}`);

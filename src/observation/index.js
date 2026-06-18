@@ -361,8 +361,9 @@ function deriveFilesystemObservation(action, result, context) {
 function deriveKnowledgeObservation(action, result, context) {
   const data = resultData(result);
   const topic = (action.input && action.input.topic) || data.topic || '';
+  const isSessionHistory = action.tool === 'session_summary';
   return makeObservation(context, {
-    subject: 'knowledge.historical',
+    subject: isSessionHistory ? 'session.history' : 'knowledge.historical',
     kind: 'knowledge_fact',
     freshness: 'historical',
     source: action.tool,
