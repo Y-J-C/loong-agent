@@ -53,6 +53,24 @@ function createDefaultTools() {
   return require('./tools/index').createDefaultTools();
 }
 
+async function invokeTool(tool, config, input, executionContext) {
+  const context = executionContext || {};
+  const params = input || {};
+  if (tool.execute.length >= 5) {
+    return tool.execute(
+      context.toolCallId || '',
+      params,
+      context.signal || null,
+      context.onUpdate,
+      Object.assign({}, context.ctx || {}, {
+        config,
+        tool,
+      })
+    );
+  }
+  return tool.execute(config, params, context);
+}
+
 function createToolRegistry(tools) {
   const byName = {};
   for (const tool of tools || []) {
@@ -74,7 +92,25 @@ function createToolRegistry(tools) {
       }
       const validationError = tool.validate(input || {});
       if (validationError) throw new Error(`Invalid input for ${name}: ${validationError}`);
-      const rawResult = await tool.execute(config, input || {}, executionContext || {});
+      const rawResult = await invokeTool(tool, config, input || {}, executionContext || {});
+      return normalizeToolResult(tool, rawResult);
+    },
+    executeToolCall: async (request) => {
+      const name = request && request.name;
+      const tool = byName[name];
+      if (!tool) throw new Error(`Unknown tool: ${name}`);
+      if (tool.isAvailable && !tool.isAvailable(request.config)) {
+        throw new Error(`Tool is not available: ${name}`);
+      }
+      const input = (request && request.input) || {};
+      const validationError = tool.validate(input);
+      if (validationError) throw new Error(`Invalid input for ${name}: ${validationError}`);
+      const rawResult = await invokeTool(tool, request.config, input, {
+        ctx: request.ctx || {},
+        onUpdate: request.onUpdate,
+        signal: request.signal || null,
+        toolCallId: request.toolCallId || '',
+      });
       return normalizeToolResult(tool, rawResult);
     },
   };

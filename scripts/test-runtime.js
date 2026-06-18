@@ -216,7 +216,7 @@ test('finish event order includes turn_end', async () => {
   assert(result.summary === 'ok', 'finish summary mismatch');
   assert(
     events.join(' -> ') ===
-      'agent_start -> turn_start -> message_start -> message_end -> message_start -> message_update -> message_end -> model_usage -> tool_execution_start -> tool_execution_end -> turn_end -> agent_end',
+      'agent_start -> turn_start -> message_start -> message_end -> message_start -> message_update -> message_end -> model_usage -> tool_execution_start -> tool_execution_end -> message_start -> message_end -> turn_end -> agent_end',
     `unexpected event order: ${events.join(' -> ')}`
   );
 });
@@ -977,6 +977,36 @@ test('tool events include stable metadata and turn status', async () => {
   assert(turnEnd && turnEnd.toolName === 'missing_tool', 'turn_end missing tool name');
 });
 
+test('tool execution lifecycle emits toolResult message after tool end', async () => {
+  registerProvider({
+    name: 'test-tool-result-message',
+    chatCompletion: async () => JSON.stringify({
+      tool: 'finish',
+      input: { summary: 'tool result message ok' },
+      reason: 'done',
+    }),
+  });
+
+  const events = [];
+  const agent = createAgent(config('test-tool-result-message'), { session: null });
+  agent.subscribe((event) => events.push(event));
+  await agent.prompt('finish with toolResult');
+
+  const startIndex = events.findIndex((event) => event.type === 'tool_execution_start' && event.toolName === 'finish');
+  const endIndex = events.findIndex((event) => event.type === 'tool_execution_end' && event.toolName === 'finish');
+  const messageStartIndex = events.findIndex((event) => event.type === 'message_start' && event.role === 'toolResult');
+  const messageEndIndex = events.findIndex((event) => event.type === 'message_end' && event.role === 'toolResult');
+  const end = events[endIndex];
+  const messageEnd = events[messageEndIndex];
+
+  assert(startIndex >= 0, 'tool start missing');
+  assert(endIndex > startIndex, 'tool end did not follow tool start');
+  assert(messageStartIndex > endIndex, 'toolResult message_start did not follow tool end');
+  assert(messageEndIndex > messageStartIndex, 'toolResult message_end did not follow message_start');
+  assert(messageEnd.toolCallId === end.toolCallId, 'toolResult message did not preserve toolCallId');
+  assert(/Tool finish completed/.test(messageEnd.content), 'toolResult message content mismatch');
+});
+
 test('beforeToolCall can block a tool call without crashing the loop', async () => {
   let calls = 0;
   registerProvider({
@@ -1014,11 +1044,13 @@ test('beforeToolCall can block a tool call without crashing the loop', async () 
 
   const result = await agent.prompt('block');
   const blockedEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'list_directory');
+  const blockedMessage = events.find((event) => event.type === 'message_end' && event.role === 'toolResult' && event.toolName === 'list_directory');
 
   assert(result.summary === 'blocked then recovered', 'agent did not recover after beforeToolCall block');
   assert(blockedEnd && blockedEnd.isError === true, 'blocked tool was not recorded as error');
   assert(blockedEnd && blockedEnd.errorType === 'policy_blocked', 'blocked tool missing policy error type');
   assert(/readonly policy/.test(blockedEnd.resultSummary), 'blocked tool missing block reason');
+  assert(blockedMessage && /Tool list_directory failed/.test(blockedMessage.content), 'blocked tool missing toolResult message');
 });
 
 test('afterToolCall can normalize a tool result before finish', async () => {
@@ -1091,6 +1123,45 @@ test('tool registry preserves envelope result fields', async () => {
   assert(result.evidence.length === 1, 'envelope result lost evidence');
   assert(result.warnings.length === 1, 'envelope result lost warnings');
   assert(result.custom === 'kept', 'envelope result lost custom field');
+});
+
+test('tool registry supports unified tool execution signature', async () => {
+  const registry = createToolRegistry([
+    createTool({
+      name: 'unified_tool',
+      description: 'Unified signature result.',
+      execute: async (toolCallId, params, signal, onUpdate, ctx) => {
+        if (onUpdate) await onUpdate({ output: `seen ${toolCallId}` });
+        return {
+          ok: true,
+          data: {
+            toolCallId,
+            value: params.value,
+            hasSignal: signal !== undefined,
+            turn: ctx && ctx.turn,
+          },
+          summary: 'unified summary',
+          evidence: [{ source: 'test', toolCallId }],
+          warnings: [],
+        };
+      },
+    }),
+  ]);
+  const updates = [];
+  const result = await registry.executeToolCall({
+    config: config('test-unified-registry'),
+    name: 'unified_tool',
+    input: { value: 9 },
+    toolCallId: 'tool-call-1',
+    signal: null,
+    onUpdate: (update) => updates.push(update),
+    ctx: { turn: 3 },
+  });
+  assert(result.ok === true, 'unified result missing ok');
+  assert(result.data.toolCallId === 'tool-call-1', 'unified toolCallId not passed');
+  assert(result.data.value === 9, 'unified params not passed');
+  assert(result.data.turn === 3, 'unified ctx not passed');
+  assert(updates.length === 1 && /tool-call-1/.test(updates[0].output), 'unified onUpdate not called');
 });
 
 test('default tools expose metadata contract', async () => {

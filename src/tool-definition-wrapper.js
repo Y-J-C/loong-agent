@@ -26,12 +26,17 @@ function wrapToolDefinition(definition, contextFactory) {
     renderResult: definition.renderResult,
     renderError: definition.renderError,
     isAvailable: definition.isAvailable,
-    execute: async (config, input) => {
+    execute: async (config, input, executionContext) => {
       const prepared =
         definition.prepareArguments && typeof definition.prepareArguments === 'function'
           ? definition.prepareArguments(input || {})
           : input || {};
-      return definition.execute(config, prepared, contextFactory ? contextFactory() : undefined);
+      const baseContext = contextFactory ? contextFactory() : {};
+      return definition.execute(
+        config,
+        prepared,
+        Object.assign({}, baseContext || {}, executionContext || {})
+      );
     },
   };
 }
@@ -59,7 +64,7 @@ function createToolDefinitionFromAgentTool(tool) {
     renderResult: tool.renderResult,
     renderError: tool.renderError,
     isAvailable: tool.isAvailable,
-    execute: async (config, input) => tool.execute(config, input || {}),
+    execute: async (config, input, executionContext) => tool.execute(config, input || {}, executionContext || {}),
   };
 }
 

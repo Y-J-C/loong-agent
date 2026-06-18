@@ -113,6 +113,7 @@ function auditSession(session) {
     turns: events.filter((event) => event.type === 'turn_start').length,
     toolsStarted: events.filter((event) => event.type === 'tool_execution_start').length,
     toolsEnded: toolEndEvents.length,
+    toolResultMessages: events.filter((event) => event.type === 'message_end' && event.role === 'toolResult').length,
     bashExecutions: events.filter((event) => event.type === 'bash_execution').length,
     toolErrors: toolEndEvents.filter((event) => event.isError).length,
     policyBlocked: toolEndEvents.filter((event) => event.errorType === 'policy_blocked').length,

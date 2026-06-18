@@ -247,6 +247,18 @@ function collectTimeline(session) {
             }
           : event.content,
       });
+    } else if (event.type === 'message_end' && event.role === 'toolResult') {
+      timeline.push({
+        type: 'tool_result_message',
+        title: `Tool result message: ${event.toolName || 'unknown'}`,
+        timestamp: event.timestamp,
+        status: event.isError ? 'error' : 'ok',
+        errorType: event.errorType || '',
+        detail: {
+          toolCallId: event.toolCallId || '',
+          content: truncateText(event.content || '', 1000),
+        },
+      });
     } else if (event.type === 'tool_execution_start') {
       timeline.push({
         type: 'tool_execution_start',

@@ -160,6 +160,31 @@ test('policy blocks, tool errors, evidence, and warnings are counted', () => {
   assert(audit.stats.warnings === 1, 'warnings count mismatch');
 });
 
+test('toolResult messages are counted without affecting tool pairing', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'tool-result-message', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'tool-result-message', rootSessionId: 'tool-result-message', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'tool result' }),
+    JSON.stringify({ type: 'tool_execution_start', loop: 1, toolName: 'finish', toolCallId: 'a' }),
+    JSON.stringify({
+      type: 'tool_execution_end',
+      loop: 1,
+      toolName: 'finish',
+      toolCallId: 'a',
+      isError: false,
+      status: 'ok',
+      result: { ok: true, evidence: [], warnings: [] },
+    }),
+    JSON.stringify({ type: 'message_start', role: 'toolResult', loop: 1, toolName: 'finish', toolCallId: 'a', content: 'Tool finish completed.' }),
+    JSON.stringify({ type: 'message_end', role: 'toolResult', loop: 1, toolName: 'finish', toolCallId: 'a', content: 'Tool finish completed.' }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const audit = auditSession(readSessionFromPath(file));
+  assert(audit.status === 'ok', `expected ok, got ${audit.status}`);
+  assert(audit.stats.toolResultMessages === 1, 'toolResult message count mismatch');
+  assert(!audit.issues.some((item) => item.code === 'orphan_tool_end'), 'toolResult message affected tool pairing');
+});
+
 test('bashExecution events are audited and replayed', () => {
   const workspace = tempWorkspace();
   const file = writeSession(workspace, 'bash-execution', [
