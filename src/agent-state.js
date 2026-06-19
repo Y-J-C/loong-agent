@@ -62,6 +62,7 @@ function recordToolResult(state, action, result) {
     reason: action.reason || '',
     input: action.input || {},
     result,
+    toolCallId: action.toolCallId || '',
     observationIds: typedObservations.map((item) => item.id),
     typedObservations,
   };
@@ -102,6 +103,7 @@ function recordBashExecution(state, message) {
     fullOutputPath: message.fullOutputPath || '',
     timestamp: message.timestamp || Date.now(),
     excludeFromContext: Boolean(message.excludeFromContext),
+    toolCallId: message.toolCallId || '',
     details: message.details || {},
   };
   state.messages.push(entry);

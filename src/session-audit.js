@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildSessionLedger, findEvidenceChain, renderLedgerReplay } = require('./session-ledger');
+
 function issue(level, code, message, event) {
   return {
     level,
@@ -103,6 +105,29 @@ function auditSession(session) {
     }
   });
 
+  const ledger = buildSessionLedger(session);
+  const ledgerIssues = [];
+  for (const entry of ledger.entries) {
+    if (entry.type === 'observation' && (!entry.evidence || !entry.evidence.length)) {
+      const item = issue('warning', 'observation_without_evidence', 'Observation has no evidence link.', entry.sourceEvent || entry);
+      item.ledgerEntryType = entry.type;
+      item.subject = entry.subject || '';
+      ledgerIssues.push(item);
+    }
+    if (entry.type === 'bashExecution' && !entry.command) {
+      const item = issue('warning', 'bash_execution_without_command', 'bashExecution has no command.', entry.sourceEvent || entry);
+      item.ledgerEntryType = entry.type;
+      ledgerIssues.push(item);
+    }
+    if (entry.type === 'toolResult' && !entry.startEntryId && entry.sourceEventType === 'tool_execution_end') {
+      const item = issue('warning', 'tool_result_without_matching_start', 'toolResult has no matching tool_execution_start.', entry.sourceEvent || entry);
+      item.ledgerEntryType = entry.type;
+      item.toolName = entry.toolName || '';
+      ledgerIssues.push(item);
+    }
+  }
+  issues.push.apply(issues, ledgerIssues);
+
   const toolEndEvents = events.filter((event) => event.type === 'tool_execution_end');
   const stats = {
     events: events.length,
@@ -122,7 +147,17 @@ function auditSession(session) {
     modelUsage: events.filter((event) => event.type === 'model_usage').length,
     modelUsageReported: events.filter((event) => event.type === 'model_usage' && event.usage && event.usage.status === 'reported').length,
     modelUsageUnreported: events.filter((event) => event.type === 'model_usage' && (!event.usage || event.usage.status !== 'reported')).length,
+    ledgerEntries: ledger.stats.entries,
+    ledgerMessages: ledger.stats.messages,
+    ledgerBashExecutions: ledger.stats.bashExecutions,
+    ledgerObservations: ledger.stats.observations,
+    ledgerToolResults: ledger.stats.toolResults,
+    ledgerContextInjections: ledger.stats.contextInjections,
   };
+  const evidenceChains = ledger.entries
+    .filter((entry) => entry.type === 'observation')
+    .map((entry) => findEvidenceChain(ledger, entry))
+    .filter(Boolean);
   const status = deriveStatus(issues, header);
   return {
     ok: status === 'ok' || status === 'warning' || status === 'legacy',
@@ -130,6 +165,7 @@ function auditSession(session) {
     sessionId: (header && header.sessionId) || session.id || '',
     issues,
     stats,
+    evidenceChains,
     recoverableEvents: stats.recoverableEvents,
   };
 }
@@ -166,8 +202,16 @@ function renderSessionAudit(session, options) {
     `Evidence: ${audit.stats.evidence}`,
     `Warnings: ${audit.stats.warnings}`,
     `Model usage events: ${audit.stats.modelUsage}`,
+    `Ledger entries: ${audit.stats.ledgerEntries}`,
+    `Ledger observations: ${audit.stats.ledgerObservations}`,
+    `Ledger tool results: ${audit.stats.ledgerToolResults}`,
+    `Ledger context injections: ${audit.stats.ledgerContextInjections}`,
     `Issues: ${audit.issues.length}`,
   ];
+  audit.evidenceChains.slice(0, 8).forEach((chain) => {
+    if (!chain || !chain.observation) return;
+    lines.push(`Evidence chain: ${chain.observation.subject || 'unknown'} -> ${chain.command || 'unknown command'}${chain.bashExecution ? ` -> bash entry ${chain.bashExecution.entryId}` : ''}`);
+  });
   audit.issues.slice(0, 12).forEach((item) => lines.push(`- ${formatIssue(item)}`));
   if (audit.issues.length > 12) lines.push(`- ... ${audit.issues.length - 12} more issues`);
   return lines.join('\n');
@@ -187,24 +231,10 @@ function replayLines(session) {
   const lines = [
     `audit ${audit.status} issues=${audit.issues.length} recoverable=${audit.recoverableEvents}`,
   ];
+  lines.push.apply(lines, renderLedgerReplay(buildSessionLedger(session)));
   for (const event of session.events || []) {
     if (event.type === 'invalid_json') {
       lines.push(`invalid_json line=${event.line || ''}`);
-    } else if (event.type === 'message_end' && event.role === 'user') {
-      lines.push(`user: ${String(event.content || '').slice(0, 160)}`);
-    } else if (event.type === 'message_end' && event.role === 'assistant') {
-      const tool = parseAssistantTool(event.content);
-      lines.push(tool ? `assistant tool=${tool}` : `assistant: ${String(event.content || '').slice(0, 160)}`);
-    } else if (event.type === 'tool_execution_end') {
-      const status = event.status || (event.isError ? 'error' : 'ok');
-      const summary =
-        event.resultSummary ||
-        (event.result && event.result.summary) ||
-        (event.result && event.result.error) ||
-        '';
-      lines.push(`tool ${event.toolName || ''} ${status}: ${String(summary).slice(0, 200)}`);
-    } else if (event.type === 'bash_execution') {
-      lines.push(`bash ${event.exitCode === 0 ? 'ok' : 'exit=' + event.exitCode}: ${String(event.command || '').slice(0, 160)}`);
     } else if (event.type === 'turn_end') {
       lines.push(`turn ${event.loop || ''} ${event.status || 'ok'}`);
     } else if (event.type === 'model_usage') {

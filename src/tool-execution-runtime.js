@@ -103,6 +103,7 @@ function bashExecutionFromToolResult(action, result, options) {
     fullOutputPath: data.fullOutputPath || '',
     timestamp: Date.now(),
     excludeFromContext: Boolean(options && options.excludeFromContext),
+    toolCallId: options && options.toolCallId ? options.toolCallId : '',
     details: {
       background: Boolean(data.background),
       pid: data.pid,
@@ -405,11 +406,11 @@ async function executeToolCall(context, action, repeatDecision) {
   await emitToolResultMessage(context, action, execution);
 
   if (context.state) {
-    recordToolResult(context.state, action, result);
+    recordToolResult(context.state, Object.assign({}, action, { toolCallId }), result);
   }
 
   if (action.tool === 'bash' && result && !isError) {
-    const bashExecution = bashExecutionFromToolResult(action, result);
+    const bashExecution = bashExecutionFromToolResult(action, result, { toolCallId });
     if (bashExecution && bashExecution.command) {
       recordBashExecution(context.state, bashExecution);
       await emit(bashExecution);

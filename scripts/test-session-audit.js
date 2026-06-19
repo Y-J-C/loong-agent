@@ -16,6 +16,11 @@ const {
   renderSessionMarkdown,
   renderSessionReplay,
 } = require('../src/session');
+const {
+  buildResumePromptContext,
+  buildSessionLedger,
+  findEvidenceChain,
+} = require('../src/session-ledger');
 
 const tests = [];
 
@@ -230,6 +235,99 @@ test('excluded bashExecution remains auditable', () => {
   const replay = renderSessionReplay(session);
   assert(audit.stats.bashExecutions === 1, 'excluded bash execution should still be audited');
   assert(replay.indexOf('bash ok: free -h') >= 0, 'replay missing excluded bash execution');
+});
+
+test('session ledger normalizes messages bash observations tool results and context injections', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'ledger', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'ledger', rootSessionId: 'ledger', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'current memory' }),
+    JSON.stringify({ type: 'message_end', role: 'user', content: 'current memory' }),
+    JSON.stringify({ type: 'tool_execution_start', loop: 1, toolName: 'bash', toolCallId: 'bash-a' }),
+    JSON.stringify({
+      type: 'tool_execution_end',
+      loop: 1,
+      toolName: 'bash',
+      toolCallId: 'bash-a',
+      status: 'ok',
+      result: {
+        ok: true,
+        data: {
+          command: 'free -h',
+          exitCode: 0,
+          stdout: 'Mem: 1.4Gi 600Mi 200Mi 20Mi 600Mi 500Mi',
+          output: 'Mem: 1.4Gi 600Mi 200Mi 20Mi 600Mi 500Mi',
+        },
+        summary: 'free -h',
+        evidence: [{ source: 'command', command: 'free -h', exitCode: 0 }],
+      },
+    }),
+    JSON.stringify({ type: 'message_end', role: 'toolResult', loop: 1, toolName: 'bash', toolCallId: 'bash-a', content: 'Tool bash completed.' }),
+    JSON.stringify({
+      type: 'message_end',
+      role: 'observation',
+      subject: 'system.memory',
+      freshness: 'current',
+      kind: 'measurement',
+      source: 'bash',
+      command: 'free -h',
+      raw: 'Mem: 1.4Gi 600Mi 200Mi 20Mi 600Mi 500Mi',
+      parsed: { mem: { total: '1.4Gi' } },
+      evidence: [{ source: 'command', command: 'free -h', exitCode: 0 }],
+      toolCallId: 'bash-a',
+    }),
+    JSON.stringify({ type: 'context_update', loop: 1, toolName: 'bash', contextAdditions: [], knowledgeEvidence: [{ source: 'kb', topic: 'risk_list' }], warnings: [] }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'Mem total 1.4Gi' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const ledger = buildSessionLedger(session);
+  const audit = auditSession(session);
+  const replay = renderSessionReplay(session);
+  const memory = ledger.entries.find((entry) => entry.type === 'observation' && entry.subject === 'system.memory');
+  const chain = findEvidenceChain(ledger, memory);
+
+  assert(ledger.stats.messages >= 3, 'ledger missing message entries');
+  assert(ledger.entries.some((entry) => entry.type === 'bashExecution' && entry.command === 'free -h'), 'ledger missing free -h bashExecution');
+  assert(ledger.entries.some((entry) => entry.type === 'toolResult' && entry.toolCallId === 'bash-a'), 'ledger missing toolResult');
+  assert(ledger.entries.some((entry) => entry.type === 'contextInjection'), 'ledger missing context injection');
+  assert(chain && chain.command === 'free -h', 'evidence chain missing free -h command');
+  assert(chain && chain.bashExecution && chain.bashExecution.command === 'free -h', 'evidence chain missing bash execution');
+  assert(audit.stats.ledgerObservations >= 1, 'audit missing ledger observation stats');
+  assert(audit.evidenceChains.some((item) => item && item.observation && item.observation.subject === 'system.memory'), 'audit missing memory evidence chain');
+  assert(replay.indexOf('observation system.memory/current') >= 0, 'ledger replay missing memory observation');
+});
+
+test('session ledger audit warns on missing evidence and malformed bash facts', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'ledger-warnings', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'ledger-warnings', rootSessionId: 'ledger-warnings', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'warnings' }),
+    JSON.stringify({ type: 'bash_execution', command: '', output: 'no command', exitCode: 0 }),
+    JSON.stringify({ type: 'message_end', role: 'observation', subject: 'system.memory', freshness: 'current', raw: 'Mem: 1.4Gi', parsed: { mem: { total: '1.4Gi' } }, evidence: [] }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const audit = auditSession(readSessionFromPath(file));
+  assert(audit.issues.some((item) => item.code === 'bash_execution_without_command'), 'missing bash command warning');
+  assert(audit.issues.some((item) => item.code === 'observation_without_evidence'), 'missing observation evidence warning');
+});
+
+test('resume prompt uses selected ledger facts without current-session pollution', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'resume-ledger', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'resume-ledger', rootSessionId: 'resume-ledger', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'base' }),
+    JSON.stringify({ type: 'message_end', role: 'observation', subject: 'system.memory', freshness: 'current', source: 'bash', command: 'free -h', raw: 'MEMORY_OLD 1.4Gi', parsed: { mem: { total: '1.4Gi' } }, evidence: [{ source: 'command', command: 'free -h' }] }),
+    JSON.stringify({ type: 'message_end', role: 'observation', subject: 'hardware.i2c', freshness: 'current', source: 'bash', command: 'i2cdetect -l', raw: 'I2C_OLD 0x76', parsed: { addresses: [{ address: '0x76' }] }, evidence: [{ source: 'command', command: 'i2cdetect -l' }] }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'base done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const currentMemory = buildResumePromptContext(session, '当前设备内存情况');
+  const historicalI2c = buildResumePromptContext(session, '上次 I2C 扫描结果');
+
+  assert(currentMemory.prompt.indexOf('I2C_OLD') < 0, 'current memory resume leaked old I2C fact');
+  assert(currentMemory.prompt.indexOf('MEMORY_OLD') < 0, 'current memory resume reused old current memory as current fact');
+  assert(historicalI2c.prompt.indexOf('I2C_OLD') >= 0, 'historical I2C resume missed previous I2C fact');
+  assert(historicalI2c.prompt.indexOf('"freshness": "historical"') >= 0, 'previous current observation was not downgraded to historical in resume context');
 });
 
 test('exports include capability coverage and knowledge evidence', () => {

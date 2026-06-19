@@ -10,6 +10,7 @@ const {
   renderSessionReplay,
 } = require('./session-audit');
 const { createDefaultExtensionRuntime } = require('./extensions');
+const { buildSessionLedger, findEvidenceChain } = require('./session-ledger');
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -457,6 +458,8 @@ function renderSessionMarkdown(session) {
   lines.push('');
   lines.push(renderCapabilityCoverageMarkdown(collectCapabilityCoverage(session)));
   lines.push('');
+  lines.push(renderFactLedgerMarkdown(session));
+  lines.push('');
   lines.push('## Replay');
   lines.push('');
   lines.push(renderSessionReplay(session));
@@ -529,6 +532,7 @@ function renderToolDetailHtml(detail) {
 function collectSessionStats(session) {
   const events = session.events || [];
   const audit = auditSession(session);
+  const ledger = buildSessionLedger(session);
   return {
     events: events.length,
     turns: events.filter((event) => event.type === 'turn_start').length,
@@ -542,6 +546,9 @@ function collectSessionStats(session) {
     auditStatus: audit.status,
     auditIssues: audit.issues.length,
     assistantUpdates: events.filter((event) => event.type === 'message_update').length,
+    ledgerEntries: ledger.stats.entries,
+    ledgerObservations: ledger.stats.observations,
+    ledgerToolResults: ledger.stats.toolResults,
     exportedAt: new Date().toISOString(),
   };
 }
@@ -808,6 +815,48 @@ function renderCapabilityCoverageMarkdown(coverage) {
   return lines.join('\n');
 }
 
+function renderFactLedgerMarkdown(session) {
+  const ledger = buildSessionLedger(session);
+  const lines = [];
+  lines.push('## Fact Ledger / Evidence Chains');
+  lines.push('');
+  lines.push(`- Entries: \`${ledger.stats.entries}\``);
+  lines.push(`- Messages: \`${ledger.stats.messages}\``);
+  lines.push(`- Bash executions: \`${ledger.stats.bashExecutions}\``);
+  lines.push(`- Observations: \`${ledger.stats.observations}\``);
+  lines.push(`- Tool results: \`${ledger.stats.toolResults}\``);
+  lines.push(`- Context injections: \`${ledger.stats.contextInjections}\``);
+  const facts = ledger.entries.filter((entry) => entry.type !== 'message').slice(-16);
+  if (facts.length) {
+    lines.push('');
+    lines.push('Recent facts:');
+    facts.forEach((entry) => {
+      if (entry.type === 'observation') {
+        lines.push(`- observation \`${entry.subject}/${entry.freshness}\` command=\`${entry.command || 'n/a'}\` entry=\`${entry.entryId}\``);
+      } else if (entry.type === 'bashExecution') {
+        lines.push(`- bashExecution command=\`${entry.command || 'n/a'}\` exit=\`${entry.exitCode === undefined ? '' : entry.exitCode}\` entry=\`${entry.entryId}\``);
+      } else if (entry.type === 'toolResult') {
+        lines.push(`- toolResult \`${entry.toolName}\` status=\`${entry.status}\` entry=\`${entry.entryId}\``);
+      } else if (entry.type === 'contextInjection') {
+        lines.push(`- contextInjection \`${entry.toolName || 'tool'}\` evidence=\`${(entry.knowledgeEvidence || []).length}\` entry=\`${entry.entryId}\``);
+      }
+    });
+  }
+  const chains = ledger.entries
+    .filter((entry) => entry.type === 'observation')
+    .map((entry) => findEvidenceChain(ledger, entry))
+    .filter(Boolean)
+    .slice(-8);
+  if (chains.length) {
+    lines.push('');
+    lines.push('Evidence chains:');
+    chains.forEach((chain) => {
+      lines.push(`- ${chain.observation.subject}: observation=\`${chain.observation.entryId || chain.observation.observationId || ''}\` command=\`${chain.command || 'n/a'}\`${chain.bashExecution ? ` bash=\`${chain.bashExecution.entryId}\`` : ''}${chain.toolResult ? ` toolResult=\`${chain.toolResult.entryId}\`` : ''}`);
+    });
+  }
+  return lines.join('\n');
+}
+
 function renderCoverageLine(items, empty, renderItem) {
   if (!items.length) return `<div class="meta">${escapeHtml(empty)}</div>`;
   return items
@@ -840,6 +889,42 @@ function renderCapabilityCoverageHtml(coverage) {
       ].filter(Boolean);
       return parts.join(' ');
     }),
+    '</section>',
+  ].join('\n');
+}
+
+function renderFactLedgerHtml(session) {
+  const ledger = buildSessionLedger(session);
+  const facts = ledger.entries.filter((entry) => entry.type !== 'message').slice(-16);
+  const chains = ledger.entries
+    .filter((entry) => entry.type === 'observation')
+    .map((entry) => findEvidenceChain(ledger, entry))
+    .filter(Boolean)
+    .slice(-8);
+  const factLines = facts.length
+    ? facts.map((entry) => {
+        if (entry.type === 'observation') return `observation ${entry.subject}/${entry.freshness} command=${entry.command || 'n/a'} entry=${entry.entryId}`;
+        if (entry.type === 'bashExecution') return `bashExecution command=${entry.command || 'n/a'} exit=${entry.exitCode === undefined ? '' : entry.exitCode} entry=${entry.entryId}`;
+        if (entry.type === 'toolResult') return `toolResult ${entry.toolName} status=${entry.status} entry=${entry.entryId}`;
+        if (entry.type === 'contextInjection') return `contextInjection ${entry.toolName || 'tool'} evidence=${(entry.knowledgeEvidence || []).length} entry=${entry.entryId}`;
+        return `${entry.type} entry=${entry.entryId}`;
+      }).join('\n')
+    : 'No ledger facts.';
+  const chainLines = chains.length
+    ? chains.map((chain) => `${chain.observation.subject}: observation=${chain.observation.entryId || chain.observation.observationId || ''} command=${chain.command || 'n/a'}${chain.bashExecution ? ` bash=${chain.bashExecution.entryId}` : ''}${chain.toolResult ? ` toolResult=${chain.toolResult.entryId}` : ''}`).join('\n')
+    : 'No evidence chains.';
+  return [
+    '<section class="card"><h2>Fact Ledger / Evidence Chains</h2>',
+    `<div class="meta">Entries: <code>${escapeHtml(ledger.stats.entries)}</code></div>`,
+    `<div class="meta">Messages: <code>${escapeHtml(ledger.stats.messages)}</code></div>`,
+    `<div class="meta">Bash executions: <code>${escapeHtml(ledger.stats.bashExecutions)}</code></div>`,
+    `<div class="meta">Observations: <code>${escapeHtml(ledger.stats.observations)}</code></div>`,
+    `<div class="meta">Tool results: <code>${escapeHtml(ledger.stats.toolResults)}</code></div>`,
+    `<div class="meta">Context injections: <code>${escapeHtml(ledger.stats.contextInjections)}</code></div>`,
+    '<div class="meta"><strong>Recent facts</strong></div>',
+    `<pre>${escapeHtml(factLines)}</pre>`,
+    '<div class="meta"><strong>Evidence chains</strong></div>',
+    `<pre>${escapeHtml(chainLines)}</pre>`,
     '</section>',
   ].join('\n');
 }
@@ -981,6 +1066,9 @@ function renderSessionHtml(session, config) {
     `<div class="meta">Warnings: <code>${escapeHtml(stats.warnings)}</code></div>`,
     `<div class="meta">Model usage events: <code>${escapeHtml(stats.modelUsage)}</code></div>`,
     `<div class="meta">Message updates: <code>${escapeHtml(stats.assistantUpdates)}</code></div>`,
+    `<div class="meta">Ledger entries: <code>${escapeHtml(stats.ledgerEntries)}</code></div>`,
+    `<div class="meta">Ledger observations: <code>${escapeHtml(stats.ledgerObservations)}</code></div>`,
+    `<div class="meta">Ledger tool results: <code>${escapeHtml(stats.ledgerToolResults)}</code></div>`,
     `<div class="meta">Exported: ${escapeHtml(stats.exportedAt)}</div>`,
     '</section>',
     '<section class="card"><h2>Audit Summary</h2>',
@@ -992,6 +1080,7 @@ function renderSessionHtml(session, config) {
       : '<div class="meta">No audit issues.</div>',
     '</section>',
     renderCapabilityCoverageHtml(coverage),
+    renderFactLedgerHtml(session),
     renderModelUsageHtml(modelUsage),
     boardContribution ? renderBoardProfileHtml(board) : '',
     '<section class="card"><h2>Safety Constraints</h2>',

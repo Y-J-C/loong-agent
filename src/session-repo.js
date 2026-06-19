@@ -74,6 +74,7 @@ function createSessionRepo(config) {
       branchName: options.branchName || '',
       summary: options.summary || '',
       recentToolEvents: options.recentToolEvents || [],
+      recentBashExecutions: options.recentBashExecutions || [],
     });
     return child;
   }

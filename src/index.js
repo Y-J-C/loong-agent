@@ -187,18 +187,7 @@ async function main() {
         session: child,
         parentSession: parent.path,
       });
-      const contextPrompt = [
-        'Resume from previous session context.',
-        `Previous session: ${resumeContext.sourceSessionId}`,
-        `Previous session path: ${resumeContext.sourceSessionPath}`,
-        resumeContext.parentSession ? `Previous parent session: ${resumeContext.parentSession}` : '',
-        'Previous summary:',
-        resumeContext.summary || '(none)',
-        'Recent tool events:',
-        JSON.stringify(resumeContext.recentToolEvents, null, 2),
-        '',
-        prompt,
-      ].filter(Boolean).join('\n');
+      const contextPrompt = manager.buildResumeContextPrompt(parent, prompt);
       const result = await agentSession.prompt(contextPrompt);
       console.log(result.summary || JSON.stringify(result, null, 2));
       if (result.session && result.session.path) {

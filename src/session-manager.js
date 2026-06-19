@@ -1,6 +1,10 @@
 'use strict';
 
 const { createSessionRepo } = require('./session-repo');
+const {
+  buildResumePromptContext,
+  buildSessionLedger,
+} = require('./session-ledger');
 
 function truncate(value, maxLength) {
   const text = typeof value === 'string' ? value : JSON.stringify(value || {});
@@ -65,25 +69,53 @@ function createSessionManager(config) {
     if (!session || !Array.isArray(session.events)) {
       throw new Error('Session is required');
     }
+    const followUpPrompt = arguments.length > 1 ? arguments[1] : '';
+    const ledger = buildSessionLedger(session);
     const agentEndEvents = session.events.filter((event) => event.type === 'agent_end');
     const lastEnd = agentEndEvents[agentEndEvents.length - 1] || {};
-    const toolEvents = session.events
-      .filter((event) => event.type === 'tool_execution_end')
+    const toolEvents = ledger.entries
+      .filter((entry) => entry.type === 'toolResult')
       .slice(-12)
-      .map(summarizeToolEvent);
-    const bashExecutions = session.events
-      .filter((event) => event.type === 'bash_execution')
+      .map((entry) => ({
+        loop: entry.turn,
+        toolName: entry.toolName || '',
+        isError: Boolean(entry.isError),
+        resultSummary: truncate(entry.resultSummary || '', 500),
+        toolCallId: entry.toolCallId || '',
+        entryId: entry.entryId || '',
+      }));
+    const bashExecutions = ledger.entries
+      .filter((entry) => entry.type === 'bashExecution')
       .slice(-8)
-      .map(summarizeBashExecution);
+      .map((entry) => ({
+        command: entry.command || '',
+        exitCode: entry.exitCode,
+        cancelled: Boolean(entry.cancelled),
+        truncated: Boolean(entry.truncated),
+        fullOutputPath: entry.fullOutputPath || '',
+        details: entry.details || {},
+        output: truncate(entry.output || '', 500),
+        entryId: entry.entryId || '',
+      }));
     const forkStart = session.events.find((event) => event.type === 'fork_start') || {};
+    const selected = buildResumePromptContext(session, followUpPrompt || '');
     return {
       sourceSessionId: session.id,
       sourceSessionPath: session.path,
       parentSession: forkStart.sourceSessionPath || '',
       summary: lastEnd.summary || forkStart.summary || '',
       recentToolEvents: toolEvents.length ? toolEvents : forkStart.recentToolEvents || [],
-      recentBashExecutions: bashExecutions,
+      recentBashExecutions: bashExecutions.length ? bashExecutions : forkStart.recentBashExecutions || [],
+      selectedFacts: selected.selectedFacts || [],
+      selectedEntries: selected.selectedEntries || [],
+      requestContext: selected.requestContext || {},
+      prompt: selected.prompt || '',
+      ledgerStats: ledger.stats,
     };
+  }
+
+  function buildResumeContextPrompt(session, followUpPrompt) {
+    return buildResumePromptContext(session, followUpPrompt || '').prompt;
   }
 
   function fork(idOrPath, options) {
@@ -114,6 +146,7 @@ function createSessionManager(config) {
 
   return {
     createChildSession,
+    buildResumeContextPrompt,
     extractResumeContext,
     fork,
     latest,

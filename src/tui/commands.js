@@ -721,7 +721,6 @@ async function runSlashCommandLegacy(context, text) {
       selectedSessionRequired(state);
       return;
     }
-    const resumeContext = manager.extractResumeContext(parent);
     const child = manager.createChildSession(parent, { command: 'resume' });
     const session = createAgentSession(config, {
       command: 'resume',
@@ -729,17 +728,7 @@ async function runSlashCommandLegacy(context, text) {
       parentSession: parent.path,
     });
     context.replaceAgentSession(session);
-    const contextPrompt = [
-      'Resume from previous session context.',
-      `Previous session: ${resumeContext.sourceSessionId}`,
-      `Previous session path: ${resumeContext.sourceSessionPath}`,
-      'Previous summary:',
-      resumeContext.summary || '(none)',
-      'Recent tool events:',
-      JSON.stringify(resumeContext.recentToolEvents, null, 2),
-      '',
-      prompt,
-    ].join('\n');
+    const contextPrompt = manager.buildResumeContextPrompt(parent, prompt);
     await context.startPrompt(contextPrompt);
     return;
   }
