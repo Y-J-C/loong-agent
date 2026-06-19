@@ -10,9 +10,11 @@ const { createAgentState, recordToolResult } = require('../src/agent-state');
 const { parseAgentResponse, parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
+const { createDefaultExtensionRuntime, createExtensionRuntime } = require('../src/extensions');
 const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
 const { registerProvider } = require('../src/llm');
 const { classifyRequestContext, selectContextMessages } = require('../src/context-selector');
+const { bindClaims, extractClaims, validateFinalAnswerBinding } = require('../src/evidence-binding');
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
 const { deriveObservations } = require('../src/observation');
 const { buildMessagesFromTurnContext } = require('../src/prompts');
@@ -330,6 +332,113 @@ test('context selector keeps historical evidence separate from current observati
   assert(text.indexOf('CURRENT_BASH_SHOULD_NOT_APPEAR') < 0, 'current bashExecution leaked into historical context');
 });
 
+test('evidence binding extracts only strong verifiable claims', () => {
+  const claims = extractClaims([
+    'total memory 1.8GiB, node v14.16.1, address 0x76, path /home/loongson/测试/a.csv, pid=1234, temp 25.1 C, pressure 1000 hPa.',
+    '1. first item 2. second item and two suggestions.',
+  ].join('\n'));
+  const keys = claims.map((item) => `${item.type}:${item.normalized}`);
+  assert(keys.indexOf('memory_or_disk_quantity:1.8gi') >= 0, 'capacity claim missing');
+  assert(keys.indexOf('version:14.16.1') >= 0, 'version claim missing');
+  assert(keys.indexOf('i2c_address:0x76') >= 0, 'i2c address claim missing');
+  assert(claims.some((item) => item.type === 'path' && item.value.indexOf('/home/loongson') >= 0), 'path claim missing');
+  assert(keys.indexOf('pid:1234') >= 0, 'pid claim missing');
+  assert(keys.indexOf('sensor_measurement:25.1c') >= 0, 'temperature claim missing');
+  assert(keys.indexOf('sensor_measurement:1000hpa') >= 0, 'pressure claim missing');
+  assert(!claims.some((item) => item.value === '1' || item.value === '2'), 'ordinary list numbers should not be extracted');
+});
+
+test('evidence binding rejects unsupported capacity version address pid path and sensor claims', () => {
+  function observation(subject, raw, parsed, freshness) {
+    return {
+      role: 'observation',
+      subject,
+      freshness: freshness || 'current',
+      source: 'test',
+      raw,
+      parsed: parsed || {},
+      evidence: [{ source: 'test' }],
+    };
+  }
+  let binding = bindClaims(extractClaims('total memory is 1.8GiB'), {
+    observations: [observation('system.memory', 'Mem: 1.4Gi 615Mi 220Mi', { mem: { total: '1.4Gi' } })],
+  });
+  assert(binding.unsupported.some((item) => item.normalized === '1.8gi'), 'unsupported memory value was accepted');
+
+  binding = bindClaims(extractClaims('root disk is 20G'), {
+    observations: [observation('system.disk', '/dev/root 14G 4G 10G 29% /', {})],
+  });
+  assert(binding.unsupported.some((item) => item.normalized === '20g'), 'unsupported disk value was accepted');
+
+  binding = bindClaims(extractClaims('node is v18.19.0'), {
+    observations: [observation('system.runtime', 'v14.16.1', { nodeVersion: 'v14.16.1' })],
+  });
+  assert(binding.unsupported.some((item) => item.normalized === '18.19.0'), 'unsupported version was accepted');
+
+  binding = bindClaims(extractClaims('I2C device is at 0x77'), {
+    observations: [observation('hardware.i2c', '70: -- -- -- -- -- -- 76 --', { addresses: [{ address: '0x76' }] })],
+  });
+  assert(binding.unsupported.some((item) => item.normalized === '0x77'), 'unsupported I2C address was accepted');
+
+  binding = bindClaims(extractClaims('process pid=99999'), {
+    observations: [observation('process', '{"pid":28634,"running":true}', { pid: 28634 })],
+  });
+  assert(binding.unsupported.some((item) => item.normalized === '99999'), 'unsupported pid was accepted');
+
+  binding = bindClaims(extractClaims('CSV path /home/loongson/测试/other.csv'), {
+    observations: [observation('filesystem', 'timestamp,temp\nx,25.1\n', { path: '/home/loongson/测试/a.csv' })],
+  });
+  assert(binding.unsupported.some((item) => item.type === 'path'), 'unsupported path was accepted');
+
+  binding = bindClaims(extractClaims('temperature is 30.0 C'), {
+    observations: [observation('filesystem', 'timestamp,temp,pressure\nx,25.1,1000\n', { path: '/tmp/a.csv' })],
+  });
+  assert(binding.unsupported.some((item) => item.normalized === '30.0c'), 'unsupported sensor reading was accepted');
+});
+
+test('evidence binding supports claims present in selected observations only', () => {
+  const state = createAgentState({ tools: [] });
+  state.userPrompt = '上次 I2C 扫描结果';
+  state.messages.push({
+    role: 'observation',
+    subject: 'hardware.i2c',
+    freshness: 'current',
+    source: 'bash',
+    raw: 'CURRENT_SCAN 0x76',
+    parsed: { addresses: [{ address: '0x76' }] },
+  });
+  state.messages.push({
+    role: 'observation',
+    subject: 'session.history',
+    freshness: 'historical',
+    source: 'session_summary',
+    raw: 'HISTORICAL_SCAN 0x60',
+    parsed: { session: 'latest' },
+  });
+  const currentValueGuard = validateFinalAnswerBinding(state, '上次 I2C 扫描结果', '上次扫描地址是 0x76');
+  assert(currentValueGuard && currentValueGuard.reason === 'answer_claim_not_in_relevant_evidence', 'historical answer incorrectly used current evidence');
+  const historicalValueGuard = validateFinalAnswerBinding(state, '上次 I2C 扫描结果', '上次扫描地址是 0x60');
+  assert(!historicalValueGuard, 'historical supported address was rejected');
+});
+
+test('evidence binding fallback cites selected evidence instead of unsupported answer values', () => {
+  const state = createAgentState({ tools: [] });
+  state.userPrompt = 'current memory status';
+  state.messages.push({
+    role: 'observation',
+    subject: 'system.memory',
+    freshness: 'current',
+    source: 'bash',
+    raw: 'Mem: 1.4Gi 615Mi 220Mi',
+    parsed: { mem: { total: '1.4Gi', available: '220Mi' } },
+  });
+  const guard = validateFinalAnswerBinding(state, 'current memory status', 'total memory is 1.8GiB');
+  assert(guard, 'unsupported memory answer was not guarded');
+  assert(guard.fallbackSummary.indexOf('1.4Gi') >= 0, 'fallback missing selected evidence');
+  assert(guard.fallbackSummary.indexOf('1.8GiB') < 0, 'fallback should not reuse unsupported model value');
+  assert(guard.fallbackSummary.indexOf('Mem: 1.4Gi') >= 0, 'fallback missing raw evidence');
+});
+
 test('recordToolResult derives system.memory observation from free -h', () => {
   const state = createAgentState({ tools: [] });
   recordToolResult(state, {
@@ -384,7 +493,8 @@ test('deriveObservations parses disk runtime i2c sensor filesystem and historica
   assert(runtime[0].subject === 'system.runtime', 'node -v did not produce system.runtime');
   assert(runtime[0].parsed.nodeVersion === 'v14.16.1', 'node version was not parsed');
 
-  const i2cList = deriveObservations({
+  const loongRuntime = createDefaultExtensionRuntime({});
+  const i2cList = loongRuntime.deriveObservations({
     tool: 'bash',
     input: { command: 'i2cdetect -l' },
   }, {
@@ -403,7 +513,7 @@ test('deriveObservations parses disk runtime i2c sensor filesystem and historica
     '     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f',
     '70: -- -- -- -- -- -- 76 -- -- -- -- -- -- -- -- --',
   ].join('\n');
-  const i2cScan = deriveObservations({
+  const i2cScan = loongRuntime.deriveObservations({
     tool: 'bash',
     input: { command: 'i2cdetect -y 1' },
   }, {
@@ -413,7 +523,7 @@ test('deriveObservations parses disk runtime i2c sensor filesystem and historica
   assert(i2cScan[0].subject === 'hardware.i2c', 'i2cdetect -y did not produce hardware.i2c');
   assert(i2cScan[0].parsed.addresses.some((item) => item.address === '0x76'), 'i2c scan address was not parsed');
 
-  const sensor = deriveObservations({
+  const sensor = loongRuntime.deriveObservations({
     tool: 'bash',
     input: { command: 'python3 bmp280_detect.py' },
   }, {
@@ -466,7 +576,7 @@ test('deriveObservations parses disk runtime i2c sensor filesystem and historica
 });
 
 test('loong_env_check derives multiple typed observations', () => {
-  const state = createAgentState({ tools: [] });
+  const state = createAgentState({ tools: [], extensionRuntime: createDefaultExtensionRuntime({}) });
   recordToolResult(state, {
     tool: 'loong_env_check',
     input: {},
@@ -497,6 +607,21 @@ test('loong_env_check derives multiple typed observations', () => {
   assert(subjects.indexOf('system.disk') >= 0, 'loong_env_check missing disk observation');
   assert(subjects.indexOf('system.runtime') >= 0, 'loong_env_check missing runtime observation');
   assert(state.messages.filter((item) => item.role === 'observation').length >= 4, 'loong_env_check did not write observation messages');
+});
+
+test('Loong extension registers board tools by default and can be disabled', () => {
+  const enabled = createDefaultExtensionRuntime({});
+  assert(enabled.tools.board_profile, 'default loong extension missing board_profile');
+  assert(enabled.tools.loong_env_check, 'default loong extension missing loong_env_check');
+  assert(enabled.tools.command_reference, 'default loong extension missing command_reference');
+  const disabled = createExtensionRuntime({ config: { extensions: [] } });
+  assert(!disabled.tools.board_profile, 'disabled extensions should not expose board_profile');
+  assert(!disabled.tools.loong_env_check, 'disabled extensions should not expose loong_env_check');
+  assert(!disabled.tools.command_reference, 'disabled extensions should not expose command_reference');
+  const disabledToolNames = createDefaultTools({ config: { extensions: [] } }).map((tool) => tool.name);
+  assert(disabledToolNames.indexOf('board_profile') < 0, 'disabled default tools should not include board_profile');
+  assert(disabledToolNames.indexOf('loong_env_check') < 0, 'disabled default tools should not include loong_env_check');
+  assert(disabledToolNames.indexOf('command_reference') < 0, 'disabled default tools should not include command_reference');
 });
 
 test('prompt builder no longer includes all observations blindly', () => {
@@ -887,7 +1012,7 @@ test('environment version answers require tool evidence before final answer', as
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('当时 Node 版本是多少？');
   const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_historical_environment_evidence');
-  const consistencyRetry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_version_not_in_tool_evidence');
+  const consistencyRetry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_claim_not_in_relevant_evidence');
   const toolStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
   assert(retry, 'missing evidence guard retry');
   assert(consistencyRetry, 'missing answer consistency retry');
@@ -1119,6 +1244,65 @@ test('current I2C hardware question requires bash evidence before final answer',
   assert(/bash evidence/.test(result.summary), 'final answer did not use second model response after evidence');
 });
 
+test('disabled Loong extension does not force current I2C evidence guard', async () => {
+  registerProvider({
+    name: 'test-disabled-loong-no-i2c-guard',
+    chatCompletion: async () => JSON.stringify({
+      type: 'answer',
+      answer: 'No board extension is active, so no board-specific current I2C scan is forced.',
+      status: 'ok',
+    }),
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-disabled-loong-no-i2c-guard'), {
+    extensions: [],
+    maxLoops: 3,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('current I2C situation');
+  const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
+  assert(!bashStart, 'core should not force I2C bash evidence when Loong extension is disabled');
+  assert(/No board extension/.test(result.summary), 'disabled extension answer mismatch');
+});
+
+test('current I2C answer must bind addresses to current observations', async () => {
+  const evidenceCommand = 'ls /dev/i2c*; i2cdetect -l; ls /sys/bus/i2c/devices 2>/dev/null || true';
+  const i2cOutput = [
+    '/dev/i2c-0',
+    '/dev/i2c-1',
+    'i2c-1\ti2c       \t1fe21800.i2c                    \tI2C adapter',
+    '70: -- -- -- -- -- -- 76 -- -- -- -- -- -- -- -- --',
+  ].join('\n');
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-i2c-binding',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({ type: 'answer', answer: 'I2C has device 0x77.', status: 'ok' });
+      }
+      if (calls === 2) {
+        return JSON.stringify({ type: 'answer', answer: 'I2C has device 0x77.', status: 'ok' });
+      }
+      return JSON.stringify({ type: 'answer', answer: 'I2C has device 0x76 based on current evidence.', status: 'ok' });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-i2c-binding'), {
+    maxLoops: 5,
+    streaming: false,
+  }), {
+    registry: createFakeBashRegistry({ [evidenceCommand]: i2cOutput }),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('current I2C situation');
+  const bindingRetry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_claim_not_in_relevant_evidence');
+  assert(bindingRetry, 'unsupported I2C address was not binding-guarded');
+  assert(result.summary.indexOf('0x76') >= 0, 'corrected answer missing supported I2C address');
+  assert(result.summary.indexOf('0x77') < 0, 'corrected answer kept unsupported I2C address');
+});
+
 test('historical I2C hardware question does not force current bash evidence', async () => {
   registerProvider({
     name: 'test-historical-i2c-no-current-guard',
@@ -1138,6 +1322,31 @@ test('historical I2C hardware question does not force current bash evidence', as
   const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
   assert(!bashStart, 'historical I2C question should not force current bash evidence');
   assert(/上次 I2C/.test(result.summary), 'historical I2C answer mismatch');
+});
+
+test('historical I2C answer without historical evidence falls back instead of using current facts', async () => {
+  registerProvider({
+    name: 'test-historical-i2c-binding-no-evidence',
+    chatCompletion: async () => JSON.stringify({
+      type: 'answer',
+      answer: '上次 I2C 扫描地址是 0x76。',
+      status: 'ok',
+    }),
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-historical-i2c-binding-no-evidence', PROJECT_ROOT), {
+    maxLoops: 3,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('上次 I2C 扫描结果是什么');
+  const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
+  const bindingRetry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_claim_missing_relevant_evidence');
+  const end = events.find((event) => event.type === 'agent_end');
+  assert(!bashStart, 'historical I2C binding should not trigger current bash collection');
+  assert(bindingRetry, 'historical unsupported answer did not trigger binding guard');
+  assert(end && end.completionSource === 'evidence_guard_fallback', 'historical missing evidence should fallback');
+  assert(/缺少相关 observation/.test(result.summary), 'historical fallback should state missing evidence');
 });
 
 test('historical gcc version stays pending when structured facts lack version', async () => {

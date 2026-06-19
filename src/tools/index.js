@@ -8,6 +8,7 @@ const {
   createBashTool,
   createBashToolDefinition,
 } = require('./bash');
+const { createDefaultExtensionRuntime } = require('../extensions');
 const {
   createBoardProfileTool,
   createBoardProfileToolDefinition,
@@ -53,10 +54,15 @@ const {
   createSessionSummaryToolDefinition,
 } = require('./session-summary');
 
-function createDefaultToolDefinitions() {
+function extensionToolDefinitions(options) {
+  const runtime = options && options.extensionRuntime
+    ? options.extensionRuntime
+    : createDefaultExtensionRuntime(options && options.config ? options.config : options || {});
+  return Object.keys(runtime.tools || {}).map((name) => runtime.tools[name]);
+}
+
+function createCoreToolDefinitions() {
   return [
-    createBoardProfileToolDefinition(),
-    createLoongEnvCheckToolDefinition(),
     createBashToolDefinition(),
     createProcessStatusToolDefinition(),
     createProcessWaitToolDefinition(),
@@ -79,10 +85,12 @@ function createDefaultToolDefinitions() {
   ];
 }
 
-function createReadOnlyToolDefinitions() {
+function createDefaultToolDefinitions(options) {
+  return extensionToolDefinitions(options).concat(createCoreToolDefinitions());
+}
+
+function createReadOnlyCoreToolDefinitions() {
   return [
-    createBoardProfileToolDefinition(),
-    createLoongEnvCheckToolDefinition(),
     createReadToolDefinition(),
     createLsToolDefinition(),
     createGrepToolDefinition(),
@@ -100,15 +108,20 @@ function createReadOnlyToolDefinitions() {
   ];
 }
 
-function createDefaultTools() {
-  return wrapToolDefinitions(createDefaultToolDefinitions());
+function createReadOnlyToolDefinitions(options) {
+  return extensionToolDefinitions(options).concat(createReadOnlyCoreToolDefinitions());
 }
 
-function createReadOnlyTools() {
-  return wrapToolDefinitions(createReadOnlyToolDefinitions());
+function createDefaultTools(options) {
+  return wrapToolDefinitions(createDefaultToolDefinitions(options));
+}
+
+function createReadOnlyTools(options) {
+  return wrapToolDefinitions(createReadOnlyToolDefinitions(options));
 }
 
 module.exports = {
+  createCoreToolDefinitions,
   createDefaultToolDefinitions,
   createDefaultTools,
   createBashTool,

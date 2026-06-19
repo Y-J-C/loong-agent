@@ -2,6 +2,7 @@
 
 const { createAgent } = require('./agent-runtime');
 const { createEventBus } = require('./event-bus');
+const { createDefaultExtensionRuntime } = require('./extensions');
 const {
   createAfterToolCallChain,
   createBeforeToolCallChain,
@@ -13,7 +14,8 @@ const { createDefaultToolRegistry } = require('./tool-registry');
 
 function createAgentSession(config, options) {
   options = options || {};
-  const registry = (options && options.registry) || createDefaultToolRegistry();
+  const extensionRuntime = options.extensionRuntime || createDefaultExtensionRuntime(config || {});
+  const registry = (options && options.registry) || createDefaultToolRegistry(config || {}, { extensionRuntime });
   const session =
     options.session === null
       ? null
@@ -23,14 +25,16 @@ function createAgentSession(config, options) {
           parentSession: options.parentSession,
         });
   const bus = createEventBus();
-  const prepareNextTurn = createDefaultPrepareNextTurn(options.prepareNextTurn);
-  const beforeToolCall = createBeforeToolCallChain(options.beforeToolCall);
-  const afterToolCall = createAfterToolCallChain(options.afterToolCall);
+  const prepareNextTurn = createDefaultPrepareNextTurn(options.prepareNextTurn, extensionRuntime);
+  const beforeToolCall = createBeforeToolCallChain(options.beforeToolCall, extensionRuntime);
+  const afterToolCall = createAfterToolCallChain(options.afterToolCall, extensionRuntime);
   const agent = createAgent(config, {
     registry,
     session: null,
     beforeToolCall,
     afterToolCall,
+    extensionRuntime,
+    finalAnswerEvidenceGuard: extensionRuntime.finalAnswerEvidenceGuard,
     prepareNextTurn,
   });
 

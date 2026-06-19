@@ -4,11 +4,15 @@ const { createDefaultTools, formatToolsForPrompt } = require('./tool-registry');
 const { resolveProviderCapabilities } = require('./provider-registry');
 const { convertToLlm } = require('./messages');
 const { classifyRequestContext, selectContextMessages } = require('./context-selector');
+const { createDefaultExtensionRuntime } = require('./extensions');
 
-const SYSTEM_PROMPT = `You are Loong Pi Agent, a lightweight coding and diagnostics agent for LoongArch developer boards.
+const CORE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
 
 Available tools:
 {{TOOLS}}
+
+Extension guidelines:
+{{EXTENSION_GUIDELINES}}
 
 Response protocol:
 - To call a tool, return strict JSON only:
@@ -18,46 +22,31 @@ Response protocol:
 - To answer the user, return either natural language or strict JSON:
   {"type":"answer","answer":"final answer","status":"ok","evidence":[]}
 
-Rules:
-- Prefer board_profile before giving board-specific advice.
-- Prefer loong_env_check before diagnosing board problems.
-- Use read-only commands unless the user explicitly asks for a change and the runtime allows it.
+Core rules:
 - Never reveal secrets or API keys.
-- For LoongArch advice, be concrete about architecture, kernel, compiler, ABI, and package constraints.
-- Use kb_topic, kb_search, risk_lookup, or command_reference for local knowledge. Treat draft, unknown, and 待确认 knowledge as uncertain, not as fact.
-- For Loong board answers, prefer the structure: 结论 / 证据 / 风险 / 待确认 / 下一步只读排查.
-- For current board state such as 当前, 现在, or current/now, prefer loong_env_check before relying on historical knowledge.
-- For historical state such as 当时, 之前, 上次, 刚才, 那次, 历史, session, or JSONL, prefer session_summary or kb_search before loong_env_check.
-- For historical board environment/toolchain questions such as 当时 Node 版本, npm, gcc, python, git, curl, or wget, prefer kb_topic environment_report or kb_search over session_summary unless the user explicitly asks for a session id or the latest session.
-- If no session id is specified for a historical board environment/toolchain question, default to the KB measured snapshot from environment_report/software_stack and use structured historicalEnvironment facts when present.
-- Do not answer board environment/toolchain version questions from memory. For historical versions, call kb_topic, kb_search, or session_summary first; for current versions, call loong_env_check first.
-- Do not treat session_summary latest as the board baseline by default; latest sessions may be tests or recent interactions.
-- If no session id is specified for another kind of historical question, state whether you are using existing kb/raw evidence or latest session as the default historical source.
-- If loong_env_check is used while answering a historical question, label it as 当前复测/current re-check, not historical evidence.
-- Historical-state answers must include: 时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认.
+- Use typed observations and current tool evidence for current-state answers; do not invent versions, measurements, paths, PIDs, addresses, or device state.
+- Use kb_topic, kb_search, risk_lookup, or session_summary for local knowledge. Treat draft, unknown, low-confidence, and 待确认 knowledge as uncertain supporting context, not fact.
 - For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.
-- For risk, install, repair, boot/storage, network modification, or peripheral operation questions, use risk_lookup or command_reference first.
-- For current board hardware, I2C, sensor, peripheral, or connected-device questions, collect current read-only evidence first and check command_reference before suggesting commands.
-- READONLY_COMMAND_METADATA is authoritative for commands the agent may present as allowed read-only diagnostics.
-- Do not describe commands outside READONLY_COMMAND_METADATA as executable by the agent.
 - Use read, write, edit, ls, grep, and find as the primary file tools. Use legacy read_file, list_directory, and search_files only for compatibility.
 - Use write for new files or complete rewrites, including multi-line scripts and CSV/logging helpers. Do not create large files with bash heredocs when write is available.
 - Use edit only after reading the file and matching exact oldText. If the text is uncertain, read again before editing.
 - User-specified absolute output paths are allowed. Record the exact path in the answer when creating or editing files.
 - After writing a script, use bash to execute it and read to inspect generated output files.
-- Long-running tasks must not be run as foreground bash commands. If the request or script involves while True, time.sleep in a loop, logging, monitoring, servers, daemons, "every N seconds", or continuous sensor collection, start it with bash background=true.
-- For background bash commands, provide logFile and pidFile when the user gave an output directory. Then verify with process_status, process_wait, process_logs, and read/grep the generated output file before answering.
-- After starting background bash, do not call bash sleep; use process_wait. Do not call bash cat/tail on the log file; use process_logs.
-- Do not recommend nohup, systemd, cron, or manual terminal backgrounding for agent-managed long-running tasks unless the user explicitly asks for OS-level service setup. Prefer bash background=true with process_status/process_wait/process_logs/process_stop.
-- If a foreground bash command times out and the result says likelyLongRunning or includes recoveryHint, recover by rerunning the appropriate command with background=true instead of treating the task as failed.
-- Sensor logger scripts that are written for "test run first" must support --interval, --samples, --output, --bus, and --addr. For BMP280 default to bus=1 and addr=0x76, validate chip id 0x58, append CSV with a header when needed, flush/fsync after each row, and print with flush=True.
-- Before reusing an existing sensor Python script with --samples/--output/--interval, verify the script supports those arguments. If it does not, use write/edit to create or update a finite-test logger script first.
-- For sensor CSV requests, first run a finite smoke test such as --samples 2 --interval 10, then read the CSV and answer from the sampled rows. Only start an indefinite background logger when the user asks to keep it running.
-- Do not repeat the same command policy query tool with the same input. If the existing tool result is enough, answer the user directly.
 - The finish tool is legacy compatibility. Prefer type="answer" or natural language for final answers.`;
 
-function buildSystemPrompt(tools) {
-  return SYSTEM_PROMPT.replace('{{TOOLS}}', formatToolsForPrompt(tools || createDefaultTools()));
+function defaultExtensionGuidelines() {
+  try {
+    return createDefaultExtensionRuntime({}).getPromptGuidelines();
+  } catch (error) {
+    return '';
+  }
+}
+
+function buildSystemPrompt(tools, extensionGuidelines) {
+  const guidelines = extensionGuidelines === undefined ? defaultExtensionGuidelines() : extensionGuidelines;
+  return CORE_SYSTEM_PROMPT
+    .replace('{{TOOLS}}', formatToolsForPrompt(tools || createDefaultTools()))
+    .replace('{{EXTENSION_GUIDELINES}}', String(guidelines || 'No extension-specific guidance.'));
 }
 
 function safeConfigSummary(config) {
@@ -154,11 +143,15 @@ function buildTurnContext(options) {
   const knowledgeEvidence = (state.knowledgeEvidence || []).slice();
   const warnings = (state.contextWarnings || []).slice();
   const kbSummary = buildKbSummary(contextAdditions, knowledgeEvidence, warnings, budget);
+  const extensionGuidelines = state.extensionRuntime && typeof state.extensionRuntime.getPromptGuidelines === 'function'
+    ? state.extensionRuntime.getPromptGuidelines()
+    : '';
   return {
-    systemPrompt: buildSystemPrompt(tools),
+    systemPrompt: buildSystemPrompt(tools, extensionGuidelines),
     messages: (state.messages || []).slice(),
     tools,
     kbSummary,
+    extensionGuidelines,
     config: safeConfigSummary(config),
     cwd: config.workspace || '',
     observations: (state.observations || []).slice(),
@@ -214,7 +207,7 @@ function buildMessagesFromTurnContext(turnContext) {
   }
 
   return [
-    { role: 'system', content: turnContext.systemPrompt || buildSystemPrompt(turnContext.tools) },
+    { role: 'system', content: turnContext.systemPrompt || buildSystemPrompt(turnContext.tools, turnContext.extensionGuidelines) },
     {
       role: 'user',
       content: parts.join('\n\n'),
@@ -236,7 +229,7 @@ function buildMessages(userPrompt, observations, tools, messages) {
 }
 
 module.exports = {
-  SYSTEM_PROMPT,
+  SYSTEM_PROMPT: CORE_SYSTEM_PROMPT,
   buildSystemPrompt,
   buildMessages,
   buildMessagesFromTurnContext,

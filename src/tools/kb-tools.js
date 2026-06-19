@@ -303,7 +303,6 @@ function createKnowledgeToolDefinitions() {
     createKbTopicToolDefinition(),
     createKbSearchToolDefinition(),
     createRiskLookupToolDefinition(),
-    createCommandReferenceToolDefinition(),
   ];
 }
 

@@ -9,6 +9,7 @@ const {
   renderSessionAudit,
   renderSessionReplay,
 } = require('./session-audit');
+const { createDefaultExtensionRuntime } = require('./extensions');
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -605,6 +606,28 @@ function findBoardProfileSummary(session) {
   return null;
 }
 
+function sessionBoardProfileContribution(config) {
+  const runtime = createDefaultExtensionRuntime(config || {});
+  return runtime.getSessionContributions().find((item) => {
+    return item && item.kind === 'boardProfileBlock' && item.enabled !== false;
+  }) || null;
+}
+
+function renderBoardProfileHtml(board) {
+  return [
+    '<section class="card"><h2>Board Profile</h2>',
+    board ? `<div class="meta">Model: <code>${escapeHtml(board.model)}</code></div>` : '<div class="meta">No board_profile event found.</div>',
+    board && board.arch ? `<div class="meta">Arch: <code>${escapeHtml(board.arch)}</code></div>` : '',
+    board && board.system ? `<div class="meta">System: <code>${escapeHtml(board.system)}</code></div>` : '',
+    board && board.node ? `<div class="meta">Node: <code>${escapeHtml(board.node)}</code></div>` : '',
+    board && board.i2c ? `<div class="meta">I2C: <code>${escapeHtml(board.i2c)}</code></div>` : '',
+    board && board.spi ? `<div class="meta">SPI: <code>${escapeHtml(board.spi)}</code></div>` : '',
+    board && board.gpio ? `<div class="meta">GPIO: <code>${escapeHtml(board.gpio)}</code></div>` : '',
+    board && board.limitations && board.limitations.length ? `<div class="meta">Limitations: ${escapeHtml(board.limitations.join('; '))}</div>` : '',
+    '</section>',
+  ].join('\n');
+}
+
 function sortedCounts(map) {
   return Object.keys(map)
     .sort()
@@ -878,11 +901,12 @@ function renderModelUsageHtml(modelUsage) {
   ].join('\n');
 }
 
-function renderSessionHtml(session) {
+function renderSessionHtml(session, config) {
   const meta = sessionMeta(session);
   const stats = collectSessionStats(session);
   const audit = auditSession(session);
-  const board = findBoardProfileSummary(session);
+  const boardContribution = sessionBoardProfileContribution(config || {});
+  const board = boardContribution ? findBoardProfileSummary(session) : null;
   const coverage = collectCapabilityCoverage(session);
   const modelUsage = collectModelUsage(session);
   const timeline = collectTimeline(session)
@@ -969,16 +993,7 @@ function renderSessionHtml(session) {
     '</section>',
     renderCapabilityCoverageHtml(coverage),
     renderModelUsageHtml(modelUsage),
-    '<section class="card"><h2>Board Profile</h2>',
-    board ? `<div class="meta">Model: <code>${escapeHtml(board.model)}</code></div>` : '<div class="meta">No board_profile event found.</div>',
-    board && board.arch ? `<div class="meta">Arch: <code>${escapeHtml(board.arch)}</code></div>` : '',
-    board && board.system ? `<div class="meta">System: <code>${escapeHtml(board.system)}</code></div>` : '',
-    board && board.node ? `<div class="meta">Node: <code>${escapeHtml(board.node)}</code></div>` : '',
-    board && board.i2c ? `<div class="meta">I2C: <code>${escapeHtml(board.i2c)}</code></div>` : '',
-    board && board.spi ? `<div class="meta">SPI: <code>${escapeHtml(board.spi)}</code></div>` : '',
-    board && board.gpio ? `<div class="meta">GPIO: <code>${escapeHtml(board.gpio)}</code></div>` : '',
-    board && board.limitations && board.limitations.length ? `<div class="meta">Limitations: ${escapeHtml(board.limitations.join('; '))}</div>` : '',
-    '</section>',
+    boardContribution ? renderBoardProfileHtml(board) : '',
     '<section class="card"><h2>Safety Constraints</h2>',
     '<div class="meta">Node 14 + CommonJS + no npm runtime dependency.</div>',
     '<div class="meta">No apt/npm/g++ system package modification commands are executed.</div>',
@@ -1012,7 +1027,7 @@ function writeSessionExport(config, session, options) {
   const filePath = assertInsideWorkspace(config, out);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   let content;
-  if (format === 'html') content = renderSessionHtml(session);
+  if (format === 'html') content = renderSessionHtml(session, config);
   else if (format === 'json') content = JSON.stringify(session, null, 2);
   else if (format === 'trace') content = renderSessionTrace(session);
   else content = renderSessionMarkdown(session);

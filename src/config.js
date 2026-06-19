@@ -34,6 +34,13 @@ function intEnv(name, defaultValue) {
   return Number.isFinite(value) && value > 0 ? value : defaultValue;
 }
 
+function listEnv(name, defaultValue) {
+  const value = process.env[name];
+  if (value === undefined) return defaultValue;
+  if (value === '') return [];
+  return String(value).split(',').map((item) => item.trim()).filter(Boolean);
+}
+
 const PROVIDER_PROFILES = {
   deepseek: {
     provider: 'openai-compatible',
@@ -88,6 +95,7 @@ function loadConfig() {
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),
+    extensions: listEnv('LOONG_AGENT_EXTENSIONS', ['loong']),
   };
 }
 

@@ -3,7 +3,13 @@
 const { createAgentState, finishRun } = require('./agent-state');
 const { runAgentLoop } = require('./agent-loop');
 const { createEventBus } = require('./event-bus');
+const {
+  createAfterToolCallChain,
+  createBeforeToolCallChain,
+  createDefaultPrepareNextTurn,
+} = require('./hooks');
 const { chatCompletionWithEvents } = require('./llm');
+const { createDefaultExtensionRuntime } = require('./extensions');
 const { createDefaultToolRegistry } = require('./tool-registry');
 
 function createQueue(mode) {
@@ -31,9 +37,12 @@ function createQueue(mode) {
 }
 
 function createAgent(config, options) {
-  const registry = (options && options.registry) || createDefaultToolRegistry();
+  options = options || {};
+  const extensionRuntime = options.extensionRuntime || createDefaultExtensionRuntime(config || {});
+  const registry = options.registry || createDefaultToolRegistry(config || {}, { extensionRuntime });
   const state = createAgentState({
     tools: registry.list(),
+    extensionRuntime,
   });
   const bus = createEventBus();
   const steeringQueue = createQueue(options && options.steeringMode);
@@ -60,9 +69,10 @@ function createAgent(config, options) {
       isAborted: () => aborted,
       getSteeringMessages: () => steeringQueue.drain(),
       getFollowUpMessages: () => followUpQueue.drain(),
-      beforeToolCall: options && options.beforeToolCall,
-      afterToolCall: options && options.afterToolCall,
-      prepareNextTurn: options && options.prepareNextTurn,
+      beforeToolCall: options.beforeToolCall || createBeforeToolCallChain(null, extensionRuntime),
+      afterToolCall: options.afterToolCall || createAfterToolCallChain(null, extensionRuntime),
+      prepareNextTurn: options.prepareNextTurn || createDefaultPrepareNextTurn(null, extensionRuntime),
+      finalAnswerEvidenceGuard: options.finalAnswerEvidenceGuard || extensionRuntime.finalAnswerEvidenceGuard,
     })
       .then((result) => {
         return Object.assign({}, result);

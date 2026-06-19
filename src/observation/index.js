@@ -127,59 +127,6 @@ function parseRuntimeCommand(command, output) {
   return parsed;
 }
 
-function parseI2cOutput(command, output) {
-  const parsed = {};
-  const raw = String(output || '');
-  const buses = [];
-  raw.split(/\r?\n/).forEach((line) => {
-    const match = /^i2c-(\d+)\s+\S+\s+(.+?)\s+I2C adapter\s*$/i.exec(line.trim());
-    if (match) buses.push({ bus: Number(match[1]), adapter: match[2].trim() });
-  });
-  if (buses.length) parsed.buses = buses;
-
-  const devNodes = raw.match(/\/dev\/i2c-\d+/g);
-  if (devNodes) parsed.devNodes = Array.from(new Set(devNodes));
-
-  const sysfsDevices = raw.match(/\b\d+-[0-9a-f]{4}\b/gi);
-  if (sysfsDevices) parsed.sysfsDevices = Array.from(new Set(sysfsDevices));
-
-  const scanBus = /i2cdetect\s+-y\s+(\d+)/i.exec(command);
-  if (scanBus) {
-    parsed.scanBus = Number(scanBus[1]);
-    const addresses = [];
-    raw.split(/\r?\n/).forEach((line) => {
-      const row = /^([0-7][0-9a-f]):\s*(.*)$/i.exec(line.trim());
-      if (!row) return;
-      const rowBase = parseInt(row[1], 16);
-      row[2].trim().split(/\s+/).forEach((cell, index) => {
-        if (!cell || cell === '--') return;
-        const address = rowBase + index;
-        addresses.push({
-          address: `0x${address.toString(16).padStart(2, '0')}`,
-          value: cell,
-          bound: cell === 'UU',
-        });
-      });
-    });
-    parsed.addresses = addresses;
-  }
-
-  return parsed;
-}
-
-function parseSensorOutput(output) {
-  const raw = String(output || '');
-  const parsed = {};
-  const chip = /(?:chip\s*id|芯片\s*ID|ID)\s*[:：]?\s*(0x[0-9a-f]+)/i.exec(raw);
-  const addr = /(?:addr(?:ess)?|地址)\s*(?:为|=|:|：)?\s*(0x[0-9a-f]+)/i.exec(raw);
-  const bus = /I2C[-_\s]*(\d+)/i.exec(raw);
-  if (/bmp280/i.test(raw)) parsed.sensor = 'BMP280';
-  if (chip) parsed.chipId = chip[1];
-  if (addr) parsed.address = addr[1];
-  if (bus) parsed.bus = Number(bus[1]);
-  return parsed;
-}
-
 function evidenceForCommand(tool, command, data, fallbackEvidence) {
   if (Array.isArray(fallbackEvidence) && fallbackEvidence.length === 1) return fallbackEvidence;
   return [{
@@ -194,11 +141,8 @@ function commandObservation(action, result, context, command, raw, data, evidenc
   const tool = action && action.tool ? action.tool : '';
   const source = tool === 'bash' ? 'bash' : tool || 'tool';
   const exitCode = data && data.exitCode;
-  const obsContext = Object.assign({}, context);
-  const lowerCommand = String(command || '').toLowerCase();
-  const lowerRaw = String(raw || '').toLowerCase();
-  if (/\bfree\s+-h\b/.test(lowerCommand)) {
-    return makeObservation(obsContext, {
+  if (/\bfree\s+-h\b/.test(String(command || '').toLowerCase())) {
+    return makeObservation(context, {
       subject: 'system.memory',
       kind: 'measurement',
       freshness: 'current',
@@ -211,8 +155,8 @@ function commandObservation(action, result, context, command, raw, data, evidenc
       evidence,
     });
   }
-  if (/\bdf\s+-h\b/.test(lowerCommand)) {
-    return makeObservation(obsContext, {
+  if (/\bdf\s+-h\b/.test(String(command || '').toLowerCase())) {
+    return makeObservation(context, {
       subject: 'system.disk',
       kind: 'measurement',
       freshness: 'current',
@@ -226,7 +170,7 @@ function commandObservation(action, result, context, command, raw, data, evidenc
     });
   }
   if (/^(node\s+-v|npm\s+-v|python3?\s+--version|git\s+--version|gcc\s+-v|clang\s+-v|uname\s+-[am]|cat\s+\/etc\/os-release|lscpu|which\s+)/i.test(command)) {
-    return makeObservation(obsContext, {
+    return makeObservation(context, {
       subject: 'system.runtime',
       kind: 'runtime_fact',
       freshness: 'current',
@@ -239,51 +183,8 @@ function commandObservation(action, result, context, command, raw, data, evidenc
       evidence,
     });
   }
-  if (/bmp280|bme280|sensor/i.test(raw) || /iio|hwmon/i.test(lowerCommand) || /sensor/i.test(lowerRaw)) {
-    return makeObservation(obsContext, {
-      subject: 'hardware.sensor',
-      kind: 'inventory',
-      freshness: 'current',
-      source,
-      tool,
-      command,
-      raw,
-      parsed: parseSensorOutput(raw),
-      exitCode,
-      evidence,
-    });
-  }
-  if (/i2cdetect|\/dev\/i2c|\/sys\/bus\/i2c|\/sys\/class\/i2c/i.test(command) || /\bi2c\b/i.test(raw)) {
-    return makeObservation(obsContext, {
-      subject: 'hardware.i2c',
-      kind: 'inventory',
-      freshness: 'current',
-      source,
-      tool,
-      command,
-      raw,
-      parsed: parseI2cOutput(command, raw),
-      exitCode,
-      evidence,
-    });
-  }
-  if (/bmp280|bme280|sensor|传感器/i.test(raw) || /iio|hwmon/i.test(lowerCommand) || /sensor/i.test(lowerRaw)) {
-    return makeObservation(obsContext, {
-      subject: 'hardware.sensor',
-      kind: 'inventory',
-      freshness: 'current',
-      source,
-      tool,
-      command,
-      raw,
-      parsed: parseSensorOutput(raw),
-      exitCode,
-      evidence,
-    });
-  }
   return null;
 }
-
 function deriveCommandObservations(action, result, context) {
   const data = resultData(result);
   const command = String(data.command || (action && action.input && action.input.command) || '');
@@ -385,7 +286,6 @@ function deriveObservations(action, result, stateContext) {
     turn: stateContext && stateContext.turn,
     index: stateContext && stateContext.observationIndex,
   };
-  if (tool === 'loong_env_check') return deriveLoongEnvObservations(action, result, context);
   if (tool === 'bash') return deriveCommandObservations(action, result, context);
   if (/^process_/.test(tool)) return [deriveProcessObservation(action, result, context)];
   if (/^(read|write|edit|ls|grep|find|read_file|list_directory|search_files)$/.test(tool)) {
@@ -399,7 +299,5 @@ module.exports = {
   deriveObservations,
   parseDfOutput,
   parseFreeOutput,
-  parseI2cOutput,
   parseRuntimeCommand,
-  parseSensorOutput,
 };

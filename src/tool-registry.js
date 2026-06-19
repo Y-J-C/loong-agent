@@ -49,8 +49,8 @@ function createTool(definition) {
   };
 }
 
-function createDefaultTools() {
-  return require('./tools/index').createDefaultTools();
+function createDefaultTools(options) {
+  return require('./tools/index').createDefaultTools(options);
 }
 
 async function invokeTool(tool, config, input, executionContext) {
@@ -116,8 +116,8 @@ function createToolRegistry(tools) {
   };
 }
 
-function createDefaultToolRegistry() {
-  return createToolRegistry(createDefaultTools());
+function createDefaultToolRegistry(config, options) {
+  return createToolRegistry(createDefaultTools(Object.assign({}, options || {}, { config: config || {} })));
 }
 
 function formatToolForPrompt(tool) {

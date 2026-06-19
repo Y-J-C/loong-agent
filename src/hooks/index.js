@@ -53,14 +53,29 @@ function createHookRunner(hooks) {
   };
 }
 
-function createDefaultPrepareNextTurn(extraHook) {
-  const hooks = [loongBoardContextHook, knowledgeContextHook, toolErrorRecoveryHook, longTaskWorkflowHook, finalTurnSummaryHook];
+function extensionContextHook(extensionRuntime) {
+  if (!extensionRuntime || typeof extensionRuntime.prepareNextTurn !== 'function') return null;
+  return (context) => extensionRuntime.prepareNextTurn(context);
+}
+
+function extensionBeforeToolCallHook(extensionRuntime) {
+  if (!extensionRuntime || typeof extensionRuntime.beforeToolCall !== 'function') return null;
+  return (context) => extensionRuntime.beforeToolCall(context);
+}
+
+function extensionAfterToolCallHook(extensionRuntime) {
+  if (!extensionRuntime || typeof extensionRuntime.afterToolCall !== 'function') return null;
+  return (context) => extensionRuntime.afterToolCall(context);
+}
+
+function createDefaultPrepareNextTurn(extraHook, extensionRuntime) {
+  const hooks = [extensionContextHook(extensionRuntime), knowledgeContextHook, toolErrorRecoveryHook, finalTurnSummaryHook].filter(Boolean);
   if (extraHook) hooks.push(extraHook);
   return createHookRunner(hooks).prepareNextTurn;
 }
 
-function createBeforeToolCallChain(extraHook) {
-  const hooks = [toolSafetyPolicyHook, longTaskBeforeToolCallHook];
+function createBeforeToolCallChain(extraHook, extensionRuntime) {
+  const hooks = [toolSafetyPolicyHook, extensionBeforeToolCallHook(extensionRuntime)].filter(Boolean);
   if (extraHook) hooks.push(extraHook);
   return async (context) => {
     for (const hook of hooks) {
@@ -72,8 +87,8 @@ function createBeforeToolCallChain(extraHook) {
   };
 }
 
-function createAfterToolCallChain(extraHook) {
-  const hooks = [toolResultRedactionHook];
+function createAfterToolCallChain(extraHook, extensionRuntime) {
+  const hooks = [toolResultRedactionHook, extensionAfterToolCallHook(extensionRuntime)].filter(Boolean);
   if (extraHook) hooks.push(extraHook);
   return async (context) => {
     let current = Object.assign({}, context || {});

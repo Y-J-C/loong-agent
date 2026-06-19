@@ -20,10 +20,10 @@ function createToolCallId(turn, toolName) {
 
 function summarizeToolResultForAnswer(toolName, result, resultSummary) {
   if (!result || typeof result !== 'object') return resultSummary || '';
-  if (toolName === 'command_reference' && Array.isArray(result.commands)) {
+  if (Array.isArray(result.commands)) {
     const commands = result.commands.map((item) => item.command).filter(Boolean);
     return [
-      `Current command reference returned ${commands.length} command(s).`,
+      `Tool ${toolName || 'unknown'} returned ${commands.length} command(s).`,
       commands.length ? `Commands: ${commands.join(', ')}` : '',
       resultSummary ? `Summary: ${resultSummary}` : '',
     ].filter(Boolean).join('\n');

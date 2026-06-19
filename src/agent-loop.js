@@ -11,6 +11,7 @@ const {
   startTurn,
 } = require('./agent-state');
 const { classifyRequestContext } = require('./context-selector');
+const { validateFinalAnswerBinding } = require('./evidence-binding');
 const { executeToolCall } = require('./tool-execution-runtime');
 
 function nowIso() {
@@ -244,7 +245,7 @@ function csvObservationSummary(observations) {
 
 function summarizeToolResultForAnswer(toolName, result, resultSummary) {
   if (!result || typeof result !== 'object') return resultSummary || '';
-  if (toolName === 'command_reference' && Array.isArray(result.commands)) {
+  if (Array.isArray(result.commands)) {
     const commands = result.commands.map((item) => item.command).filter(Boolean);
     return [
       `当前允许的只读命令共有 ${commands.length} 个，来源为 COMMAND_POLICY_METADATA。`,
@@ -542,116 +543,6 @@ function observationEvidenceSources(state) {
   return sources.slice(0, 5);
 }
 
-function finalAnswerEvidenceGuard(state, currentUserPrompt) {
-  const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
-  if (isCurrentMemoryQuestion(prompt) && !hasCurrentObservationSubject(state, 'system.memory')) {
-    return {
-      reason: 'missing_current_memory_evidence',
-      action: {
-        tool: 'bash',
-        input: {
-          command: 'free -h',
-        },
-        reason: 'Required current memory evidence before answering.',
-      },
-      message: [
-        'The user asked for current memory state.',
-        'Do not answer from memory, historical sessions, or loong_env_check summaries alone.',
-        'Use this free -h evidence first, then answer only with values present in the command output.',
-      ].join('\n'),
-    };
-  }
-  if (isCurrentDiskQuestion(prompt) && !hasCurrentObservationSubject(state, 'system.disk')) {
-    return {
-      reason: 'missing_current_disk_evidence',
-      action: {
-        tool: 'bash',
-        input: {
-          command: 'df -h',
-        },
-        reason: 'Required current disk evidence before answering.',
-      },
-      message: [
-        'The user asked for current disk/storage state.',
-        'Do not answer from memory, historical sessions, or loong_env_check summaries alone.',
-        'Use this df -h evidence first, then answer only with values present in the command output.',
-      ].join('\n'),
-    };
-  }
-  if (isCurrentHardwareQuestion(prompt) && isI2cQuestion(prompt) && !hasCurrentObservationSubject(state, 'hardware.i2c')) {
-    return {
-      reason: 'missing_current_i2c_evidence',
-      action: {
-        tool: 'bash',
-        input: {
-          command: 'ls /dev/i2c*; i2cdetect -l; ls /sys/bus/i2c/devices 2>/dev/null || true',
-        },
-        reason: 'Required current I2C evidence before answering.',
-      },
-      message: [
-        'The user asked for current board I2C state.',
-        'Do not answer from memory, historical sessions, or KB alone.',
-        'Use this typed hardware.i2c evidence first, then decide whether more I2C probing is needed.',
-      ].join('\n'),
-    };
-  }
-  if (isCurrentHardwareQuestion(prompt) && !hasCommandEvidenceObservation(state)) {
-    return {
-      reason: 'missing_current_hardware_evidence',
-      action: {
-        tool: 'bash',
-        input: {
-          command: 'ls /dev/i2c*; i2cdetect -l; ls /sys/bus/i2c/devices 2>/dev/null || true',
-        },
-        reason: 'Required current board hardware/I2C evidence before answering.',
-      },
-      message: [
-        'The user asked for current board hardware or I2C state.',
-        'Do not answer from memory, historical sessions, or KB alone.',
-        'Use this bash command evidence first, then decide whether more I2C probing is needed.',
-      ].join('\n'),
-    };
-  }
-  if (!isBoardEnvironmentQuestion(prompt)) return null;
-  const intent = temporalIntentForPrompt(prompt);
-  if (intent === 'historical') {
-    if (hasKbTopicObservation(state, 'environment_report') || hasObservationFrom(state, ['session_summary'])) return null;
-    return {
-      reason: 'missing_historical_environment_evidence',
-      action: {
-        tool: 'kb_topic',
-        input: {
-          topic: 'environment_report',
-        },
-        reason: 'Required historical board environment evidence before answering.',
-      },
-      message: [
-        'The user asked a historical board environment/toolchain question.',
-        'Do not answer from memory.',
-        'Use kb_topic environment_report or kb_search for board environment/software_stack evidence, or session_summary only if the user asks for a session/latest-session record.',
-        'Then answer with 时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认.',
-      ].join('\n'),
-    };
-  }
-  if (intent === 'current') {
-    if (hasObservationFrom(state, ['loong_env_check'])) return null;
-    return {
-      reason: 'missing_current_environment_evidence',
-      action: {
-        tool: 'loong_env_check',
-        input: {},
-        reason: 'Required current board environment evidence before answering.',
-      },
-      message: [
-        'The user asked a current board environment/toolchain question.',
-        'Do not answer from memory.',
-        'Call loong_env_check first, then answer using its evidence.',
-      ].join('\n'),
-    };
-  }
-  return null;
-}
-
 function normalizeMemoryQuantity(value, unit) {
   const normalizedUnit = String(unit || '')
     .toLowerCase()
@@ -700,7 +591,23 @@ function memoryObservationFallbackSummary(observation) {
 
 function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
   const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
-  if (isCurrentMemoryQuestion(prompt)) {
+  const bindingGuard = validateFinalAnswerBinding(state, prompt, answerSummary);
+  if (bindingGuard) {
+    const historical = temporalIntentForPrompt(prompt) === 'historical';
+    const facts = historical ? historicalEnvironmentFactsFromState(state) : null;
+    const requestedItem = requestedEnvironmentItem(prompt);
+    const hasUnsupportedVersion = bindingGuard.binding &&
+      Array.isArray(bindingGuard.binding.unsupported) &&
+      bindingGuard.binding.unsupported.some((item) => item && item.type === 'version');
+    if (historical && facts && requestedItem && hasUnsupportedVersion) {
+      const factVersion = factVersionForItem(facts, requestedItem);
+      if (isPendingFact(factVersion)) {
+        bindingGuard.fallbackSummary = historicalEnvironmentFallbackSummary(prompt, facts, { reason: 'unsupported_version' });
+      }
+    }
+    return bindingGuard;
+  }
+  if (false && isCurrentMemoryQuestion(prompt)) {
     const memoryObservation = latestObservationBySubject(state, 'system.memory');
     if (memoryObservation) {
       const supported = memoryQuantities(memoryObservation.raw);
@@ -800,7 +707,6 @@ function repeatPolicyForTool(tool) {
 function shouldGuardRepeatedTool(tool) {
   if (!tool) return false;
   const guardedNames = {
-    command_reference: true,
     kb_topic: true,
     kb_search: true,
     risk_lookup: true,
@@ -1216,6 +1122,7 @@ async function runAgentLoop(options) {
   const prepareNextTurn = options.prepareNextTurn;
   const beforeToolCall = options.beforeToolCall;
   const afterToolCall = options.afterToolCall;
+  const answerEvidenceGuard = options.finalAnswerEvidenceGuard || (() => null);
   let pendingMessages = userPrompt ? [{ content: userPrompt, internal: false }] : [];
   let currentUserPrompt = userPrompt || '';
   let invalidJsonCount = 0;
@@ -1339,7 +1246,7 @@ async function runAgentLoop(options) {
 
     if (response.kind === 'final_answer') {
       invalidJsonCount = 0;
-      const evidenceGuard = finalAnswerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
+      const evidenceGuard = answerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
       if (evidenceGuard) {
         state.answerEvidenceRetryCount = (state.answerEvidenceRetryCount || 0) + 1;
         const guardAction = evidenceGuard.action;
@@ -1362,6 +1269,26 @@ async function runAgentLoop(options) {
       }
       const consistencyGuard = finalAnswerConsistencyGuard(state, currentUserPrompt || state.userPrompt, response.answer.summary || '');
       if (consistencyGuard) {
+        const isBindingGuard = /^answer_claim_/.test(consistencyGuard.reason || '');
+        state.answerBindingRetryCount = state.answerBindingRetryCount || 0;
+        if (isBindingGuard && state.answerBindingRetryCount < 1) {
+          state.answerBindingRetryCount += 1;
+          await emitTurnEnd(turnContext, {
+            isError: false,
+            status: 'retry',
+            reason: consistencyGuard.reason,
+          });
+          pendingMessages.push({
+            content: [
+              consistencyGuard.message,
+              'Rewrite the final answer now.',
+              'Only include numbers, versions, addresses, paths, PIDs, and sensor readings that appear in the selected observation evidence.',
+              'If a value is not present in the evidence, say it is 待确认 instead of guessing.',
+            ].filter(Boolean).join('\n'),
+            internal: true,
+          });
+          continue;
+        }
         await emitTurnEnd(turnContext, {
           isError: false,
           status: 'ok',

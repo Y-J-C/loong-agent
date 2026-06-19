@@ -11,6 +11,7 @@ function createAgentState(options) {
     modelUsage: [],
     observations: [],
     tools: (options && options.tools) || [],
+    extensionRuntime: options && options.extensionRuntime,
     turn: 0,
     isRunning: false,
     summary: '',
@@ -47,10 +48,13 @@ function recordUserMessage(state, message, options) {
 }
 
 function recordToolResult(state, action, result) {
-  const typedObservations = deriveObservations(action, result, {
+  const observationContext = {
     turn: state.turn,
     observationIndex: state.observations.length,
-  });
+  };
+  const typedObservations = state.extensionRuntime && typeof state.extensionRuntime.deriveObservations === 'function'
+    ? state.extensionRuntime.deriveObservations(action, result, observationContext)
+    : deriveObservations(action, result, observationContext);
   const firstTypedObservation = typedObservations[0] || null;
   const observation = {
     loop: state.turn,
