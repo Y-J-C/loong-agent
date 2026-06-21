@@ -7,7 +7,9 @@ const path = require('path');
 const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
 const { handleCommand } = require('../src/tui/commands');
+const { handlePanelKey } = require('../src/tui/interactions');
 const { createTuiState } = require('../src/tui/state');
+const { listSlashCommands } = require('../src/tui/slash-commands');
 const { createJsonlSession, readSessionFromPath } = require('../src/session');
 
 function assert(condition, message) {
@@ -72,8 +74,8 @@ test('slash commands render help health project and sessions', async () => {
   await handleCommand(context, '/project');
   await handleCommand(context, '/hotkeys');
   const text = context.state.messages.map((message) => message.text).join('\n');
-  assert(text.indexOf('命令:') >= 0, 'missing help');
-  assert(text.indexOf('快捷键:') >= 0, 'missing hotkeys');
+  assert(text.indexOf('Commands:') >= 0, 'missing help');
+  assert(text.indexOf('Hotkeys:') >= 0, 'missing hotkeys');
   assert(text.indexOf('运行健康检查') >= 0 || text.indexOf('provider') >= 0, 'missing health');
   assert(text.indexOf('项目结构摘要') >= 0 || text.indexOf('provider') >= 0, 'missing project map');
 });
@@ -86,6 +88,47 @@ test('unknown slash command suggests tab completion', async () => {
   assert(text.indexOf('Unknown command: /se') >= 0, 'missing unknown command message');
   assert(text.indexOf('Tab') >= 0, 'missing tab completion hint');
   assert(text.indexOf('/help') >= 0, 'missing help hint');
+});
+
+test('commands panel opens from slash command and alias', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/commands');
+  assert(context.state.activePanel && context.state.activePanel.type === 'command', 'commands panel did not open');
+  assert(context.state.activePanel.items.some((item) => item.value === '/sessions'), 'commands panel missing sessions command');
+
+  context.state.activePanel = null;
+  context.state.commandPanel = null;
+  await handleCommand(context, '/cmd');
+  assert(context.state.activePanel && context.state.activePanel.type === 'command', 'cmd alias did not open commands panel');
+});
+
+test('commands panel filters and inserts selected command without executing', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/commands');
+  context.state.activePanel.query = 'sess';
+  await handlePanelKey(context.state, { type: 'enter' }, {});
+  assert(context.state.inputBuffer === '/sessions', `command panel inserted wrong command: ${context.state.inputBuffer}`);
+  assert(context.state.selector === null, 'command panel should not execute the command immediately');
+  assert(context.state.activePanel === null, 'command panel should close after insert');
+
+  await handleCommand(context, context.state.inputBuffer);
+  assert(context.state.selector && context.state.selector.view === 'recent', 'inserted sessions command did not execute after enter');
+});
+
+test('help and commands panel use the shared slash command definitions', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  const commandNames = listSlashCommands().filter((command) => !command.unsupported).map((command) => `/${command.name}`);
+  await handleCommand(context, '/help');
+  await handleCommand(context, '/commands');
+  const help = context.state.messages.map((message) => message.text).join('\n');
+  const panelValues = context.state.activePanel.items.map((item) => item.value);
+  assert(commandNames.indexOf('/commands') >= 0, 'shared definitions missing commands command');
+  assert(panelValues.indexOf('/commands') >= 0, 'commands panel does not use shared definitions');
+  assert(help.indexOf('/commands') >= 0, 'help output missing commands command');
+  assert(!/[åæäçèéêëìíîïðòóôõùúûüýþÿ]/i.test(help), 'help output still contains mojibake');
 });
 
 test('tree lineage fork export and session commands work', async () => {

@@ -41,7 +41,47 @@ const COMMANDS = [
   { name: 'scoped-models', description: '暂未实现: 作用域模型', category: 'ui', unsupported: true },
 ];
 
-const COMMAND_PRIORITY = COMMANDS.reduce((acc, item, index) => {
+const DISPLAY_COMMANDS = [
+  { name: 'settings', description: 'Open settings panel / 打开设置面板', category: 'ui' },
+  { name: 'model', description: 'Switch model / 切换模型', argumentHint: '[model]', category: 'ui' },
+  { name: 'commands', aliases: ['cmd'], description: 'Open command palette / 打开命令面板', category: 'ui' },
+  { name: 'help', description: 'Show command overview / 查看命令总览', category: 'core' },
+  { name: 'hotkeys', description: 'Show keyboard shortcuts / 查看快捷键', category: 'core' },
+  { name: 'clear', description: 'Clear current screen messages / 清空当前屏幕记录', category: 'core' },
+  { name: 'new', description: 'Start a new Agent session / 新建 Agent 会话', category: 'session' },
+  { name: 'name', description: 'Rename current session / 设置当前会话名称', argumentHint: '<name>', category: 'session' },
+  { name: 'theme', description: '查看或切换主题 / View or switch theme', argumentHint: '[theme]', category: 'ui' },
+  { name: 'health', description: '运行时健康检查 / Runtime health check', argumentHint: '[--json]', category: 'diagnostic' },
+  { name: 'project', description: 'Read project summary / 读取项目结构摘要', argumentHint: '[--json]', category: 'diagnostic' },
+  { name: 'sessions', description: 'Open recent sessions list / 打开最近会话列表', category: 'session' },
+  { name: 'tree', description: 'Open session branch tree / 打开会话分支树', category: 'session' },
+  { name: 'session', description: 'View session trace / 查看会话 trace', argumentHint: '[latest|current|selected|id]', category: 'session' },
+  { name: 'audit', description: 'Audit session events / 审计会话记录', argumentHint: '[latest|current|selected|id]', category: 'session' },
+  { name: 'lineage', description: 'View session lineage / 查看会话 lineage', argumentHint: '[latest|selected|id]', category: 'session' },
+  { name: 'fork', description: 'Fork latest session / 从 latest 创建分支', argumentHint: '[branch]', category: 'session' },
+  { name: 'clone', description: 'Clone latest session / 克隆 latest 会话', argumentHint: '[branch]', category: 'session' },
+  { name: 'resume', description: 'Resume from session context / 基于历史会话继续', argumentHint: '[latest|selected|id] <prompt>', category: 'session' },
+  { name: 'branch', description: 'View current branch info / 查看当前分支信息', category: 'session' },
+  { name: 'stats', description: 'View TUI stats / 查看 TUI 统计信息', category: 'diagnostic' },
+  { name: 'demo', description: 'Generate board demo summary / 生成板端演示摘要', category: 'diagnostic' },
+  { name: 'export', description: 'Export HTML audit report / 导出 HTML 审计报告', argumentHint: '[latest|current|selected|demo|id] [out]', category: 'session' },
+  { name: 'copy', description: 'Show latest assistant answer / 显示最近助手回复', category: 'core' },
+  { name: 'reload', description: 'Reload config / 重载配置', category: 'core' },
+  { name: 'debug', description: 'Write TUI debug snapshot / 写入 TUI 调试快照', argumentHint: '[keys]', category: 'diagnostic' },
+  { name: 'compact', description: 'Preview session compaction / 查看会话摘要占位', category: 'session' },
+  { name: 'goto', description: 'Jump to entry id / 按 entry id 定位事件', argumentHint: '<entry-id>', category: 'session' },
+  { name: 'more', description: 'Toggle all tool details / 展开或折叠工具细节', category: 'ui' },
+  { name: 'exit', aliases: ['quit'], description: 'Exit TUI / 退出 TUI', category: 'core' },
+  { name: 'login', description: 'Not implemented: login / 暂未实现：登录', category: 'account', unsupported: true },
+  { name: 'logout', description: 'Not implemented: logout / 暂未实现：登出', category: 'account', unsupported: true },
+  { name: 'share', description: 'Not implemented: share / 暂未实现：分享', category: 'session', unsupported: true },
+  { name: 'import', description: 'Not implemented: import / 暂未实现：导入', category: 'session', unsupported: true },
+  { name: 'trust', description: 'Not implemented: trust policy / 暂未实现：信任策略', category: 'security', unsupported: true },
+  { name: 'changelog', description: 'Not implemented: changelog / 暂未实现：更新记录', category: 'core', unsupported: true },
+  { name: 'scoped-models', description: 'Not implemented: scoped models / 暂未实现：作用域模型', category: 'ui', unsupported: true },
+];
+
+const COMMAND_PRIORITY = DISPLAY_COMMANDS.reduce((acc, item, index) => {
   acc[item.name] = index;
   return acc;
 }, {});
@@ -60,11 +100,11 @@ function commandUsage(command) {
 }
 
 function listSlashCommands() {
-  return COMMANDS.slice();
+  return DISPLAY_COMMANDS.slice();
 }
 
 function slashCommandDefinitions() {
-  return COMMANDS.map((command) => ({
+  return DISPLAY_COMMANDS.map((command) => ({
     command: commandDisplayName(command),
     name: command.name,
     aliases: command.aliases || [],
@@ -78,7 +118,7 @@ function slashCommandDefinitions() {
 
 function findSlashCommand(name) {
   const target = slashName(name).toLowerCase();
-  return COMMANDS.find((command) => {
+  return DISPLAY_COMMANDS.find((command) => {
     if (command.name === target) return true;
     return (command.aliases || []).indexOf(target) >= 0;
   }) || null;

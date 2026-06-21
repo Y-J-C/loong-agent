@@ -12,6 +12,7 @@ const { addMessage, clearMessages } = require('./state');
 const {
   findSlashCommand,
   getKnownModels,
+  commandUsage,
   listSlashCommands,
   parseSlashInput,
   suggestSlashCommands,
@@ -90,6 +91,25 @@ function hotkeysTextV2() {
   ].join('\n');
 }
 
+function hotkeysTextClean() {
+  return [
+    'Hotkeys:',
+    'Enter: send; while running, steer current task',
+    'Tab: accept autocomplete',
+    'Alt+Enter: newline; while running, queue follow-up',
+    'Ctrl+Enter or \\ + Enter: newline fallback',
+    'Esc: abort/back',
+    'Ctrl+C: abort or exit',
+    'Ctrl+D: exit on empty input',
+    'Ctrl+L: model selector',
+    'Ctrl+O: current tool detail',
+    'Shift+Ctrl+O or /more: all tool details',
+    'Up/Down or Ctrl+P/Ctrl+N: history or list navigation',
+    'PageUp/PageDown: scroll and tool focus',
+    'Tree: Ctrl+T switches filter mode',
+  ].join('\n');
+}
+
 function latestAssistantText(state) {
   if (state.lastAssistantText) return state.lastAssistantText;
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
@@ -117,6 +137,40 @@ function openSessionSelector(state, manager, view) {
     selectedIndex: 0,
     treeFilterMode: '',
   };
+}
+
+function commandInsertText(command) {
+  return `/${command.name}${command.argumentHint ? ' ' : ''}`;
+}
+
+function createCommandPanel() {
+  const items = listSlashCommands()
+    .filter((command) => !command.unsupported)
+    .map((command) => ({
+      label: commandUsage(command),
+      value: `/${command.name}`,
+      command: `/${command.name}`,
+      insertText: commandInsertText(command),
+      description: command.description || '',
+      group: command.category || 'core',
+      aliases: command.aliases || [],
+      usage: commandUsage(command),
+    }));
+  return {
+    type: 'command',
+    title: '命令面板 / Command Palette',
+    hint: '输入筛选 - Enter 插入命令 - Esc 返回',
+    query: '',
+    items,
+    selectedIndex: 0,
+  };
+}
+
+function openCommandPanel(state) {
+  const panel = createCommandPanel();
+  state.mode = 'panel';
+  state.activePanel = panel;
+  state.commandPanel = panel;
 }
 
 function writeDebugFile(config, state) {
@@ -155,6 +209,40 @@ function helpText() {
     '退出: Ctrl+C / Ctrl+D(空输入) / /exit',
     '工具: Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
     '滚动: PageUp / PageDown',
+    '',
+    brandMotto(),
+  ].join('\n');
+}
+
+function helpTextClean() {
+  const groups = {};
+  listSlashCommands()
+    .filter((command) => !command.unsupported)
+    .forEach((command) => {
+      const group = command.category || 'core';
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(command);
+    });
+  const lines = [
+    'Commands:',
+    'Use /commands to search and insert a command.',
+    '! <shell command>',
+    '',
+  ];
+  ['core', 'ui', 'session', 'diagnostic'].forEach((group) => {
+    if (!groups[group] || !groups[group].length) return;
+    lines.push(`${group}:`);
+    groups[group].forEach((command) => {
+      lines.push(`  ${commandUsage(command)} - ${command.description || ''}`);
+    });
+  });
+  return [
+    lines.join('\n'),
+    '',
+    'Input: Enter send, Tab complete, Ctrl/Alt+Enter newline.',
+    'Exit: Ctrl+C / Ctrl+D empty input / /exit.',
+    'Tools: Ctrl+O current tool detail, Shift+Ctrl+O or /more all tool details.',
+    'Scroll: PageUp / PageDown.',
     '',
     brandMotto(),
   ].join('\n');
@@ -339,6 +427,10 @@ async function dispatchSlashCommand(context, parsed) {
     addMessage(state, { type: 'system', text: `模型已切换 / Model set: ${nextConfig && nextConfig.model ? nextConfig.model : '(env)'}` });
     return;
   }
+  if (command.name === 'commands') {
+    openCommandPanel(state);
+    return;
+  }
   if (command.name === 'theme') {
     const next = parsed.args[0] || '';
     if (!next) {
@@ -372,12 +464,12 @@ async function runSlashCommandLegacy(context, text) {
   const name = parts[0] || '';
 
   if (name === '/help') {
-    addMessage(state, { type: 'system', text: helpText() });
+    addMessage(state, { type: 'system', text: helpTextClean() });
     return;
   }
 
   if (name === '/hotkeys') {
-    addMessage(state, { type: 'system', text: hotkeysTextV2() });
+    addMessage(state, { type: 'system', text: hotkeysTextClean() });
     return;
   }
 

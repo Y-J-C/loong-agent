@@ -63,7 +63,7 @@ async function executeSessionShortcut(state, selector, selected, actionKey, acti
 }
 
 function activePanel(state) {
-  return state.activePanel || state.settingsMenu || state.modelSelector || null;
+  return state.activePanel || state.settingsMenu || state.modelSelector || state.commandPanel || null;
 }
 
 function filteredPanelItems(state) {
@@ -71,10 +71,26 @@ function filteredPanelItems(state) {
   if (!panel) return [];
   const query = panel.query ? String(panel.query).toLowerCase() : '';
   const items = panel.items || panel.models || [];
-  return items.filter((item) => {
-    const haystack = `${item.label || ''} ${item.value || ''} ${item.description || ''}`.toLowerCase();
+  const filtered = items.filter((item) => {
+    const aliases = Array.isArray(item.aliases) ? item.aliases.join(' ') : '';
+    const haystack = `${item.label || ''} ${item.value || ''} ${item.usage || ''} ${item.command || ''} ${item.group || ''} ${aliases} ${item.description || ''}`.toLowerCase();
     return !query || haystack.indexOf(query) >= 0;
   });
+  if (panel.type !== 'command' || !query) return filtered;
+  return filtered.sort((left, right) => commandPanelScore(left, query) - commandPanelScore(right, query));
+}
+
+function commandPanelScore(item, query) {
+  const name = String(item.value || item.command || item.label || '').replace(/^\//, '').toLowerCase();
+  const label = String(item.label || '').toLowerCase();
+  const group = String(item.group || '').toLowerCase();
+  const description = String(item.description || '').toLowerCase();
+  if (name === query) return 0;
+  if (name.indexOf(query) === 0) return 1;
+  if (label.indexOf(query) === 0) return 2;
+  if (group.indexOf(query) >= 0) return 10;
+  if (description.indexOf(query) >= 0) return 20;
+  return 30;
 }
 
 function closePanel(state) {
@@ -82,6 +98,7 @@ function closePanel(state) {
   state.activePanel = null;
   state.settingsMenu = null;
   state.modelSelector = null;
+  state.commandPanel = null;
 }
 
 function acceptAutocomplete(state) {
@@ -286,7 +303,7 @@ function handlePanelKey(state, key, actions) {
     }
     return true;
   }
-  if (panel.type === 'model') {
+  if (panel.type === 'model' || panel.type === 'command') {
     if (matchesAction('panel', 'filterBackspace', key)) {
       panel.query = String(panel.query || '').slice(0, -1);
       panel.selectedIndex = 0;
@@ -305,6 +322,14 @@ function handlePanelKey(state, key, actions) {
       if (actions && actions.applySettingsSelection) actions.applySettingsSelection();
       closePanel(state);
       addMessage(state, { type: 'system', text: item ? `设置已更新: ${item.label} = ${item.value()}` : '设置已更新' });
+      return true;
+    }
+    if (panel.type === 'command') {
+      if (item) {
+        setInput(state, item.insertText || item.command || item.value || '');
+      }
+      closePanel(state);
+      updateAutocomplete(state);
       return true;
     }
     if (panel.type === 'model') {

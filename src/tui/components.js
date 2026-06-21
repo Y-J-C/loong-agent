@@ -241,6 +241,19 @@ function panelItemSnapshot(items) {
   }));
 }
 
+function commandPanelScore(item, query) {
+  const name = String(item.value || item.command || item.label || '').replace(/^\//, '').toLowerCase();
+  const label = String(item.label || '').toLowerCase();
+  const group = String(item.group || '').toLowerCase();
+  const description = String(item.description || '').toLowerCase();
+  if (name === query) return 0;
+  if (name.indexOf(query) === 0) return 1;
+  if (label.indexOf(query) === 0) return 2;
+  if (group.indexOf(query) >= 0) return 10;
+  if (description.indexOf(query) >= 0) return 20;
+  return 30;
+}
+
 function selectorSnapshot(selector) {
   return {
     view: selector && selector.view,
@@ -644,9 +657,13 @@ class PanelComponent {
     return cachedLines(context, panelRenderCache, cacheKey, () => {
     const query = panel.query ? String(panel.query).toLowerCase() : '';
     const items = (panel.items || panel.models || []).filter((item) => {
-      const haystack = `${item.label || ''} ${item.value || ''} ${item.description || ''}`.toLowerCase();
+      const aliases = Array.isArray(item.aliases) ? item.aliases.join(' ') : '';
+      const haystack = `${item.label || ''} ${item.value || ''} ${item.usage || ''} ${item.command || ''} ${item.group || ''} ${aliases} ${item.description || ''}`.toLowerCase();
       return !query || haystack.indexOf(query) >= 0;
     });
+    if (panel.type === 'command' && query) {
+      items.sort((left, right) => commandPanelScore(left, query) - commandPanelScore(right, query));
+    }
     if ((panel.selectedIndex || 0) >= items.length) panel.selectedIndex = Math.max(0, items.length - 1);
     const title = panel.title || (panel.models ? 'Model Selector' : 'Settings');
     const panelHint = panel.hint || `${hint('panel', 'prev')}/${hint('panel', 'next')} select - ${hint('panel', 'confirm')} confirm - ${hint('panel', 'close')} back`;
@@ -670,7 +687,7 @@ class PanelComponent {
     for (let index = win.start; index < win.end; index += 1) {
       const item = items[index];
       const group = item.group || item.provider || item.providerProfile || (item.model && (item.model.providerProfile || item.model.provider)) || '';
-      if ((panel.type === 'settings' || panel.type === 'model') && group && group !== lastGroup && lines.length < maxRows - 1) {
+      if ((panel.type === 'settings' || panel.type === 'model' || panel.type === 'command') && group && group !== lastGroup && lines.length < maxRows - 1) {
         lastGroup = group;
         lines.push(paint(theme, 'dim', fitLine(`  ${group}`, width)));
       }

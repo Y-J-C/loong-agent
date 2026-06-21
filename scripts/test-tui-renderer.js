@@ -542,6 +542,42 @@ test('renderer displays focused settings and model panels', () => {
   assert(output.indexOf('loong>') < 0, 'input area should be replaced while model panel is open');
 });
 
+test('renderer displays command panel and keeps narrow lines bounded', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.mode = 'panel';
+  state.activePanel = {
+    type: 'command',
+    title: '命令面板 / Command Palette',
+    hint: 'type to filter - Enter insert - Esc close',
+    query: 'sess',
+    selectedIndex: 0,
+    items: [
+      {
+        label: '/sessions',
+        value: '/sessions',
+        usage: '/sessions',
+        description: 'Open recent sessions list / 打开最近会话列表',
+        group: 'session',
+      },
+      {
+        label: '/resume',
+        value: '/resume',
+        usage: '/resume [latest|selected|id] <prompt>',
+        description: 'Resume from session context / 基于历史会话继续',
+        group: 'session',
+      },
+    ],
+  };
+  const output = renderTui(state, { columns: 52, rows: 18 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('命令面板 / Command Palette') >= 0, 'command panel title missing');
+  assert(plain.indexOf('/sessions') >= 0, 'command panel item missing');
+  assert(plain.indexOf('loong>') < 0, 'input area should be replaced while command panel is open');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 52, `command panel line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
+});
+
 test('renderer uses editor slot for selector and hides autocomplete', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({ type: 'assistant', text: 'chat content above selector' });
