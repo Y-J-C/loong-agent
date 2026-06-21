@@ -292,6 +292,28 @@ test('renderer keeps json tool summaries compact by default', () => {
   assert(plain.indexOf('exit=0 Mem: 3.7Gi') >= 0, 'compact tool summary missing useful stdout');
 });
 
+test('renderer explains failed bash tool with reason and next step', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    isError: true,
+    status: 'tool_error',
+    detail: {
+      exitCode: 127,
+      stderr: 'gcc: command not found',
+      error: 'spawn gcc ENOENT',
+      evidence: [{ source: 'bash', command: 'gcc --version' }],
+      warnings: ['missing dependency'],
+    },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('exit=127') >= 0, 'missing failed exit code');
+  assert(plain.indexOf('reason=dependency') >= 0, 'missing dependency failure classification');
+  assert(plain.indexOf('next=check tool availability') >= 0, 'missing actionable next step');
+});
+
 test('renderer shows specialized loong env tool summary', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({
@@ -312,6 +334,46 @@ test('renderer shows specialized loong env tool summary', () => {
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
   assert(plain.indexOf('arch=loongarch64, node=v14.16.1') >= 0, 'loong env compact summary missing arch/node');
   assert(plain.indexOf('board=LS2K1000') >= 0, 'loong env compact summary missing board');
+});
+
+test('renderer shows loong env toolchain limitations in compact summary', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    type: 'tool',
+    toolName: 'loong_env_check',
+    done: true,
+    detail: {
+      arch: 'loongarch64',
+      node: 'v14.16.1',
+      board: 'LS2K1000',
+      npmStatus: 'unavailable',
+      gppStatus: 'unavailable',
+      warnings: ['npm missing', 'g++ missing'],
+    },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('npm=unavailable') >= 0, 'missing npm limitation');
+  assert(plain.indexOf('g++=unavailable') >= 0, 'missing g++ limitation');
+});
+
+test('renderer summarizes knowledge tools without raw json', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    type: 'tool',
+    toolName: 'knowledge_search',
+    done: true,
+    detail: {
+      matches: [{ source: 'kb/playbooks/rpc-spawn-eperm.md' }, { source: 'kb/unknowns.md' }],
+      risks: [{ id: 'rpc-spawn-eperm' }],
+      unknowns: [{ id: 'model-offline' }],
+      playbooks: [{ id: 'rpc-spawn-eperm' }],
+      evidence: [{ source: 'kb' }],
+    },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('matches=2') >= 0, 'missing knowledge match count');
+  assert(plain.indexOf('playbooks=1') >= 0, 'missing playbook count');
+  assert(plain.indexOf('"matches"') < 0, 'raw knowledge json leaked in compact mode');
 });
 
 test('renderer keeps output inside small terminal dimensions', () => {
@@ -379,6 +441,31 @@ test('renderer shows tool policy error metadata', () => {
   assert(output.indexOf('evidence=1') >= 0, 'missing evidence count');
   assert(output.indexOf('warnings=1') >= 0, 'missing warning count');
   assert(output.indexOf('dangerous_command') >= 0, 'missing policy id');
+  assert(output.indexOf('not_executed') >= 0, 'blocked tool should say it was not executed');
+});
+
+test('renderer expanded tool details label evidence warnings and recovery', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    expanded: true,
+    args: { command: 'node missing.js' },
+    resultSummary: 'failed',
+    detail: {
+      exitCode: 1,
+      stderr: 'Cannot find module',
+      evidence: [{ source: 'bash', command: 'node missing.js' }],
+      warnings: ['module missing'],
+      recovery: 'check file path',
+    },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 110, rows: 32 }));
+  assert(plain.indexOf('args:') >= 0, 'expanded detail missing args');
+  assert(plain.indexOf('evidence:') >= 0, 'expanded detail missing evidence label');
+  assert(plain.indexOf('warnings:') >= 0, 'expanded detail missing warnings label');
+  assert(plain.indexOf('recovery: check file path') >= 0, 'expanded detail missing recovery');
 });
 
 test('renderer shows slash command autocomplete', () => {
