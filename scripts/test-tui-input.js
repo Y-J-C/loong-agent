@@ -3,6 +3,7 @@
 
 const {
   applyKey,
+  parseInputBuffer,
   parseKey,
   pushHistory,
   setInput,
@@ -99,6 +100,51 @@ test('parseKey recognizes controls', () => {
   assert(parseKey(Buffer.from('\x1b[1;5D')).type === 'ctrl_left', 'ctrl-left parse failed');
   assert(parseKey(Buffer.from('\x1b[1;5C')).type === 'ctrl_right', 'ctrl-right parse failed');
   assert(parseKey(Buffer.from('\x1b[127;5u')).type === 'ctrl_backspace', 'ctrl-backspace parse failed');
+});
+
+test('bracketed paste parses single chunk as text without enter', () => {
+  const state = createTuiState({});
+  const keys = parseInputBuffer(state, Buffer.from('\x1b[200~/help\r\n/exit\x1b[201~'));
+  assert(keys.length === 1, `expected one paste key, got ${keys.length}`);
+  assert(keys[0].type === 'text', 'paste should become text key');
+  assert(keys[0].paste === true, 'paste key missing paste marker');
+  assert(keys[0].text === '/help\n/exit', `paste text was not normalized: ${JSON.stringify(keys[0].text)}`);
+  assert(state.pasteActive === false, 'paste should end after closing marker');
+});
+
+test('normal input buffer splits text controls and tab keys', () => {
+  const state = createTuiState({});
+  const keys = parseInputBuffer(state, Buffer.from('/help\r/ses\t'));
+  assert(keys.length === 4, `expected four keys, got ${keys.length}`);
+  assert(keys[0].type === 'text' && keys[0].text === '/help', 'first text chunk mismatch');
+  assert(keys[1].type === 'enter', 'carriage return should parse as enter');
+  assert(keys[2].type === 'text' && keys[2].text === '/ses', 'second text chunk mismatch');
+  assert(keys[3].type === 'text' && keys[3].text === '\t', 'tab should parse as its own text key');
+});
+
+test('bracketed paste parses split chunks and records input stats', () => {
+  const state = createTuiState({});
+  assert(parseInputBuffer(state, Buffer.from('\x1b[200~line1')).length === 0, 'paste start should wait for end marker');
+  assert(state.pasteActive === true, 'paste should stay active between chunks');
+  const keys = parseInputBuffer(state, Buffer.from('\r\nline2\x1b[201~'));
+  assert(keys.length === 1, `expected one completed paste key, got ${keys.length}`);
+  applyKey(state, keys[0]);
+  assert(state.inputBuffer === 'line1\nline2', `split paste input mismatch: ${JSON.stringify(state.inputBuffer)}`);
+  assert(state.lastPasteLines === 2, `paste line count mismatch: ${state.lastPasteLines}`);
+  assert(state.lastPasteChars === 11, `paste char count mismatch: ${state.lastPasteChars}`);
+  assert(state.lastPasteAt > 0, 'paste timestamp missing');
+});
+
+test('setInput clears paste indicator state', () => {
+  const state = createTuiState({});
+  const keys = parseInputBuffer(state, Buffer.from('\x1b[200~line1\nline2\x1b[201~'));
+  applyKey(state, keys[0]);
+  assert(state.lastPasteLines === 2, 'paste stats were not recorded');
+  setInput(state, '');
+  assert(state.lastPasteLines === 0, 'setInput should clear paste lines');
+  assert(state.lastPasteChars === 0, 'setInput should clear paste chars');
+  assert(state.lastPasteAt === 0, 'setInput should clear paste timestamp');
+  assert(state.pasteCount === 0, 'setInput should clear paste count');
 });
 
 test('word navigation and ctrl-enter newline work', () => {

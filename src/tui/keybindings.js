@@ -27,7 +27,7 @@ const KEYBINDINGS = {
     { action: 'abort', keys: [{ type: 'escape' }], hint: 'Esc' },
   ],
   autocomplete: [
-    { action: 'accept', keys: [{ type: 'enter' }, { type: 'text', text: '\t' }], hint: 'Enter/Tab' },
+    { action: 'accept', keys: [{ type: 'text', text: '\t' }], hint: 'Tab' },
     { action: 'prev', keys: [{ type: 'up' }, { type: 'ctrl_p' }, { type: 'shift_tab' }], hint: 'Up/Ctrl+P/Shift+Tab' },
     { action: 'next', keys: [{ type: 'down' }, { type: 'ctrl_n' }], hint: 'Down/Ctrl+N' },
     { action: 'close', keys: [{ type: 'escape' }], hint: 'Esc' },

@@ -37,6 +37,8 @@ Software and development:
 - Docker / Podman feasibility through alternate sources is not confirmed.
 - Qt/GTK/OpenCV development usability is not confirmed.
 - Long-term Python 3.7 / user-local pip behavior is not confirmed.
+- Local Codex sandbox `spawn EPERM` behavior for RPC child-process tests is not confirmed as configurable.
+- Historical board-side RPC PASS evidence does not answer future "current board status" questions without a fresh board run.
 
 ## Unknowns
 

@@ -615,6 +615,21 @@ test('renderer displays multiline input without continuation prompt', () => {
   assert(plain.indexOf('第二行') >= 0, 'missing continuation input line');
 });
 
+test('renderer shows bracketed paste stats and keeps wide multiline input bounded', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = Array.from({ length: 50 }, (_, index) => `第${index}行 中文／wide path /home/龙芯/${index}`).join('\n');
+  state.cursor = state.inputBuffer.length;
+  state.lastPasteLines = 50;
+  state.lastPasteChars = Array.from(state.inputBuffer).length;
+  state.lastPasteAt = Date.now();
+  const output = renderTui(state, { columns: 50, rows: 18 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('[paste 50 lines,') >= 0, 'missing paste stats hint');
+  for (const line of output.split('\n')) {
+    assert(visibleWidth(line) <= 50, `wide paste line exceeds width: ${stripAnsi(line)}`);
+  }
+});
+
 test('renderer keeps hardware cursor visible in multiline input window', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.inputBuffer = ['line0', 'line1', 'line2', 'line3', 'line4', 'line5', 'line6', 'line7'].join('\n');

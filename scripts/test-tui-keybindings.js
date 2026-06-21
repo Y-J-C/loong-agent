@@ -49,6 +49,7 @@ test('editor and running editor actions stay distinct', () => {
 
 test('autocomplete selector tree and panel actions resolve', () => {
   assert(resolveKeyAction('autocomplete', { type: 'text', text: '\t' }) === 'accept', 'tab should accept autocomplete');
+  assert(resolveKeyAction('autocomplete', { type: 'enter' }) === '', 'enter should submit instead of accepting autocomplete');
   assert(resolveKeyAction('autocomplete', { type: 'shift_tab' }) === 'prev', 'shift-tab should move autocomplete backward');
   assert(resolveKeyAction('selector', { type: 'text', text: '\t' }) === 'switchView', 'tab should switch selector view');
   assert(resolveKeyAction('selector', { type: 'backspace' }) === 'filterBackspace', 'backspace should filter selector');

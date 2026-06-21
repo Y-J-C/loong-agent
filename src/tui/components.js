@@ -524,9 +524,15 @@ class InputEditorComponent {
     const input = sanitize(state.inputBuffer || '');
     const sourceLines = String(input).split('\n');
     const pasteCount = state.pasteCount || 0;
+    const lastPasteLines = state.lastPasteLines || 0;
+    const lastPasteChars = state.lastPasteChars || 0;
     const lines = [];
 
-    if (pasteCount > 0) {
+    if (lastPasteLines > 0 || lastPasteChars > 0) {
+      const lineText = lastPasteLines === 1 ? '1 line' : `${lastPasteLines} lines`;
+      const charText = lastPasteChars === 1 ? '1 char' : `${lastPasteChars} chars`;
+      lines.push(paint(theme, 'system', fitLine(`[paste ${lineText}, ${charText}]`, width)));
+    } else if (pasteCount > 0) {
       const pasteText = pasteCount === 1 ? '[paste]' : `[paste #${pasteCount}]`;
       lines.push(paint(theme, 'system', fitLine(pasteText, width)));
     }

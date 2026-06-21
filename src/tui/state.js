@@ -63,6 +63,11 @@ function createTuiState(config) {
     modelSelector: null,
     // 输入增强
     pasteCount: 0,
+    pasteActive: false,
+    pasteBuffer: '',
+    lastPasteLines: 0,
+    lastPasteChars: 0,
+    lastPasteAt: 0,
     undoStack: [],
     redoStack: [],
     undoDepth: 50,

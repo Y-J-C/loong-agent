@@ -285,6 +285,21 @@ test('P6 facts distinguish runtime availability, package candidates, missing, an
   );
 });
 
+test('P6 includes phase5 RPC failure knowledge with source boundary', () => {
+  const riskFacts = readJsonWorkspaceFile('kb/facts/risks.json');
+  const localFailure = riskFacts.find((fact) => fact.id === 'risk.rpc.local_spawn_eperm');
+  const boardPass = riskFacts.find((fact) => fact.id === 'risk.rpc.board_passes_after_cleanup_fix');
+  assert(localFailure, 'missing phase5 local RPC spawn EPERM fact');
+  assert(boardPass, 'missing phase5 board RPC pass fact');
+  assert(/spawn EPERM/.test(String(localFailure.value)), 'local RPC fact must mention spawn EPERM');
+  assert(/six RPC cases passed/.test(String(boardPass.value)), 'board RPC fact must mention six passed cases');
+  assert(localFailure.unknowns.some((item) => /sandbox/.test(String(item))), 'local RPC fact must preserve sandbox unknown');
+  [localFailure, boardPass].forEach((fact) => {
+    assert(fact.sourcePaths.indexOf('kb/playbooks/rpc-spawn-eperm.md') >= 0, `RPC fact missing playbook source: ${fact.id}`);
+    assert(fact.rawEvidence.some((item) => item.indexOf('kb/raw/phase5/') === 0), `RPC fact missing phase5 raw evidence: ${fact.id}`);
+  });
+});
+
 test('P6 fact verification uses current normative ids', () => {
   const peripheralFacts = readJsonWorkspaceFile('kb/facts/peripherals.json');
   const riskFacts = readJsonWorkspaceFile('kb/facts/risks.json');
@@ -316,6 +331,8 @@ test('P6 evidence map links conclusions to topics, preview docs, raw evidence, a
     '/boot/efi',
     'Alternate GPT',
     'raw/stage3/raw_stage3_evidence_combined.txt',
+    'spawn EPERM',
+    'phase5-board-test-rpc.out',
   ].forEach((needle) => {
     assert(text.indexOf(needle) >= 0, `evidence map missing: ${needle}`);
   });
@@ -357,6 +374,7 @@ test('P6 troubleshooting playbooks cover required issues with fixed structure an
     'no codecs found': 'kb/playbooks/audio.md',
     CRTC: 'kb/playbooks/display.md',
     'GPIO/I2C/SPI/UART': 'kb/playbooks/gpio-i2c-spi-uart.md',
+    'spawn EPERM': 'kb/playbooks/rpc-spawn-eperm.md',
   };
   const sections = ['## 结论', '## 当前状态', '## 历史证据', '## 风险', '## 禁止操作', '## 允许的只读排查', '## 待确认', '## 证据路径'];
   Object.keys(playbooks).forEach((label) => {
@@ -370,6 +388,28 @@ test('P6 troubleshooting playbooks cover required issues with fixed structure an
     assert(/只读|read-only/i.test(text), `playbook ${label} must state read-only diagnostics`);
     assert(/禁止操作/.test(text), `playbook ${label} must state forbidden operations`);
   });
+});
+
+test('P6 RPC playbook is indexed and searchable with evidence paths', () => {
+  const entries = readKnowledgeIndex(config());
+  const entry = entries.find((item) => item.id === 'playbook.rpc_spawn_eperm');
+  assert(entry, 'missing RPC playbook index entry');
+  assert(entry.kind === 'playbook', 'RPC playbook index entry must be kind=playbook');
+  assert(entry.defaultSearch === true, 'RPC playbook must be default searchable');
+  const results = searchKnowledge(config(), 'spawn EPERM board RPC six cases passed phase5', { limit: 10 });
+  const match = results.find((item) => item.path === 'kb/playbooks/rpc-spawn-eperm.md');
+  assert(match, 'kb_search did not return RPC spawn EPERM playbook');
+  assert(match.evidence && match.evidence.path === 'kb/playbooks/rpc-spawn-eperm.md', 'RPC search match missing evidence path');
+});
+
+test('P6 phase5 raw evidence files are indexed but excluded unless evidence is requested', () => {
+  const entries = readKnowledgeIndex(config());
+  assert(entries.some((item) => item.id === 'raw.phase5.board_test_rpc' && item.kind === 'raw'), 'missing phase5 board raw index entry');
+  assert(entries.some((item) => item.id === 'raw.phase5.local_test_rpc_error' && item.kind === 'raw'), 'missing phase5 local raw index entry');
+  const defaultResults = searchKnowledge(config(), 'phase5-board-test-rpc.out', { limit: 10 });
+  assert(defaultResults.every((item) => item.kind !== 'raw'), 'phase5 raw evidence should be excluded by default');
+  const rawResults = searchKnowledge(config(), 'phase5-board-test-rpc.out evidence', { limit: 10 });
+  assert(rawResults.some((item) => item.id === 'raw.phase5.board_test_rpc'), 'phase5 board raw evidence should be searchable when evidence is requested');
 });
 
 test('P6 maintenance guide preserves evidence, unknowns, preview archive, and board read-only rules', () => {

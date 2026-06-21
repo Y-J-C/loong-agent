@@ -212,8 +212,9 @@ test('rpc prompt emits JSONL agent events and status', async () => {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(finishResponse('rpc ok')));
   });
-  const rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-prompt'), false));
+  let rpc = null;
   try {
+    rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-prompt'), false));
     const ready = await rpc.waitFor((event) => event.type === 'rpc_ready');
     assert(ready.protocolVersion === 1, 'rpc_ready missing protocol version');
     rpc.send({ id: 'prompt-1', type: 'prompt', input: { text: 'hello' } });
@@ -226,7 +227,7 @@ test('rpc prompt emits JSONL agent events and status', async () => {
     assert(status.running === false, 'status should be idle after run');
     assert(status.session && status.session.id, 'status missing session');
   } finally {
-    await rpc.close();
+    if (rpc) await rpc.close();
     await closeServer(mock);
   }
 });
@@ -237,8 +238,9 @@ test('rpc rejects concurrent prompt while running', async () => {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(finishResponse('slow ok')));
   });
-  const rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-busy'), false));
+  let rpc = null;
   try {
+    rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-busy'), false));
     await rpc.waitFor((event) => event.type === 'rpc_ready');
     rpc.send({ id: 'first', type: 'prompt', input: { text: 'first' } });
     await rpc.waitFor((event) => event.type === 'rpc_ack' && event.requestId === 'first');
@@ -247,7 +249,7 @@ test('rpc rejects concurrent prompt while running', async () => {
     assert(busy.code === 'agent_busy', `unexpected busy code: ${busy.code}`);
     await rpc.waitFor((event) => event.type === 'agent_end' && event.rpcRequestId === 'first');
   } finally {
-    await rpc.close();
+    if (rpc) await rpc.close();
     await closeServer(mock);
   }
 });
@@ -267,8 +269,9 @@ test('rpc steer and followUp are consumed during a run', async () => {
   });
   const workspace = tempWorkspace('loong-agent-rpc-queues');
   fs.writeFileSync(path.join(workspace, 'a.txt'), 'x', 'utf8');
-  const rpc = createRpcProcess(envFor(mock.baseUrl, workspace, false));
+  let rpc = null;
   try {
+    rpc = createRpcProcess(envFor(mock.baseUrl, workspace, false));
     await rpc.waitFor((event) => event.type === 'rpc_ready');
     rpc.send({ id: 'queued', type: 'prompt', input: { text: 'start' } });
     await rpc.waitFor((event) => event.type === 'rpc_ack' && event.requestId === 'queued');
@@ -280,7 +283,7 @@ test('rpc steer and followUp are consumed during a run', async () => {
     assert(end.summary === 'followed up', `unexpected follow-up summary: ${end.summary}`);
     assert(rpc.events.some((event) => event.type === 'message_end' && event.role === 'user' && event.content === 'use the inspected files'), 'steer message was not emitted');
   } finally {
-    await rpc.close();
+    if (rpc) await rpc.close();
     await closeServer(mock);
   }
 });
@@ -298,8 +301,9 @@ test('rpc abort interrupts non-streaming provider request', async () => {
       }
     }, 3000);
   });
-  const rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-abort-nonstream'), false));
+  let rpc = null;
   try {
+    rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-abort-nonstream'), false));
     await rpc.waitFor((event) => event.type === 'rpc_ready');
     rpc.send({ id: 'abortable', type: 'prompt', input: { text: 'abort me' } });
     await rpc.waitFor((event) => event.type === 'rpc_ack' && event.requestId === 'abortable');
@@ -310,7 +314,7 @@ test('rpc abort interrupts non-streaming provider request', async () => {
     await delay(100);
     assert(requestClosed === true, 'non-streaming request was not closed');
   } finally {
-    await rpc.close();
+    if (rpc) await rpc.close();
     await closeServer(mock);
   }
 });
@@ -327,8 +331,9 @@ test('rpc abort interrupts idle streaming provider request', async () => {
       connection: 'keep-alive',
     });
   });
-  const rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-abort-stream'), true));
+  let rpc = null;
   try {
+    rpc = createRpcProcess(envFor(mock.baseUrl, tempWorkspace('loong-agent-rpc-abort-stream'), true));
     await rpc.waitFor((event) => event.type === 'rpc_ready');
     rpc.send({ id: 'stream-abortable', type: 'prompt', input: { text: 'abort stream' } });
     await rpc.waitFor((event) => event.type === 'rpc_ack' && event.requestId === 'stream-abortable');
@@ -339,7 +344,7 @@ test('rpc abort interrupts idle streaming provider request', async () => {
     await delay(100);
     assert(requestClosed === true, 'streaming request was not closed');
   } finally {
-    await rpc.close();
+    if (rpc) await rpc.close();
     await closeServer(mock);
   }
 });
@@ -349,20 +354,21 @@ test('sdk drives rpc child process and exposes events', async () => {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(finishResponse('sdk ok')));
   });
-  const agent = createLoongAgent({
-    cwd: path.resolve(__dirname, '..'),
-    env: envFor(mock.baseUrl, tempWorkspace('loong-agent-sdk'), false),
-  });
+  let agent = null;
   const events = [];
-  agent.subscribe((event) => events.push(event));
   try {
+    agent = createLoongAgent({
+      cwd: path.resolve(__dirname, '..'),
+      env: envFor(mock.baseUrl, tempWorkspace('loong-agent-sdk'), false),
+    });
+    agent.subscribe((event) => events.push(event));
     const statusBefore = await agent.status();
     assert(statusBefore.type === 'rpc_status', 'sdk status did not resolve');
     const end = await agent.prompt('sdk prompt');
     assert(end.summary === 'sdk ok', 'sdk prompt summary mismatch');
     assert(events.some((event) => event.type === 'agent_start'), 'sdk did not emit agent events');
   } finally {
-    await agent.close();
+    if (agent) await agent.close();
     await closeServer(mock);
   }
 });

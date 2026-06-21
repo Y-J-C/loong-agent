@@ -7,6 +7,12 @@ function chars(text) {
 function setInput(state, text) {
   state.inputBuffer = String(text || '');
   state.cursor = chars(state.inputBuffer).length;
+  state.pasteCount = 0;
+  state.pasteActive = false;
+  state.pasteBuffer = '';
+  state.lastPasteLines = 0;
+  state.lastPasteChars = 0;
+  state.lastPasteAt = 0;
 }
 
 function insertText(state, text) {
@@ -136,6 +142,131 @@ function parseKey(buffer) {
   return { type: 'text', text };
 }
 
+const BRACKETED_PASTE_START = '\x1b[200~';
+const BRACKETED_PASTE_END = '\x1b[201~';
+const KNOWN_KEY_SEQUENCES = [
+  '\x1b[27;5;13~',
+  '\x1b[27;5;10~',
+  '\x1b[127;5u',
+  '\x1b[79;6u',
+  '\x1b[111;6u',
+  '\x1b[13;5u',
+  '\x1b[10;5u',
+  '\x1b[15;6u',
+  '\x1b[1;5D',
+  '\x1b[1;5C',
+  '\x1b[3;5~',
+  '\x1b\r',
+  '\x1b\n',
+  '\x1b[Z',
+  '\x1b[D',
+  '\x1b[C',
+  '\x1b[A',
+  '\x1b[B',
+  '\x1b[H',
+  '\x1b[1~',
+  '\x1b[F',
+  '\x1b[4~',
+  '\x1b[5~',
+  '\x1b[6~',
+  '\x1b',
+].sort((a, b) => b.length - a.length);
+const CONTROL_CHARS = new Set([
+  '\r', '\n', '\x03', '\x04', '\x01', '\x05', '\x0b', '\x0c',
+  '\x0e', '\x0f', '\x10', '\x14', '\x15', '\x17', '\x19',
+  '\x1a', '\x7f', '\b', '\t',
+]);
+
+function normalizePasteText(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function pasteStats(text) {
+  const value = normalizePasteText(text);
+  return {
+    text: value,
+    chars: chars(value).length,
+    lines: value ? value.split('\n').length : 0,
+  };
+}
+
+function parseInputBuffer(state, buffer) {
+  const keys = [];
+  let text = buffer.toString('utf8');
+
+  function pushNormal(segment) {
+    if (!segment) return;
+    let index = 0;
+    let literal = '';
+    function flushLiteral() {
+      if (!literal) return;
+      keys.push({ type: 'text', text: literal });
+      literal = '';
+    }
+    while (index < segment.length) {
+      const rest = segment.slice(index);
+      const escape = KNOWN_KEY_SEQUENCES.find((sequence) => rest.startsWith(sequence));
+      if (escape) {
+        flushLiteral();
+        keys.push(parseKey(Buffer.from(escape, 'utf8')));
+        index += escape.length;
+        continue;
+      }
+      const ch = segment[index];
+      if (CONTROL_CHARS.has(ch)) {
+        flushLiteral();
+        keys.push(parseKey(Buffer.from(ch, 'utf8')));
+        index += 1;
+        continue;
+      }
+      literal += ch;
+      index += 1;
+    }
+    flushLiteral();
+  }
+
+  while (text) {
+    if (state && state.pasteActive) {
+      const end = text.indexOf(BRACKETED_PASTE_END);
+      if (end < 0) {
+        state.pasteBuffer = `${state.pasteBuffer || ''}${text}`;
+        text = '';
+        continue;
+      }
+      state.pasteBuffer = `${state.pasteBuffer || ''}${text.slice(0, end)}`;
+      const stats = pasteStats(state.pasteBuffer);
+      if (stats.text) {
+        keys.push({
+          type: 'text',
+          text: stats.text,
+          paste: true,
+          pasteLines: stats.lines,
+          pasteChars: stats.chars,
+        });
+      }
+      state.pasteActive = false;
+      state.pasteBuffer = '';
+      text = text.slice(end + BRACKETED_PASTE_END.length);
+      continue;
+    }
+
+    const start = text.indexOf(BRACKETED_PASTE_START);
+    if (start < 0) {
+      pushNormal(text);
+      text = '';
+      continue;
+    }
+    if (start > 0) pushNormal(text.slice(0, start));
+    if (state) {
+      state.pasteActive = true;
+      state.pasteBuffer = '';
+    }
+    text = text.slice(start + BRACKETED_PASTE_START.length);
+  }
+
+  return keys;
+}
+
 // --- Undo/Redo ---
 
 function pushUndo(state) {
@@ -183,7 +314,12 @@ function applyKey(state, key) {
   if (key.type === 'text') {
     pushUndo(state);
     insertText(state, key.text);
-    if (key.text.length > 3) {
+    if (key.paste) {
+      state.lastPasteLines = key.pasteLines || pasteStats(key.text).lines;
+      state.lastPasteChars = key.pasteChars || pasteStats(key.text).chars;
+      state.lastPasteAt = Date.now();
+      state.pasteCount = state.lastPasteLines || 1;
+    } else if (key.text.length > 3) {
       state.pasteCount += 1;
     } else {
       state.pasteCount = 0;
@@ -233,6 +369,7 @@ module.exports = {
   insertText,
   moveWordLeft,
   moveWordRight,
+  parseInputBuffer,
   parseKey,
   pushHistory,
   setInput,

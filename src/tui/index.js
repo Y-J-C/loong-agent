@@ -5,7 +5,7 @@ const { loadConfig } = require('../config');
 const { createBoardStatusSnapshot } = require('./board-status');
 const { handleCommand } = require('./commands');
 const { handleAgentEvent } = require('./event-adapter');
-const { parseKey, pushHistory, setInput } = require('./input');
+const { parseInputBuffer, pushHistory, setInput } = require('./input');
 const { renderTui } = require('./renderer');
 const { ANSI, terminalSize } = require('./screen');
 const { addMessage, clearMessages, createTuiState, updateAutocomplete } = require('./state');
@@ -16,6 +16,8 @@ const { matchesAction } = require('./keybindings');
 
 const ENABLE_MODIFIED_KEYS = '\x1b[>4;2m';
 const DISABLE_MODIFIED_KEYS = '\x1b[>4;0m';
+const ENABLE_BRACKETED_PASTE = '\x1b[?2004h';
+const DISABLE_BRACKETED_PASTE = '\x1b[?2004l';
 
 async function runTui(config, options) {
   options = options || {};
@@ -170,7 +172,7 @@ async function runTui(config, options) {
     output.removeListener('resize', render);
     if (input.setRawMode) input.setRawMode(false);
     input.pause();
-    output.write(`${DISABLE_MODIFIED_KEYS}${ANSI.showCursor}${ANSI.reset}\n`);
+    output.write(`${DISABLE_BRACKETED_PASTE}${DISABLE_MODIFIED_KEYS}${ANSI.showCursor}${ANSI.reset}\n`);
   }
 
   async function executeSessionAction(action, selected) {
@@ -275,8 +277,7 @@ async function runTui(config, options) {
     state.mode = 'idle';
   }
 
-  async function onData(buffer) {
-    const key = parseKey(buffer);
+  async function handleParsedKey(key, buffer) {
     // 记录原始按键序列
     state.recentKeys.push({
       raw: Array.from(buffer).map((b) => `\\x${b.toString(16).padStart(2, '0')}`).join(''),
@@ -353,10 +354,18 @@ async function runTui(config, options) {
     render();
   }
 
+  async function onData(buffer) {
+    const keys = parseInputBuffer(state, buffer);
+    for (const key of keys) {
+      await handleParsedKey(key, buffer);
+      if (stopped) break;
+    }
+  }
+
   subscribe(agentSession);
   input.setRawMode(true);
   input.resume();
-  output.write(ENABLE_MODIFIED_KEYS);
+  output.write(`${ENABLE_MODIFIED_KEYS}${ENABLE_BRACKETED_PASTE}`);
   input.on('data', onData);
   output.on('resize', render);
   render();

@@ -306,7 +306,9 @@ async function dispatchSlashCommand(context, parsed) {
   const command = findSlashCommand(parsed.name);
   if (!command) {
     const suggestions = suggestSlashCommands(parsed.name);
-    const hint = suggestions.length ? `\n相近命令: ${suggestions.join(', ')}` : '\n运行 /help 查看可用命令。';
+    const hint = suggestions.length
+      ? `\n相近命令: ${suggestions.join(', ')}\n按 Tab 补全，或运行 /help 查看可用命令。`
+      : '\n按 Tab 补全，或运行 /help 查看可用命令。';
     addMessage(state, { type: 'error', text: `Unknown command: /${parsed.name}${hint}` });
     return;
   }
@@ -830,7 +832,7 @@ async function runSlashCommandLegacy(context, text) {
     return;
   }
 
-  addMessage(state, { type: 'error', text: `Unknown command: ${name}` });
+  addMessage(state, { type: 'error', text: `Unknown command: ${name}\n按 Tab 补全，或运行 /help 查看可用命令。` });
 }
 
 async function runBangCommand(context, text) {

@@ -78,6 +78,16 @@ test('slash commands render help health project and sessions', async () => {
   assert(text.indexOf('项目结构摘要') >= 0 || text.indexOf('provider') >= 0, 'missing project map');
 });
 
+test('unknown slash command suggests tab completion', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/se');
+  const text = context.state.messages.map((message) => message.text).join('\n');
+  assert(text.indexOf('Unknown command: /se') >= 0, 'missing unknown command message');
+  assert(text.indexOf('Tab') >= 0, 'missing tab completion hint');
+  assert(text.indexOf('/help') >= 0, 'missing help hint');
+});
+
 test('tree lineage fork export and session commands work', async () => {
   const workspace = tempWorkspace();
   await runAgent(config(workspace), 'base');

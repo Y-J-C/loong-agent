@@ -53,5 +53,27 @@
     "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/unknowns.md"],
     "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
     "unknowns": ["Official pinout, voltage, and wiring constraints remain pending."]
+  },
+  {
+    "id": "risk.rpc.local_spawn_eperm",
+    "value": "Local Codex sandbox execution of node scripts/test-rpc.js fails with spawn EPERM; after the test cleanup fix it fails fast instead of hanging",
+    "status": "observed",
+    "confidence": "high",
+    "last_updated": "2026-06-21",
+    "sourceTopics": ["troubleshooting", "source_index", "unknowns"],
+    "sourcePaths": ["kb/playbooks/rpc-spawn-eperm.md", "kb/evidence_map.md", "kb/source_index.md", "kb/unknowns.md"],
+    "rawEvidence": ["kb/raw/phase5/phase5-local-test-rpc.err", "kb/raw/phase5/phase5-diagnosis-summary.md"],
+    "unknowns": ["Whether the local Codex sandbox spawn restriction can be relaxed is pending confirmation."]
+  },
+  {
+    "id": "risk.rpc.board_passes_after_cleanup_fix",
+    "value": "On the Loong Pi board, node scripts/test-rpc.js six RPC cases passed after the scripts/test-rpc.js cleanup-boundary fix was synchronized",
+    "status": "verified_on_board",
+    "confidence": "high",
+    "last_updated": "2026-06-21",
+    "sourceTopics": ["troubleshooting", "source_index"],
+    "sourcePaths": ["kb/playbooks/rpc-spawn-eperm.md", "kb/evidence_map.md", "kb/source_index.md"],
+    "rawEvidence": ["kb/raw/phase5/phase5-board-test-rpc.out", "kb/raw/phase5/phase5-diagnosis-summary.md"],
+    "unknowns": ["If the user asks about current board status after environment changes, rerun node scripts/test-rpc.js on the board."]
   }
 ]

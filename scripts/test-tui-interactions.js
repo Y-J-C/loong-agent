@@ -62,6 +62,27 @@ test('autocomplete controller accepts tab and clears list', async () => {
   assert(state.inputBuffer !== '/se', 'autocomplete did not change the input');
 });
 
+test('autocomplete enter falls through to input submit', async () => {
+  const state = createTuiState({});
+  setInput(state, '/help');
+  updateAutocomplete(state);
+  assert(state.autoItems.length > 0, 'missing autocomplete items');
+  let submitted = '';
+  await handleFocusedKey(state, { type: 'enter' }, {
+    submit: async (text) => { submitted = text; },
+  });
+  assert(submitted === '/help', `autocomplete enter did not submit input: ${submitted}`);
+});
+
+test('autocomplete controller does not accept enter', async () => {
+  const state = createTuiState({});
+  setInput(state, '/se');
+  updateAutocomplete(state);
+  const handled = handleAutocompleteKey(state, { type: 'enter' });
+  assert(handled === false, 'autocomplete enter should not be handled as accept');
+  assert(state.inputBuffer === '/se', 'autocomplete enter should not mutate input');
+});
+
 test('autocomplete component accepts tab and clears list', async () => {
   const state = createTuiState({});
   setInput(state, '/se');

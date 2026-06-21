@@ -297,6 +297,15 @@
     "defaultSearch": true
   },
   {
+    "id": "playbook.rpc_spawn_eperm",
+    "kind": "playbook",
+    "path": "kb/playbooks/rpc-spawn-eperm.md",
+    "title": "RPC spawn EPERM 与板端 RPC 通过",
+    "stage": "phase5",
+    "sourceType": "summary",
+    "defaultSearch": true
+  },
+  {
     "id": "preview.readme",
     "kind": "preview_doc",
     "path": "kb/loongson-2k1000-board-kb-preview/README.md",
@@ -554,6 +563,33 @@
     "path": "kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt",
     "title": "stage3 evidence combined raw",
     "stage": "stage3",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "raw.phase5.board_test_rpc",
+    "kind": "raw",
+    "path": "kb/raw/phase5/phase5-board-test-rpc.out",
+    "title": "phase5 board test-rpc raw output",
+    "stage": "phase5",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "raw.phase5.local_test_rpc_error",
+    "kind": "raw",
+    "path": "kb/raw/phase5/phase5-local-test-rpc.err",
+    "title": "phase5 local test-rpc spawn EPERM raw error",
+    "stage": "phase5",
+    "sourceType": "raw",
+    "defaultSearch": false
+  },
+  {
+    "id": "raw.phase5.diagnosis_summary",
+    "kind": "raw",
+    "path": "kb/raw/phase5/phase5-diagnosis-summary.md",
+    "title": "phase5 RPC diagnosis summary",
+    "stage": "phase5",
     "sourceType": "raw",
     "defaultSearch": false
   }

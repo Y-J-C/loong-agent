@@ -29,6 +29,14 @@ Raw evidence is staged by phase:
 - `raw/stage1/`: environment, dmesg, apt policy, pip status, network/software/peripheral notes, systemd failed details.
 - `raw/stage2/`: hardware, system, storage, network, and peripheral read-only collection.
 - `raw/stage3/`: software stack and package-management evidence.
+- `kb/raw/phase5/`: RPC failure diagnosis evidence copied from the phase 5 validation artifacts.
+
+Phase 5 RPC diagnosis sources:
+
+- `kb/raw/phase5/phase5-local-test-rpc.err`: local Codex sandbox `spawn EPERM` failure sample.
+- `kb/raw/phase5/phase5-board-test-rpc.out`: board-side `node scripts/test-rpc.js` output with six PASS cases.
+- `kb/raw/phase5/phase5-diagnosis-summary.md`: summarized failure pattern, fix record, board result, and pending local sandbox question.
+- `kb/playbooks/rpc-spawn-eperm.md`: reusable playbook for distinguishing local sandbox failure from board RPC status.
 
 External links listed in the preview `source_index.md` are auxiliary context only. The strongest evidence for the current board is the local raw command output and staged Markdown summaries.
 
@@ -42,3 +50,4 @@ Integrity:
 - External official documentation for exact commercial board naming remains pending.
 - Official recovery image and backup documentation remain pending.
 - External package repository state can change and must be rechecked before install planning.
+- Whether the local Codex sandbox `spawn EPERM` restriction can be relaxed remains pending.

@@ -102,8 +102,11 @@ P6 将排查内容拆成 `kb/playbooks/*.md`：
 - `audio.md`
 - `display.md`
 - `gpio-i2c-spi-uart.md`
+- `rpc-spawn-eperm.md`
 
 完整路径示例：`kb/playbooks/eth1.md`、`kb/playbooks/npm.md`、`kb/playbooks/gpp.md`。
+
+阶段 5 RPC 失败诊断样例沉淀在 `kb/playbooks/rpc-spawn-eperm.md` 和 `kb/raw/phase5/`。它用于说明本地 Codex 沙箱 `spawn EPERM` 与板端 RPC 六个用例通过之间的证据边界。
 
 每个 playbook 固定包含：
 

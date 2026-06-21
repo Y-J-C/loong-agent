@@ -1,0 +1,48 @@
+FAIL rpc prompt emits JSONL agent events and status
+  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at Object.spawn (node:child_process:796:9)
+    at createRpcProcess (E:\Projects\loong-pi-agent\scripts\test-rpc.js:80:30)
+    at Object.fn (E:\Projects\loong-pi-agent\scripts\test-rpc.js:217:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async main (E:\Projects\loong-pi-agent\scripts\test-rpc.js:381:7)
+FAIL rpc rejects concurrent prompt while running
+  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at Object.spawn (node:child_process:796:9)
+    at createRpcProcess (E:\Projects\loong-pi-agent\scripts\test-rpc.js:80:30)
+    at Object.fn (E:\Projects\loong-pi-agent\scripts\test-rpc.js:243:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async main (E:\Projects\loong-pi-agent\scripts\test-rpc.js:381:7)
+FAIL rpc steer and followUp are consumed during a run
+  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at Object.spawn (node:child_process:796:9)
+    at createRpcProcess (E:\Projects\loong-pi-agent\scripts\test-rpc.js:80:30)
+    at Object.fn (E:\Projects\loong-pi-agent\scripts\test-rpc.js:274:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async main (E:\Projects\loong-pi-agent\scripts\test-rpc.js:381:7)
+FAIL rpc abort interrupts non-streaming provider request
+  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at Object.spawn (node:child_process:796:9)
+    at createRpcProcess (E:\Projects\loong-pi-agent\scripts\test-rpc.js:80:30)
+    at Object.fn (E:\Projects\loong-pi-agent\scripts\test-rpc.js:306:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async main (E:\Projects\loong-pi-agent\scripts\test-rpc.js:381:7)
+FAIL rpc abort interrupts idle streaming provider request
+  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at Object.spawn (node:child_process:796:9)
+    at createRpcProcess (E:\Projects\loong-pi-agent\scripts\test-rpc.js:80:30)
+    at Object.fn (E:\Projects\loong-pi-agent\scripts\test-rpc.js:336:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async main (E:\Projects\loong-pi-agent\scripts\test-rpc.js:381:7)
+FAIL sdk drives rpc child process and exposes events
+  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at Object.spawn (node:child_process:796:9)
+    at createLoongAgent (E:\Projects\loong-pi-agent\src\sdk.js:23:30)
+    at Object.fn (E:\Projects\loong-pi-agent\scripts\test-rpc.js:360:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async main (E:\Projects\loong-pi-agent\scripts\test-rpc.js:381:7)
