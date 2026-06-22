@@ -56,7 +56,9 @@ test('autocomplete selector tree and panel actions resolve', () => {
   assert(resolveKeyAction('tree', { type: 'enter' }) === 'toggleFold', 'tree enter should fold');
   assert(resolveKeyAction('tree', { type: 'text', text: ' ' }) === 'toggleFold', 'tree space should fold');
   assert(resolveKeyAction('tree', { type: 'right' }) === 'expandOrActions', 'tree right should expand or open actions');
-  assert(resolveKeyAction('tree', { type: 'text', text: 'a' }) === 'openActions', 'tree a should open actions');
+  assert(resolveKeyAction('tree', { type: 'text', text: 'a' }) === 'audit', 'tree a should audit');
+  assert(resolveKeyAction('tree', { type: 'text', text: 'l' }) === 'lineage', 'tree l should show lineage');
+  assert(resolveKeyAction('tree', { type: 'text', text: 'o' }) === 'openActions', 'tree o should open actions');
   assert(resolveKeyAction('panel', { type: 'right' }) === 'cycleRight', 'panel right should cycle');
   assert(resolveKeyAction('panel', { type: 'enter' }) === 'confirm', 'panel enter should confirm');
 });

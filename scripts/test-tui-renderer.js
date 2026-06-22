@@ -637,15 +637,45 @@ test('renderer shows deep session tree semantics', () => {
   };
   const plain = stripAnsi(renderTui(state, { columns: 120, rows: 24 }));
   assert(plain.indexOf('Session tree') >= 0, 'tree title missing');
-  assert(plain.indexOf('▾ root-session') >= 0, 'expanded root glyph missing');
-  assert(plain.indexOf('• child-session') >= 0, 'leaf glyph missing');
+  assert(plain.indexOf('root-session') >= 0, 'root session missing');
+  assert(plain.indexOf('child-session') >= 0, 'child session missing');
   assert(plain.indexOf('[path]') >= 0, 'active path tag missing');
   assert(plain.indexOf('[active]') >= 0, 'active node tag missing');
   assert(plain.indexOf('[branch]') >= 0, 'branch tag missing');
   assert(plain.indexOf('[name]') >= 0, 'name tag missing');
-  assert(plain.indexOf('[error]') >= 0, 'error tag missing');
+  assert(plain.indexOf('[errors:1]') >= 0, 'error count tag missing');
   assert(plain.indexOf('[tools:5]') >= 0, 'tool-heavy tag missing');
   assert(plain.indexOf('fork@entry-fork') >= 0, 'fork entry summary missing');
+});
+
+test('renderer shows resume prompt mode and keeps narrow lines bounded', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.mode = 'session_selector';
+  state.selector = {
+    view: 'recent',
+    subMode: 'resume_prompt',
+    selectedItem: {
+      id: 'session-with-a-very-long-id-for-resume-preview',
+      command: 'tui',
+      sessionName: 'Resume target',
+      branchName: 'feature/session-ui',
+      entryCount: 42,
+      toolCount: 8,
+      errorCount: 1,
+      latestEntryId: 'entry-1234567890',
+    },
+    resumePrompt: 'continue phase eleven session recovery flow',
+    resumePromptError: 'Enter a follow-up prompt before resuming.',
+    items: [],
+  };
+  const output = renderTui(state, { columns: 42, rows: 12 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('Resume from:') >= 0, 'resume prompt title missing');
+  assert(plain.indexOf('Prompt:') >= 0, 'resume prompt input missing');
+  assert(plain.indexOf('Enter a follow-up prompt') >= 0, 'resume prompt inline error missing');
+  for (const line of output.split('\n')) {
+    assert(visibleWidth(line) <= 42, `resume prompt line exceeds width: ${stripAnsi(line)}`);
+  }
 });
 
 test('renderer hides collapsed tree children and keeps narrow lines bounded', () => {

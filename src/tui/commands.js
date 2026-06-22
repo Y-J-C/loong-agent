@@ -124,6 +124,68 @@ function currentSessionWriter(state) {
   return openJsonlSession(state.currentSession.path, state.currentSession.id);
 }
 
+function latestEntryId(events) {
+  const items = events || [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index].entryId) return items[index].entryId;
+  }
+  return '';
+}
+
+function recentSessionName(events, header) {
+  const items = events || [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const event = items[index];
+    if (event.type === 'session_name' && event.name) return event.name;
+  }
+  return header.name || header.sessionName || '';
+}
+
+function countSessionErrors(events) {
+  return (events || []).filter((event) => (
+    event.type === 'invalid_json' ||
+    event.isError ||
+    event.error ||
+    (event.type === 'agent_end' && event.status && event.status !== 'ok')
+  )).length;
+}
+
+function countSessionTools(events) {
+  return (events || []).filter((event) => event.type === 'tool_execution_end').length;
+}
+
+function enrichRecentSession(manager, state, item) {
+  let session = null;
+  try {
+    session = manager.read(item.id);
+  } catch (error) {
+    session = null;
+  }
+  const events = session && session.events ? session.events : [];
+  const header = events.find((event) => event.type === 'session') || {};
+  const current = state && state.currentSession ? state.currentSession : null;
+  const currentPath = current && current.path ? path.resolve(current.path) : '';
+  const itemPath = item.path || (session && session.path) || '';
+  const isCurrent = Boolean(
+    current && current.id && current.id === item.id ||
+    currentPath && itemPath && currentPath === path.resolve(itemPath)
+  );
+  return Object.assign({ depth: 0 }, item, {
+    path: itemPath,
+    command: item.command || header.command || 'session',
+    branchName: item.branchName || header.branchName || '',
+    parentSession: item.parentSession || header.parentSession || '',
+    rootSessionId: item.rootSessionId || header.rootSessionId || header.sessionId || item.id,
+    forkedFromEntryId: item.forkedFromEntryId || header.forkedFromEntryId || '',
+    sessionName: recentSessionName(events, header),
+    entryCount: events.length,
+    toolCount: countSessionTools(events),
+    errorCount: countSessionErrors(events),
+    latestEntryId: latestEntryId(events),
+    isCurrent,
+  });
+}
+
 function openSessionSelector(state, manager, view) {
   state.mode = 'session_selector';
   if (view === 'tree') {
@@ -132,7 +194,7 @@ function openSessionSelector(state, manager, view) {
   }
   state.selector = {
     view: view || 'recent',
-    items: manager.list({ limit: 50 }).map((item) => Object.assign({ depth: 0 }, item)),
+    items: manager.list({ limit: 50 }).map((item) => enrichRecentSession(manager, state, item)),
     query: '',
     selectedIndex: 0,
     treeFilterMode: '',

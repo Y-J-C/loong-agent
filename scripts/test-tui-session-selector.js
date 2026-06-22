@@ -47,6 +47,12 @@ async function main() {
   await handleCommand(context, '/sessions');
   assert(state.mode === 'session_selector', 'sessions did not open selector');
   assert(state.selector.items.length > 0, 'selector has no items');
+  assert(state.selector.items[0].entryCount !== undefined, 'recent selector missing entry count');
+  assert(state.selector.items[0].toolCount !== undefined, 'recent selector missing tool count');
+  assert(state.selector.items[0].errorCount !== undefined, 'recent selector missing error count');
+  const preview = renderTui(state, { columns: 100, rows: 30 });
+  assert(preview.indexOf('selected:') >= 0, 'selector preview missing selected session');
+  assert(preview.indexOf('actions: r resume') >= 0, 'selector preview missing action hints');
   state.selector.query = 'first-no-match';
   const filtered = renderTui(state, { columns: 100, rows: 30 });
   assert(filtered.indexOf('Session selector') >= 0, 'selector did not render');

@@ -229,6 +229,34 @@ function filterRecentSelectorItems(items, selector) {
   });
 }
 
+function compactSessionMeta(item) {
+  const parts = [];
+  if (item.sessionName || item.name) parts.push(`name="${item.sessionName || item.name}"`);
+  if (item.branchName) parts.push(`branch=${item.branchName}`);
+  if (item.command) parts.push(`cmd=${item.command}`);
+  if (item.entryCount !== undefined) parts.push(`entries=${item.entryCount}`);
+  if (item.toolCount !== undefined) parts.push(`tools=${item.toolCount || 0}`);
+  if (item.errorCount !== undefined) parts.push(`errors=${item.errorCount || 0}`);
+  if (item.modifiedAt) parts.push(`modified=${String(item.modifiedAt).slice(0, 19)}`);
+  return parts.join('  ');
+}
+
+function sessionActionHintText() {
+  return 'actions: r resume  s trace  a audit  e export  l lineage  n name';
+}
+
+function sessionPreviewLines(item, width, theme) {
+  if (!item) return [];
+  const lines = [];
+  lines.push(paint(theme, 'muted', fitLine(`selected: ${item.id || '-'}`, width)));
+  const meta = compactSessionMeta(item);
+  if (meta) lines.push(paint(theme, 'dim', fitLine(meta, width)));
+  const restore = item.shortLatestEntryId || item.latestEntryId || item.shortForkedFromEntryId || item.forkedFromEntryId || '';
+  if (restore) lines.push(paint(theme, 'dim', fitLine(`latest: ${restore}`, width)));
+  lines.push(paint(theme, 'dim', fitLine(sessionActionHintText(), width)));
+  return lines;
+}
+
 function panelItemSnapshot(items) {
   return (items || []).map((item) => ({
     label: item && item.label,
@@ -261,6 +289,8 @@ function selectorSnapshot(selector) {
     query: selector && selector.query,
     selectedIndex: selector && selector.selectedIndex,
     actionIndex: selector && selector.actionIndex,
+    resumePrompt: selector && selector.resumePrompt,
+    resumePromptError: selector && selector.resumePromptError,
     treeFilterMode: selector && selector.treeFilterMode,
     collapsedIds: selector && selector.collapsedIds,
     selectedItem: selector && selector.selectedItem && {
@@ -735,6 +765,19 @@ class SessionSelectorComponent {
     });
     return cachedLines(context, selectorRenderCache, cacheKey, () => {
     const lines = [divider(theme, width, false)];
+    if (selector.subMode === 'resume_prompt') {
+      const selectedItem = selector.selectedItem || {};
+      lines.push(paint(theme, 'header', fitLine(`Resume from: ${truncateToWidth(String(selectedItem.id || ''), 24)}`, width)));
+      lines.push(paint(theme, 'dim', fitLine(`Type follow-up prompt - ${hint('selector', 'openActions')} resume - ${hint('selector', 'close')} actions`, width)));
+      lines.push(paint(theme, 'accent', fitLine(`Prompt: ${selector.resumePrompt || ''}`, width)));
+      if (selector.resumePromptError) {
+        lines.push(paint(theme, 'error', fitLine(selector.resumePromptError, width)));
+      }
+      const previewBudget = Math.max(0, maxRows - lines.length - 1);
+      lines.push(...sessionPreviewLines(selectedItem, width, theme).slice(0, previewBudget));
+      lines.push(divider(theme, width, false));
+      return lines.slice(0, maxRows);
+    }
     if (selector.subMode === 'actions') {
       const selectedItem = selector.selectedItem || {};
       const actions = selector.actions || [];
@@ -775,8 +818,8 @@ class SessionSelectorComponent {
     lines.push(paint(theme, 'header', fitLine(`${isTree ? 'Session tree' : 'Session selector'}${selector.query ? ` filter="${selector.query}"` : ''}`, width)));
     lines.push(paint(theme, 'dim', fitLine(
       isTree
-        ? (width < 72 ? `filter=${mode} - ${hint('tree', 'toggleFold')} fold - ${hint('tree', 'expandOrActions')}/${hint('tree', 'openActions')} actions - ${hint('tree', 'cycleFilter')} - ${hint('selector', 'close')}` : `filter=${mode} - ${hint('tree', 'toggleFold')} fold - ${hint('tree', 'expandOrActions')}/${hint('tree', 'openActions')} actions - ${hint('tree', 'resume')} resume - ${hint('tree', 'session')} session - ${hint('tree', 'export')} export - ${hint('tree', 'name')} name - ${hint('tree', 'cycleFilter')} - ${hint('selector', 'close')}`)
-        : (width < 60 ? `Type filter - ${hint('selector', 'prev')}/${hint('selector', 'next')} - ${hint('selector', 'openActions')} - ${hint('selector', 'switchView')} - ${hint('selector', 'close')}` : `Type to filter - ${hint('selector', 'prev')}/${hint('selector', 'next')} select - ${hint('selector', 'openActions')} actions - ${hint('selector', 'switchView')} recent/tree - ${hint('selector', 'close')} back`),
+        ? (width < 72 ? `filter=${mode} - ${hint('tree', 'toggleFold')} fold - ${hint('tree', 'expandOrActions')}/${hint('tree', 'openActions')} actions - ${hint('tree', 'cycleFilter')} - ${hint('selector', 'close')}` : `filter=${mode} - ${hint('tree', 'toggleFold')} fold - ${hint('tree', 'resume')} resume - ${hint('tree', 'session')} trace - ${hint('tree', 'audit')} audit - ${hint('tree', 'export')} export - ${hint('tree', 'lineage')} lineage - ${hint('tree', 'name')} name - ${hint('tree', 'openActions')} actions - ${hint('selector', 'close')}`)
+        : (width < 60 ? `Type filter - ${hint('selector', 'prev')}/${hint('selector', 'next')} - ${hint('selector', 'openActions')} - ${hint('selector', 'switchView')} - ${hint('selector', 'close')}` : `Type to filter - ${hint('selector', 'prev')}/${hint('selector', 'next')} select - ${hint('selector', 'openActions')} actions - r/s/a/e/l/n quick - ${hint('selector', 'switchView')} recent/tree - ${hint('selector', 'close')} back`),
       width
     )));
     const items = isTree ? syncTreeSelection(selector, state) : filterRecentSelectorItems(selector.items || [], selector);
@@ -786,7 +829,9 @@ class SessionSelectorComponent {
       lines.push(divider(theme, width, false));
       return lines.slice(0, maxRows);
     }
-    const rows = Math.max(1, maxRows - lines.length - 2);
+    const previewBudget = Math.max(0, maxRows - lines.length - 5);
+    const preview = sessionPreviewLines(items[selector.selectedIndex || 0], width, theme).slice(0, previewBudget);
+    const rows = Math.max(1, maxRows - lines.length - preview.length - 2);
     const win = visibleWindow(items, selector.selectedIndex || 0, rows);
     lines.push(paint(theme, 'muted', fitLine(`${isTree ? 'nodes' : 'sessions'} ${listPosition(win.start, win.end, items.length)}`, width)));
     for (let index = win.start; index < win.end; index += 1) {
@@ -800,13 +845,13 @@ class SessionSelectorComponent {
       const nameStr = name ? ` "${truncateToWidth(name, 12)}"` : '';
       const count = item.entryCount !== undefined ? ` ${item.entryCount} entries` : '';
       const tags = [];
-      if (isTree && item.isCurrent) tags.push('[active]');
+      if (item.isCurrent) tags.push(isTree ? '[active]' : '[current]');
       else if (isTree && item.isActivePath) tags.push('[path]');
-      if (isTree && item.branchName) tags.push('[branch]');
-      if (isTree && name) tags.push('[name]');
-      if (isTree && item.errorCount) tags.push('[error]');
-      if (isTree && (item.toolCount || 0) >= 5) tags.push(`[tools:${item.toolCount}]`);
-      const cur = !isTree && item.isCurrent ? ' <- active' : '';
+      if (item.branchName) tags.push('[branch]');
+      if (name) tags.push('[name]');
+      if (item.errorCount) tags.push(`[errors:${item.errorCount}]`);
+      if (item.toolCount) tags.push(`[tools:${item.toolCount}]`);
+      const cur = '';
       const mod = item.modifiedAt ? ` ${String(item.modifiedAt).slice(0, 10)}` : '';
       const foldGlyph = item.hasChildren ? (item.collapsed ? '▸' : '▾') : '•';
       const treeGlyph = isTree ? `${foldGlyph} ` : '';
@@ -817,6 +862,7 @@ class SessionSelectorComponent {
       const text = `${prefix}${depth}${treeGlyph}${item.id}${branch}${nameStr}${tagText}${restore} [${item.command || 'session'}]${count}${mod}${cur}`;
       lines.push(selected ? selectedLine(theme, fitLine(text, width), width) : fitLine(text, width));
     }
+    lines.push(...preview);
     lines.push(divider(theme, width, false));
     return lines.slice(0, maxRows);
     });

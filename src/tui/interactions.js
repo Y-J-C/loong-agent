@@ -20,6 +20,7 @@ function sessionActions() {
     { key: 's', label: 'Session trace', action: 'session' },
     { key: 'a', label: 'Audit', action: 'audit' },
     { key: 'e', label: 'Export HTML', action: 'export' },
+    { key: 'l', label: 'Lineage', action: 'lineage' },
     { key: 'n', label: 'Set name', action: 'name' },
   ];
 }
@@ -56,10 +57,18 @@ async function executeSessionShortcut(state, selector, selected, actionKey, acti
   const list = sessionActions();
   const action = list.find((item) => item.key === actionKey || item.action === actionKey);
   if (!action || !selectSessionItem(state, selector, selected)) return false;
+  selector.actions = list;
+  selector.actionIndex = Math.max(0, list.findIndex((item) => item.action === action.action));
   if (actions && actions.executeSessionAction) {
     await actions.executeSessionAction(action, selected);
   }
   return true;
+}
+
+function actionForKey(key) {
+  if (!key || key.type !== 'text' || !key.text) return null;
+  const ch = key.text.toLowerCase();
+  return sessionActions().find((item) => item.key === ch) || null;
 }
 
 function activePanel(state) {
@@ -157,6 +166,43 @@ async function handleSelectorKey(state, key, actions) {
     state.mode = 'idle';
     return true;
   }
+  if (selector.subMode === 'resume_prompt') {
+    if (matchesAction('selector', 'close', key)) {
+      selector.subMode = 'actions';
+      if (!selector.actions || !selector.actions.length) selector.actions = sessionActions();
+      selector.resumePrompt = '';
+      selector.resumePromptError = '';
+      return true;
+    }
+    if (matchesAction('selector', 'openActions', key)) {
+      const prompt = String(selector.resumePrompt || '').trim();
+      if (!prompt) {
+        selector.resumePromptError = 'Enter a follow-up prompt before resuming.';
+        return true;
+      }
+      selector.resumePromptError = '';
+      if (actions && actions.executeSessionAction) {
+        await actions.executeSessionAction({
+          key: 'r',
+          label: 'Resume',
+          action: 'resume_submit',
+          prompt,
+        }, selector.selectedItem);
+      }
+      return true;
+    }
+    if (matchesAction('selector', 'filterBackspace', key)) {
+      selector.resumePrompt = String(selector.resumePrompt || '').slice(0, -1);
+      selector.resumePromptError = '';
+      return true;
+    }
+    if (matchesAction('selector', 'filterAppend', key) && key.text !== '\t') {
+      selector.resumePrompt = `${selector.resumePrompt || ''}${key.text}`;
+      selector.resumePromptError = '';
+      return true;
+    }
+    return true;
+  }
   if (selector.subMode === 'actions') {
     const actionsList = selector.actions || [];
     if (matchesAction('selector', 'close', key)) {
@@ -238,27 +284,23 @@ async function handleSelectorKey(state, key, actions) {
       openSessionActionMenu(state, selector, selected);
       return true;
     }
-    if (treeAction === 'resume' || treeAction === 'session' || treeAction === 'export' || treeAction === 'name') {
+    if (treeAction === 'resume' || treeAction === 'session' || treeAction === 'audit' || treeAction === 'export' || treeAction === 'lineage' || treeAction === 'name') {
       await executeSessionShortcut(state, selector, selected, treeAction, actions);
+      return true;
+    }
+  } else {
+    const action = actionForKey(key);
+    if (action) {
+      const items = filteredSelectorItems(state);
+      const selected = items[selector.selectedIndex || 0];
+      await executeSessionShortcut(state, selector, selected, action.action, actions);
       return true;
     }
   }
   if (matchesAction('selector', 'openActions', key)) {
     const items = filteredSelectorItems(state);
     const selected = items[selector.selectedIndex || 0];
-    if (selected) {
-      state.selectedSessionId = selected.id;
-      selector.selectedItem = selected;
-      selector.subMode = 'actions';
-      selector.actions = [
-        { key: 'r', label: '继续/Resume', action: 'resume' },
-        { key: 's', label: '查看/Session trace', action: 'session' },
-        { key: 'a', label: '审计/Audit', action: 'audit' },
-        { key: 'e', label: '导出/Export HTML', action: 'export' },
-        { key: 'n', label: '命名/Set name', action: 'name' },
-      ];
-      selector.actionIndex = 0;
-    }
+    openSessionActionMenu(state, selector, selected);
     return true;
   }
   if (matchesAction('selector', 'filterBackspace', key)) {

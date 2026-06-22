@@ -384,7 +384,7 @@ test('tree selector enter and space fold without opening actions', async () => {
   assert(state.selector.collapsedIds.root !== true, 'tree space should expand selected node');
 });
 
-test('tree selector right and a open action submenu', async () => {
+test('tree selector right and o open action submenu', async () => {
   const state = treeSelectorFixture();
   await handleSelectorKey(state, { type: 'enter' }, {});
   await handleSelectorKey(state, { type: 'right' }, {});
@@ -394,8 +394,9 @@ test('tree selector right and a open action submenu', async () => {
   assert(state.selector.selectedItem.id === 'root', 'action submenu should use selected tree node');
 
   const other = treeSelectorFixture();
-  await handleSelectorKey(other, { type: 'text', text: 'a' }, {});
-  assert(other.selector.subMode === 'actions', 'a should open action submenu in tree mode');
+  await handleSelectorKey(other, { type: 'text', text: 'o' }, {});
+  assert(other.selector.subMode === 'actions', 'o should open action submenu in tree mode');
+  assert(other.selector.actions.some((item) => item.action === 'lineage'), 'action submenu should include lineage');
 });
 
 test('tree selector shortcut executes current node action', async () => {
@@ -408,6 +409,81 @@ test('tree selector shortcut executes current node action', async () => {
   });
   assert(called === 'resume:root', `wrong tree shortcut action: ${called}`);
   assert(state.selector.subMode !== 'actions', 'shortcut should not open action submenu');
+});
+
+test('tree selector audit and lineage shortcuts execute current node actions', async () => {
+  const state = treeSelectorFixture();
+  const calls = [];
+  await handleSelectorKey(state, { type: 'text', text: 'a' }, {
+    executeSessionAction: async (action, selected) => {
+      calls.push(`${action.action}:${selected.id}`);
+    },
+  });
+  await handleSelectorKey(state, { type: 'text', text: 'l' }, {
+    executeSessionAction: async (action, selected) => {
+      calls.push(`${action.action}:${selected.id}`);
+    },
+  });
+  assert(calls.join(',') === 'audit:root,lineage:root', `wrong tree shortcut calls: ${calls.join(',')}`);
+});
+
+test('recent selector quick actions and resume prompt mode', async () => {
+  const state = createTuiState({});
+  state.selector = {
+    view: 'recent',
+    query: '',
+    selectedIndex: 0,
+    items: [
+      { id: 'alpha-session', command: 'tui' },
+    ],
+  };
+  let called = '';
+  await handleSelectorKey(state, { type: 'text', text: 'l' }, {
+    executeSessionAction: async (action, selected) => {
+      called = `${action.action}:${selected.id}`;
+    },
+  });
+  assert(called === 'lineage:alpha-session', `recent lineage shortcut failed: ${called}`);
+
+  await handleSelectorKey(state, { type: 'text', text: 'r' }, {
+    executeSessionAction: async (action, selected) => {
+      state.selectedSessionId = selected.id;
+      state.selector.selectedItem = selected;
+      state.selector.subMode = 'resume_prompt';
+    },
+  });
+  assert(state.selector.subMode === 'resume_prompt', 'resume shortcut should open resume prompt mode');
+  await handleSelectorKey(state, { type: 'enter' }, {
+    executeSessionAction: async () => {
+      called = 'should-not-run';
+    },
+  });
+  assert(state.selector.resumePromptError, 'empty resume prompt should set inline error');
+  await handleSelectorKey(state, { type: 'text', text: 'c' }, {});
+  await handleSelectorKey(state, { type: 'text', text: 'o' }, {});
+  await handleSelectorKey(state, { type: 'text', text: 'n' }, {});
+  await handleSelectorKey(state, { type: 'text', text: 't' }, {});
+  await handleSelectorKey(state, { type: 'enter' }, {
+    executeSessionAction: async (action, selected) => {
+      called = `${action.action}:${selected.id}:${action.prompt}`;
+    },
+  });
+  assert(called === 'resume_submit:alpha-session:cont', `resume prompt submit failed: ${called}`);
+});
+
+test('resume prompt escape returns to action submenu', async () => {
+  const state = createTuiState({});
+  state.selector = {
+    view: 'recent',
+    subMode: 'resume_prompt',
+    resumePrompt: 'continue',
+    selectedItem: { id: 'alpha-session' },
+    items: [{ id: 'alpha-session', command: 'tui' }],
+  };
+  await handleSelectorKey(state, { type: 'escape' }, {});
+  assert(state.selector.subMode === 'actions', 'escape should return to action menu');
+  assert(state.selector.resumePrompt === '', 'escape should clear resume prompt');
+  assert(state.selector.actions.some((item) => item.action === 'lineage'), 'resume prompt should preserve action list');
 });
 
 test('tree selector left collapses or selects parent', async () => {

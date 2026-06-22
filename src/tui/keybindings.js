@@ -47,10 +47,12 @@ const KEYBINDINGS = {
     { action: 'toggleFold', keys: [{ type: 'enter' }, { type: 'text', text: ' ' }], hint: 'Enter/Space' },
     { action: 'expandOrActions', keys: [{ type: 'right' }], hint: 'Right' },
     { action: 'collapseOrParent', keys: [{ type: 'left' }], hint: 'Left' },
-    { action: 'openActions', keys: [{ type: 'text', text: 'a' }], hint: 'a' },
+    { action: 'openActions', keys: [{ type: 'text', text: 'o' }], hint: 'o' },
     { action: 'resume', keys: [{ type: 'text', text: 'r' }], hint: 'r' },
     { action: 'session', keys: [{ type: 'text', text: 's' }], hint: 's' },
+    { action: 'audit', keys: [{ type: 'text', text: 'a' }], hint: 'a' },
     { action: 'export', keys: [{ type: 'text', text: 'e' }], hint: 'e' },
+    { action: 'lineage', keys: [{ type: 'text', text: 'l' }], hint: 'l' },
     { action: 'name', keys: [{ type: 'text', text: 'n' }], hint: 'n' },
   ],
   panel: [

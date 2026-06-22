@@ -183,13 +183,25 @@ async function runTui(config, options) {
     }
     const id = selected.id;
     if (action.action === 'resume') {
-      if (state.currentSession) {
-        const prompt = `continue from session ${id}`;
-        await handleCommand({
-          config: activeConfig, state, replaceAgentSession, startPrompt,
-          reloadConfig: () => {}, refreshBoardStatus,
-        }, `/resume ${id} ${prompt}`);
+      state.selectedSessionId = id;
+      if (state.selector) {
+        state.selector.selectedItem = selected;
+        state.selector.subMode = 'resume_prompt';
+        state.selector.resumePrompt = '';
+        state.selector.resumePromptError = '';
       }
+      return;
+    }
+    if (action.action === 'resume_submit') {
+      const prompt = String(action.prompt || '').trim();
+      if (!prompt) {
+        if (state.selector) state.selector.resumePromptError = 'Enter a follow-up prompt before resuming.';
+        return;
+      }
+      await handleCommand({
+        config: activeConfig, state, replaceAgentSession, startPrompt,
+        reloadConfig: () => {}, refreshBoardStatus,
+      }, `/resume ${id} ${prompt}`);
       state.mode = 'idle';
       state.selector = null;
       return;
@@ -219,6 +231,15 @@ async function runTui(config, options) {
         config: activeConfig, state, replaceAgentSession, startPrompt,
         reloadConfig: () => {}, refreshBoardStatus,
       }, `/export ${id}`);
+      return;
+    }
+    if (action.action === 'lineage') {
+      state.mode = 'idle';
+      state.selector = null;
+      await handleCommand({
+        config: activeConfig, state, replaceAgentSession, startPrompt,
+        reloadConfig: () => {}, refreshBoardStatus,
+      }, `/lineage ${id}`);
       return;
     }
     if (action.action === 'name') {
