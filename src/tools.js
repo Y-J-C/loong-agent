@@ -335,6 +335,10 @@ async function searchFiles(config, input) {
 async function callTool(config, tool, input) {
   if (tool === 'board_profile') return boardProfile(config, input || {});
   if (tool === 'loong_env_check') return loongEnvCheck();
+  if (tool === 'loong_storage_check') {
+    return require('./tools/loong-storage-check')
+      .loongStorageCheck(config || {}, input || {});
+  }
   if (tool === 'bash') return runBashCommand(input || {}, config || {});
   if (tool === 'process_status') return processStatus(config || {}, input || {});
   if (tool === 'process_stop') return processStop(config || {}, input || {});

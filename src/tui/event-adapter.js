@@ -134,7 +134,10 @@ function handleAgentEvent(state, event) {
     state.status = `轮次 ${event.loop || state.turnCount} 规划中 / turn ${event.loop || state.turnCount} planning`;
     state.lastEventTime = Date.now();
   } else if (event.type === 'message_start' && event.role === 'user') {
-    if (event.internal) return;
+    if (event.internal) {
+      hideLatestProvisionalAnswer(state);
+      return;
+    }
     addMessage(state, { type: 'user', text: event.content || '' });
   } else if (event.type === 'message_start' && event.role === 'assistant') {
     const msg = addMessage(state, { type: 'assistant', text: '' });

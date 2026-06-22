@@ -4,6 +4,7 @@ const { classifyRequestContext } = require('../../context-selector');
 const { createBoardProfileToolDefinition } = require('../../tools/board-profile');
 const { createCommandReferenceToolDefinition } = require('../../tools/kb-tools');
 const { createLoongEnvCheckToolDefinition } = require('../../tools/loong-env-check');
+const { createLoongStorageCheckToolDefinition } = require('../../tools/loong-storage-check');
 const { loongBoardContextHook } = require('../../hooks/loong-board-context');
 const { longTaskBeforeToolCallHook, longTaskWorkflowHook } = require('../../hooks/long-task-workflow');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
@@ -79,15 +80,27 @@ function parseDfOutput(output) {
     const trimmed = line.trim();
     if (!trimmed || /^Filesystem\b/i.test(trimmed) || /^文件系统/.test(trimmed)) return;
     const cells = trimmed.split(/\s+/);
-    if (cells.length < 6) return;
-    filesystems.push({
-      filesystem: cells[0],
-      size: cells[1],
-      used: cells[2],
-      available: cells[3],
-      usePercent: cells[4],
-      mount: cells.slice(5).join(' '),
-    });
+    if (cells.length >= 7) {
+      filesystems.push({
+        filesystem: cells[0],
+        type: cells[1],
+        size: cells[2],
+        used: cells[3],
+        available: cells[4],
+        usePercent: cells[5],
+        mount: cells.slice(6).join(' '),
+      });
+    } else if (cells.length >= 6) {
+      filesystems.push({
+        filesystem: cells[0],
+        type: '',
+        size: cells[1],
+        used: cells[2],
+        available: cells[3],
+        usePercent: cells[4],
+        mount: cells.slice(5).join(' '),
+      });
+    }
   });
   return { filesystems };
 }
@@ -207,7 +220,7 @@ function commandObservation(action, result, context, command, raw, data, evidenc
       evidence,
     });
   }
-  if (/\bdf\s+-h\b/.test(lowerCommand)) {
+  if (/\bdf\s+-hT?\b/.test(lowerCommand) || tool === 'loong_storage_check') {
     return makeObservation(context, {
       subject: 'system.disk',
       kind: 'measurement',
@@ -305,6 +318,37 @@ function deriveLoongEnvObservations(action, result, context) {
   return observations;
 }
 
+function deriveLoongStorageObservations(action, result, context) {
+  const data = resultData(result);
+  const commands = Array.isArray(data.commands) ? data.commands : Array.isArray(result && result.commands) ? result.commands : [];
+  const observations = [];
+  commands.forEach((item) => {
+    const command = String(item && item.command || '');
+    const raw = commandOutput(item || {});
+    const evidence = [{ source: 'command', command, exitCode: item && item.exitCode, durationMs: item && item.durationMs }];
+    const observation = commandObservation(action, result, Object.assign({}, context, {
+      index: (context.index || 0) + observations.length,
+    }), command, raw, item || {}, evidence);
+    if (observation) observations.push(observation);
+  });
+  if (!observations.length && data && (data.filesystems || data.blockDevices)) {
+    observations.push(makeObservation(context, {
+      subject: 'system.disk',
+      kind: 'measurement',
+      freshness: 'current',
+      source: action.tool,
+      tool: action.tool,
+      raw: safeJson(data),
+      parsed: {
+        filesystems: data.filesystems || [],
+        blockDevices: data.blockDevices || [],
+      },
+      evidence: Array.isArray(result && result.evidence) ? result.evidence : [],
+    }));
+  }
+  return observations;
+}
+
 function deriveBoardObservation(action, result, context) {
   const data = resultData(result);
   return [makeObservation(context, {
@@ -326,6 +370,7 @@ function loongObservationDeriver(action, result, stateContext) {
     index: stateContext && stateContext.observationIndex,
   };
   if (tool === 'loong_env_check') return deriveLoongEnvObservations(action, result, context);
+  if (tool === 'loong_storage_check') return deriveLoongStorageObservations(action, result, context);
   if (tool === 'board_profile') return deriveBoardObservation(action, result, context);
   if (tool === 'bash') return deriveCommandObservations(action, result, context);
   return [];
@@ -413,8 +458,8 @@ function finalAnswerEvidenceGuard(context) {
   if (isCurrentDiskQuestion(prompt) && !hasCurrentObservationSubject(state, 'system.disk')) {
     return {
       reason: 'missing_current_disk_evidence',
-      action: { tool: 'bash', input: { command: 'df -h' }, reason: 'Required current disk evidence before answering.' },
-      message: 'The user asked for current disk/storage state. Use df -h evidence first, then answer only with values present in that output.',
+      action: { tool: 'loong_storage_check', input: {}, reason: 'Required current storage evidence before answering.' },
+      message: 'The user asked for current disk/storage state. Call loong_storage_check first, then answer only with confirmed storage evidence and mark uncollected health/media details as pending confirmation.',
     };
   }
   if (isCurrentHardwareQuestion(prompt) && isI2cQuestion(prompt) && !hasCurrentObservationSubject(state, 'hardware.i2c')) {
@@ -462,7 +507,7 @@ function finalAnswerEvidenceGuard(context) {
 
 function loongPromptGuidelines() {
   return [
-    '- Loong extension: use board_profile before board-specific advice and loong_env_check before current board environment diagnosis.',
+    '- Loong extension: use board_profile before board-specific advice, loong_env_check before current board environment diagnosis, and loong_storage_check before current disk/storage/partition/mount/space diagnosis.',
     '- For current board state such as 当前/现在/current/now, collect current tool evidence before answering.',
     '- For historical board state such as 当时/上次/history/session, prefer kb_topic/kb_search/session_summary and label any current re-check separately.',
     '- For current I2C/sensor/peripheral questions, collect current I2C evidence first; use command_reference before recommending diagnostic commands.',
@@ -487,6 +532,8 @@ function loongCompatibilityPromptGuidelines() {
     '- Historical-state answers must include: 鏃堕棿鐐?/ 鏉ユ簮 / 璇佹嵁 / 褰撳墠澶嶆祴鏄惁鍙備笌 / 寰呯‘璁?',
     '- For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.',
     '- For risk, install, repair, boot/storage, network modification, or peripheral operation questions, use risk_lookup or command_reference first.',
+    '- For current disk/storage answers, use loong_storage_check and structure the answer as: physical devices / partitions and mounts / filesystem usage / bounded directory usage / risks and pending confirmation / next read-only checks.',
+    '- Do not claim disk I/O health without smartctl, dmesg, or explicit I/O-error evidence. Do not infer SSD/HDD/eMMC without model or rotation evidence.',
     '- READONLY_COMMAND_METADATA remains the command_reference source for recommended board diagnostics; it is not the bash execution boundary.',
     '- After starting background bash, do not call bash sleep; use process_wait. Do not call bash cat/tail on the log file; use process_logs.',
     '- Do not recommend nohup, systemd, cron, or manual terminal backgrounding for agent-managed long-running tasks unless explicitly requested.',
@@ -497,6 +544,7 @@ function loongCompatibilityPromptGuidelines() {
 module.exports = function loongExtension(pi) {
   pi.registerTool(createBoardProfileToolDefinition());
   pi.registerTool(createLoongEnvCheckToolDefinition());
+  pi.registerTool(createLoongStorageCheckToolDefinition());
   pi.registerTool(createCommandReferenceToolDefinition());
   pi.registerObservationDeriver(loongObservationDeriver);
   pi.registerPromptGuidelines(loongPromptGuidelines);

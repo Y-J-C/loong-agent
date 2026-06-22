@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const childProcess = require('child_process');
@@ -18,6 +19,7 @@ const { bindClaims, extractClaims, validateFinalAnswerBinding } = require('../sr
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
 const { deriveObservations } = require('../src/observation');
 const { buildMessagesFromTurnContext } = require('../src/prompts');
+const { streamJson } = require('../src/provider-registry');
 const { waitForChildProcess, spawnProcess } = require('../src/runtime/child-process');
 const { runShell } = require('../src/runtime/bash-executor');
 const { OutputAccumulator } = require('../src/runtime/output-accumulator');
@@ -81,6 +83,7 @@ function createFakeBashRegistry(stdoutByCommand) {
     name: 'bash',
     label: 'Bash',
     description: 'Fake bash for tests',
+    repeatPolicy: 'answerable_once',
     parameters: { command: 'string' },
     validate: (input) => input && input.command ? '' : 'Missing command',
     execute: async (cfg, input) => {
@@ -118,6 +121,55 @@ function createFakeBashRegistry(stdoutByCommand) {
         stderr: '',
         output: stdout,
         durationMs: 1,
+      };
+    },
+  }]);
+}
+
+function createFakeStorageRegistry(report) {
+  const storageReport = report || {};
+  return createToolRegistry([{
+    name: 'loong_storage_check',
+    label: 'Fake storage check',
+    description: 'Fake storage check for tests',
+    repeatPolicy: 'answerable_once',
+    parameters: {},
+    validate: () => '',
+    execute: async () => {
+      const df = storageReport.df || [
+        'Filesystem     Type  Size Used Avail Use% Mounted on',
+        '/dev/root      ext4   29G  14G   14G  50% /',
+      ].join('\n');
+      const lsblk = storageReport.lsblk || [
+        'NAME SIZE TYPE MOUNTPOINT FSTYPE MODEL ROTA',
+        'sda 14.9G disk        USB-Disk 1',
+        'sda1 29G part / ext4  1',
+      ].join('\n');
+      const du = storageReport.du || '14G /\n2G /home\n4G /data';
+      return {
+        ok: true,
+        data: {
+          kind: 'loong_storage_report',
+          commands: [
+            { name: 'df', command: 'df -hT', exitCode: 0, stdout: df, stderr: '', output: df, durationMs: 1 },
+            { name: 'lsblk', command: 'lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL,ROTA 2>/dev/null || lsblk', exitCode: 0, stdout: lsblk, stderr: '', output: lsblk, durationMs: 1 },
+            { name: 'mounts', command: 'findmnt -rn 2>/dev/null || mount', exitCode: 0, stdout: '/ /dev/root ext4', stderr: '', output: '/ /dev/root ext4', durationMs: 1 },
+            { name: 'du', command: 'du -sh / /home /data 2>/dev/null | sort -rh | head -20', exitCode: 0, stdout: du, stderr: '', output: du, durationMs: 1 },
+          ],
+          filesystems: [{ filesystem: '/dev/root', type: 'ext4', size: '29G', used: '14G', available: '14G', usePercent: '50%', mount: '/' }],
+          blockDevices: [{ name: 'sda', size: '14.9G', type: 'disk', mount: '', fstype: '', model: 'USB-Disk', rota: '1' }],
+          mounts: '/ /dev/root ext4',
+          directoryUsage: du,
+        },
+        summary: 'devices=sda:14.9G root=29G used=14G avail=14G use=50%',
+        evidence: [
+          { source: 'command', command: 'df -hT', exitCode: 0, durationMs: 1 },
+          { source: 'command', command: 'lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL,ROTA 2>/dev/null || lsblk', exitCode: 0, durationMs: 1 },
+          { source: 'command', command: 'findmnt -rn 2>/dev/null || mount', exitCode: 0, durationMs: 1 },
+          { source: 'command', command: 'du -sh / /home /data 2>/dev/null | sort -rh | head -20', exitCode: 0, durationMs: 1 },
+        ],
+        warnings: [],
+        error: '',
       };
     },
   }]);
@@ -609,18 +661,65 @@ test('loong_env_check derives multiple typed observations', () => {
   assert(state.messages.filter((item) => item.role === 'observation').length >= 4, 'loong_env_check did not write observation messages');
 });
 
+test('loong_storage_check derives disk observations from df lsblk and du evidence', () => {
+  const state = createAgentState({ tools: [], extensionRuntime: createDefaultExtensionRuntime({}) });
+  recordToolResult(state, {
+    tool: 'loong_storage_check',
+    input: {},
+  }, {
+    ok: true,
+    data: {
+      commands: [
+        {
+          command: 'df -hT',
+          exitCode: 0,
+          stdout: 'Filesystem Type Size Used Avail Use% Mounted on\n/dev/root ext4 29G 14G 14G 50% /',
+          stderr: '',
+          output: 'Filesystem Type Size Used Avail Use% Mounted on\n/dev/root ext4 29G 14G 14G 50% /',
+          durationMs: 1,
+        },
+        {
+          command: 'lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL,ROTA 2>/dev/null || lsblk',
+          exitCode: 0,
+          stdout: 'NAME SIZE TYPE MOUNTPOINT FSTYPE MODEL ROTA\nsda 14.9G disk        USB-Disk 1',
+          stderr: '',
+          output: 'NAME SIZE TYPE MOUNTPOINT FSTYPE MODEL ROTA\nsda 14.9G disk        USB-Disk 1',
+          durationMs: 1,
+        },
+        {
+          command: 'du -sh / /home /data 2>/dev/null | sort -rh | head -20',
+          exitCode: 0,
+          stdout: '14G /\n2G /home',
+          stderr: '',
+          output: '14G /\n2G /home',
+          durationMs: 1,
+        },
+      ],
+    },
+    evidence: [{ source: 'command', command: 'df -hT', exitCode: 0 }],
+  });
+  const observation = state.observations[0];
+  const subjects = observation.typedObservations.map((item) => item.subject);
+  assert(subjects.indexOf('system.disk') >= 0, 'loong_storage_check missing disk observation');
+  const disk = observation.typedObservations.find((item) => item.subject === 'system.disk');
+  assert(JSON.stringify(disk.parsed).indexOf('29G') >= 0, 'disk observation missing df -hT parsed capacity');
+});
+
 test('Loong extension registers board tools by default and can be disabled', () => {
   const enabled = createDefaultExtensionRuntime({});
   assert(enabled.tools.board_profile, 'default loong extension missing board_profile');
   assert(enabled.tools.loong_env_check, 'default loong extension missing loong_env_check');
+  assert(enabled.tools.loong_storage_check, 'default loong extension missing loong_storage_check');
   assert(enabled.tools.command_reference, 'default loong extension missing command_reference');
   const disabled = createExtensionRuntime({ config: { extensions: [] } });
   assert(!disabled.tools.board_profile, 'disabled extensions should not expose board_profile');
   assert(!disabled.tools.loong_env_check, 'disabled extensions should not expose loong_env_check');
+  assert(!disabled.tools.loong_storage_check, 'disabled extensions should not expose loong_storage_check');
   assert(!disabled.tools.command_reference, 'disabled extensions should not expose command_reference');
   const disabledToolNames = createDefaultTools({ config: { extensions: [] } }).map((tool) => tool.name);
   assert(disabledToolNames.indexOf('board_profile') < 0, 'disabled default tools should not include board_profile');
   assert(disabledToolNames.indexOf('loong_env_check') < 0, 'disabled default tools should not include loong_env_check');
+  assert(disabledToolNames.indexOf('loong_storage_check') < 0, 'disabled default tools should not include loong_storage_check');
   assert(disabledToolNames.indexOf('command_reference') < 0, 'disabled default tools should not include command_reference');
 });
 
@@ -935,6 +1034,37 @@ test('streaming recoverable reset before deltas still falls back to non-streamin
   assert(usage && usage.fallbackUsed === true, 'model_usage missing fallbackUsed');
 });
 
+test('streaming ignores full message content chunks as deltas', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+    });
+    res.write('data: {"choices":[{"delta":{"content":"当前设备硬盘信息如下：\\n"}}]}\n\n');
+    res.write('data: {"choices":[{"delta":{"content":"- 总容量：28G\\n"}}]}\n\n');
+    res.write('data: {"choices":[{"message":{"content":"当前设备硬盘信息如下：\\n- 总容量：28G\\n"}}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}\n\n');
+    res.write('data: [DONE]\n\n');
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const chunks = [];
+    const address = server.address();
+    const result = await streamJson(`http://127.0.0.1:${address.port}/chat/completions`, 'test-key', {
+      model: 'mock',
+      messages: [],
+    }, {
+      onDelta: (delta) => {
+        chunks.push(delta);
+      },
+    });
+    const content = chunks.join('');
+    assert(content === '当前设备硬盘信息如下：\n- 总容量：28G\n', `streaming content duplicated: ${content}`);
+    assert(result.usage && result.usage.totalTokens === 5, 'usage chunk was not preserved');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('v2 tool response executes a tool action', async () => {
   registerProvider({
     name: 'test-v2-tool-action',
@@ -1170,14 +1300,10 @@ test('current memory answer must bind to latest free output', async () => {
   assert(result.summary.indexOf('9.9Gi') < 0, 'fallback summary kept unsupported memory value');
 });
 
-test('current disk question requires current df evidence', async () => {
-  const dfOutput = [
-    'Filesystem      Size  Used Avail Use% Mounted on',
-    '/dev/root        14G  4.0G   10G  29% /',
-  ].join('\n');
+test('current disk question requires current storage evidence', async () => {
   let calls = 0;
   registerProvider({
-    name: 'test-current-disk-df-evidence',
+    name: 'test-current-disk-storage-evidence',
     chatCompletion: async () => {
       calls += 1;
       if (calls === 1) {
@@ -1189,25 +1315,60 @@ test('current disk question requires current df evidence', async () => {
       }
       return JSON.stringify({
         type: 'answer',
-        answer: 'According to this turn df -h, /dev/root is 14G total and 10G available.',
+        answer: 'According to this turn loong_storage_check, /dev/root is 29G total and 14G available.',
         status: 'ok',
       });
     },
   });
   const events = [];
-  const agent = createAgent(Object.assign(config('test-current-disk-df-evidence'), {
+  const agent = createAgent(Object.assign(config('test-current-disk-storage-evidence'), {
     maxLoops: 4,
     streaming: false,
   }), {
-    registry: createFakeBashRegistry({ 'df -h': dfOutput }),
+    registry: createFakeStorageRegistry(),
   });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('current device disk situation');
   const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_disk_evidence');
-  const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
+  const storageStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'loong_storage_check');
   assert(guardTurn, 'current disk guard did not request evidence');
-  assert(bashStart && bashStart.args && bashStart.args.command === 'df -h', 'current disk guard did not call df -h');
-  assert(result.summary.indexOf('14G') >= 0 && result.summary.indexOf('10G') >= 0, 'final disk answer did not use df output');
+  assert(storageStart, 'current disk guard did not call loong_storage_check');
+  assert(result.summary.indexOf('29G') >= 0 && result.summary.indexOf('14G') >= 0, 'final disk answer did not use storage output');
+});
+
+test('bare Chinese disk question defaults to current storage evidence', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-bare-chinese-storage-evidence',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '硬盘是 64GB eMMC，已用 12GB。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '根据本轮 df -h，根分区总容量 29G，已用 14G，可用 14G。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-bare-chinese-storage-evidence'), {
+    maxLoops: 4,
+    streaming: false,
+  }), {
+    registry: createFakeStorageRegistry(),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('硬盘情况');
+  const storageStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'loong_storage_check');
+  assert(storageStart, 'bare Chinese disk question did not call loong_storage_check');
+  assert(result.summary.indexOf('29G') >= 0 && result.summary.indexOf('14G') >= 0, 'bare Chinese disk answer did not use storage evidence');
+  assert(result.summary.indexOf('64GB') < 0, 'bare Chinese disk answer kept unsupported model claim');
 });
 
 test('current I2C hardware question requires bash evidence before final answer', async () => {
@@ -2593,6 +2754,46 @@ test('command_reference repeat guard blocks second identical call and falls back
   assert(end && end.completionSource === 'repeat_guard_fallback', 'repeat fallback source missing');
   assert(result.completionSource === 'repeat_guard_fallback', 'result source mismatch');
   assert(result.summary.indexOf('重复调用 command_reference') >= 0, 'fallback summary missing repeat guard text');
+});
+
+test('bash repeat guard blocks identical diagnostic command on second call', async () => {
+  let modelCalls = 0;
+  registerProvider({
+    name: 'test-bash-repeat-diagnostic',
+    chatCompletion: async () => {
+      modelCalls += 1;
+      if (modelCalls <= 2) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'bash',
+          input: { command: 'echo repeat-diagnostic' },
+          reason: 'repeat diagnostic',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: 'summary from first bash result',
+        status: 'ok',
+      });
+    },
+  });
+
+  const events = [];
+  const registry = createFakeBashRegistry({ 'echo repeat-diagnostic': 'repeat-diagnostic\n' });
+  const cfg = config('test-bash-repeat-diagnostic', tempWorkspace());
+  cfg.maxLoops = 5;
+  const agent = createAgent(cfg, { registry, session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('run repeat diagnostic');
+  const bashEnds = events.filter((event) => event.type === 'tool_execution_end' && event.toolName === 'bash');
+
+  assert(result.summary === 'summary from first bash result', `unexpected summary: ${result.summary}`);
+  assert(bashEnds.length === 2, `expected executed bash and blocked repeat, got ${bashEnds.length}`);
+  assert(bashEnds[0].isError === false, 'first bash should execute');
+  assert(bashEnds[1].isError === true, 'second bash should be blocked');
+  assert(bashEnds[1].errorType === 'policy_blocked', 'repeat bash should use policy_blocked');
+  assert(bashEnds[1].result && bashEnds[1].result.policy === 'repeat_tool_call', 'repeat bash policy missing');
+  assert(bashEnds[1].result && bashEnds[1].result.previousResult, 'repeat bash should include previous result');
 });
 
 test('repeat guard does not block same tool with different input', async () => {

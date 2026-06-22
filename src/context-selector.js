@@ -26,7 +26,7 @@ function commandSubjects(command) {
   const text = String(command || '');
   const subjects = [];
   if (/\bfree\s+-h\b/i.test(text)) subjects.push('system.memory');
-  if (/\bdf\s+-h\b/i.test(text)) subjects.push('system.disk');
+  if (/\bdf\s+-hT?\b|\blsblk\b|\bfindmnt\b|\bmount\b|\bdu\s+-sh\b/i.test(text)) subjects.push('system.disk');
   if (/^(node\s+-v|npm\s+-v|python3?\s+--version|git\s+--version|gcc\s+-v|clang\s+-v|uname\s+-[am]|cat\s+\/etc\/os-release|lscpu|which\s+)/i.test(text)) {
     subjects.push('system.runtime');
   }
@@ -40,6 +40,8 @@ function commandSubjects(command) {
 function promptSubjects(prompt) {
   const text = String(prompt || '');
   const subjects = [];
+  if (/\u5185\u5b58/i.test(text)) subjects.push('system.memory');
+  if (/\u78c1\u76d8|\u786c\u76d8|\u5b58\u50a8|\u7a7a\u95f4|\u5206\u533a|\u6302\u8f7d/i.test(text)) subjects.push('system.disk');
   if (/memory|内存|free\s+-h|swap|Mem:/i.test(text)) subjects.push('system.memory');
   if (/disk|storage|filesystem|df\s+-h|磁盘|存储|空间|硬盘/i.test(text)) subjects.push('system.disk');
   if (/runtime|toolchain|node|npm|gcc|g\+\+|python|python3|git|clang|uname|lscpu|运行时|工具链|环境|版本/i.test(text)) {
@@ -57,10 +59,11 @@ function classifyRequestContext(prompt) {
   const current = CURRENT_PATTERN.test(text);
   const historical = HISTORICAL_PATTERN.test(text);
   const domainSubjects = promptSubjects(text);
+  const defaultsToCurrent = !historical && domainSubjects.some((subject) => /^system\.|^hardware\./.test(subject));
   let intent = 'unknown';
   if (current && historical) intent = 'mixed';
   else if (historical) intent = 'historical';
-  else if (current) intent = 'current';
+  else if (current || defaultsToCurrent) intent = 'current';
 
   const currentSubjects = [];
   const historicalSubjects = [];

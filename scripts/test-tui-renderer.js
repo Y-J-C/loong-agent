@@ -7,6 +7,7 @@ const { renderTui } = require('../src/tui/renderer');
 const { CURSOR_MARKER, extractCursorPosition } = require('../src/tui/cursor');
 const { ANSI, stripAnsi, visibleWidth } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
+const { collectTranscriptLines } = require('../src/tui/transcript');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -121,6 +122,22 @@ test('renderer follows new output only when already at bottom', () => {
   assert(history.scrollOffset > 8, 'history offset should grow to preserve viewed output');
 });
 
+test('agent events preserve history view when user scrolled up', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 24; index += 1) {
+    state.messages.push({ type: 'system', text: `event history ${index}` });
+  }
+  renderTui(state, { columns: 80, rows: 12 });
+  state.scrollOffset = 10;
+  const before = stripAnsi(renderTui(state, { columns: 80, rows: 12 }));
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', streaming: true });
+  handleAgentEvent(state, { type: 'message_update', role: 'assistant', content: 'latest streamed answer', streaming: true });
+  const after = stripAnsi(renderTui(state, { columns: 80, rows: 12 }));
+  assert(after.indexOf('latest streamed answer') < 0, 'agent event should not force history view to bottom');
+  assert(before.indexOf('event history') >= 0 && after.indexOf('event history') >= 0, 'history content should remain visible after agent event');
+  assert(state.scrollOffset > 10, 'scroll offset should grow after agent event inserts output');
+});
+
 test('full history mode keeps startup intro and old messages in the rendered stream', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   for (let index = 0; index < 30; index += 1) {
@@ -134,6 +151,85 @@ test('full history mode keeps startup intro and old messages in the rendered str
   assert(plain.indexOf('history line 0') >= 0, 'oldest history line should remain in full history stream');
   assert(plain.indexOf('history line 29') >= 0, 'latest history line missing from full history stream');
   assert(plain.indexOf('─') >= 0, 'editor area missing from full history stream');
+});
+
+test('bounded viewport mode keeps a stable frame across live UI changes', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 40; index += 1) {
+    state.messages.push({ type: 'assistant', text: `streamed output line ${index}` });
+  }
+  state.mode = 'running';
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    summary: 'df -h',
+    done: true,
+    detail: { stdout: Array.from({ length: 20 }, (_, index) => `disk line ${index}`).join('\n') },
+  });
+
+  const collapsed = renderTui(state, { columns: 90, rows: 18 }, { bodyAlign: 'top' }).split('\n');
+  assert(collapsed.length === 18, `collapsed live frame should fit viewport, got ${collapsed.length}`);
+
+  state.messages[state.messages.length - 1].expanded = true;
+  const expanded = renderTui(state, { columns: 90, rows: 18 }, { bodyAlign: 'top' }).split('\n');
+  assert(expanded.length === 18, `expanded live frame should fit viewport, got ${expanded.length}`);
+
+  state.activePanel = {
+    type: 'command',
+    title: 'Command Palette',
+    hint: 'type to filter - Enter insert - Esc close',
+    query: '',
+    selectedIndex: 0,
+    items: [{ label: '/help', value: '/help', usage: '/help', description: 'Show help', group: 'core' }],
+  };
+  const panel = renderTui(state, { columns: 90, rows: 18 }, { bodyAlign: 'top' }).split('\n');
+  assert(panel.length === 18, `panel live frame should fit viewport, got ${panel.length}`);
+});
+
+test('transcript append records stable messages once and ignores live UI toggles', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ id: 'user-one', type: 'user', text: 'first question' });
+  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', summary: 'running df', done: false });
+  state.messages.push({ id: 'assistant-one', type: 'assistant', text: 'streaming partial answer' });
+
+  let lines = collectTranscriptLines(state, 80);
+  let text = stripAnsi(lines.join('\n'));
+  assert(text.indexOf('first question') >= 0, 'user message missing from transcript');
+  assert(text.indexOf('running df') < 0, 'running tool should not be appended');
+  assert(text.indexOf('streaming partial answer') < 0, 'streaming assistant should not be appended');
+
+  state.messages[1].done = true;
+  state.messages[1].resultSummary = 'exit=0 /dev/root 29G';
+  state.messages[2].type = 'assistant_final';
+  state.messages[2].text = 'final disk answer';
+  lines = collectTranscriptLines(state, 80);
+  text = stripAnsi(lines.join('\n'));
+  assert(text.indexOf('first question') < 0, 'already appended user message repeated');
+  assert(text.indexOf('tool bash') >= 0, 'completed tool missing from transcript');
+  assert(text.indexOf('final disk answer') >= 0, 'final answer missing from transcript');
+
+  state.messages[1].expanded = true;
+  state.activePanel = {
+    type: 'command',
+    title: 'Command Palette',
+    hint: 'type to filter',
+    items: [{ label: '/help', value: '/help' }],
+  };
+  lines = collectTranscriptLines(state, 80);
+  assert(lines.length === 0, 'UI-only toggles should not append transcript again');
+});
+
+test('clear resets transcript watermark for future messages only', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ id: 'before-clear', type: 'system', text: 'before clear' });
+  assert(collectTranscriptLines(state, 80).join('\n').indexOf('before clear') >= 0, 'initial transcript missing');
+  state.messages = [];
+  state.transcriptAppended = {};
+  state.messages.push({ id: 'after-clear', type: 'system', text: 'after clear' });
+  const text = collectTranscriptLines(state, 80).join('\n');
+  assert(text.indexOf('after clear') >= 0, 'post-clear transcript missing');
+  assert(text.indexOf('before clear') < 0, 'clear should not replay old messages');
 });
 
 test('renderer does not expose api key-like text from state', () => {
@@ -157,6 +253,18 @@ test('event adapter renders message_update and tool events', () => {
   assert(output.indexOf('assistant -> tool: runtime_health') >= 0, 'missing assistant update');
   assert(output.indexOf('tool') >= 0 && output.indexOf('runtime_health') >= 0, 'missing tool render');
   assert(output.indexOf('done') >= 0, 'missing summary');
+});
+
+test('event adapter hides provisional answer before internal retry', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });
+  handleAgentEvent(state, { type: 'message_update', role: 'assistant', content: 'unsupported disk answer' });
+  handleAgentEvent(state, { type: 'message_start', role: 'user', internal: true, content: 'rewrite with evidence' });
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });
+  handleAgentEvent(state, { type: 'message_update', role: 'assistant', content: 'corrected disk answer' });
+  const output = renderTui(state, { columns: 100, rows: 24 });
+  assert(output.indexOf('unsupported disk answer') < 0, 'internal retry should hide provisional answer');
+  assert(output.indexOf('corrected disk answer') >= 0, 'corrected answer missing after internal retry');
 });
 
 test('renderer highlights user block and renders final answer as markdown flow', () => {
@@ -386,6 +494,31 @@ test('renderer shows specialized loong env tool summary', () => {
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
   assert(plain.indexOf('arch=loongarch64, node=v14.16.1') >= 0, 'loong env compact summary missing arch/node');
   assert(plain.indexOf('board=LS2K1000') >= 0, 'loong env compact summary missing board');
+});
+
+test('renderer shows specialized loong storage tool summary', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    id: 'storage-one',
+    type: 'tool',
+    toolName: 'loong_storage_check',
+    done: true,
+    detail: {
+      ok: true,
+      summary: 'devices=sda:14.9G root=29G used=14G avail=14G use=50%',
+      data: {
+        filesystems: [{ filesystem: '/dev/root', type: 'ext4', size: '29G', used: '14G', available: '14G', usePercent: '50%', mount: '/' }],
+        blockDevices: [{ name: 'sda', size: '14.9G', type: 'disk', model: 'USB-Disk', rota: '1' }],
+        directoryUsage: '14G /\n2G /home',
+      },
+      evidence: [{ source: 'command', command: 'df -hT', exitCode: 0 }],
+      warnings: [],
+    },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('devices=sda:14.9G') >= 0, 'storage summary missing device');
+  assert(plain.indexOf('root=29G') >= 0, 'storage summary missing root usage');
+  assert(plain.indexOf('"filesystems"') < 0, 'compact storage summary should not show raw json');
 });
 
 test('renderer shows loong env toolchain limitations in compact summary', () => {

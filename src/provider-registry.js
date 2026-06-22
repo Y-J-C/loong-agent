@@ -215,14 +215,12 @@ function extractOpenAiReasoning(parsed) {
 function extractOpenAiDelta(parsed) {
   const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
   if (choice.delta && typeof choice.delta.content === 'string') return choice.delta.content;
-  if (choice.message && typeof choice.message.content === 'string') return choice.message.content;
   return '';
 }
 
 function extractOpenAiReasoningDelta(parsed) {
   const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
   if (choice.delta && typeof choice.delta.reasoning_content === 'string') return choice.delta.reasoning_content;
-  if (choice.message && typeof choice.message.reasoning_content === 'string') return choice.message.reasoning_content;
   return '';
 }
 

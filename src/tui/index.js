@@ -13,6 +13,7 @@ const { createDiffRenderer } = require('./diff');
 const { handleFocusedKey } = require('./interactions');
 const { toggleGlobalToolDetails, toggleSelectedToolDetail } = require('./tool-focus');
 const { matchesAction } = require('./keybindings');
+const { collectTranscriptLines } = require('./transcript');
 
 const ENABLE_MODIFIED_KEYS = '\x1b[>4;2m';
 const DISABLE_MODIFIED_KEYS = '\x1b[>4;0m';
@@ -149,9 +150,13 @@ async function runTui(config, options) {
     if (stopped) return;
     try {
       const size = terminalSize(output);
+      const transcriptLines = collectTranscriptLines(state, size.columns);
+      if (transcriptLines.length) {
+        output.write(`${ANSI.hideCursor}\r\n${transcriptLines.join('\n')}\r\n`);
+        diffRenderer.reset();
+      }
       const lines = renderTui(state, size, {
         bodyAlign: 'top',
-        fullHistory: true,
         showHardwareCursor: state.showHardwareCursor !== false,
       }).split('\n');
       output.write(diffRenderer.render(lines, size));

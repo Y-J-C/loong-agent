@@ -102,6 +102,7 @@ function createBashToolDefinition() {
     category: 'safety-sensitive',
     safety: { readOnly: true, sensitive: true, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'command' },
+    repeatPolicy: 'answerable_once',
     resultSchema: {
       data: 'command execution result',
       evidence: 'command, exitCode, durationMs',

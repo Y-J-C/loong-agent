@@ -62,6 +62,8 @@ test('ctrl-k ctrl-w home end and scroll keys work', () => {
   state.cursor = 1;
   applyKey(state, { type: 'ctrl_k' });
   assert(state.inputBuffer === 'x', `ctrl-k failed: ${state.inputBuffer}`);
+  state.scrollBodyLength = 20;
+  state.scrollVisibleRows = 6;
   applyKey(state, { type: 'page_up' });
   assert(state.scrollOffset === 5, 'page up failed');
   applyKey(state, { type: 'page_down' });

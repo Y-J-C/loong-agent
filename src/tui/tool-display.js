@@ -153,6 +153,24 @@ function knowledgeSummary(result, fallback) {
   return lines.filter(Boolean).slice(0, 3);
 }
 
+function storageSummary(result, fallback) {
+  const source = asObject(fallback) || result || {};
+  const data = source.data || source;
+  const lines = [];
+  if (source.summary) lines.push(compactLine(source.summary, 160));
+  const filesystems = data.filesystems || source.filesystems || [];
+  const devices = data.blockDevices || source.blockDevices || [];
+  const root = Array.isArray(filesystems) ? filesystems.find((item) => item && item.mount === '/') : null;
+  const disks = Array.isArray(devices) ? devices.filter((item) => item && item.type === 'disk') : [];
+  if (disks.length) lines.push(`devices=${disks.map((item) => `${item.name || '?'}:${item.size || '?'}`).join(',')}`);
+  if (root) lines.push(`root=${root.size || '?'} used=${root.used || '?'} avail=${root.available || '?'} use=${root.usePercent || '?'}`);
+  if (data.directoryUsage) lines.push(`du=${compactLine(data.directoryUsage, 120)}`);
+  const ev = evidenceSummary(source);
+  if (ev) lines.push(ev);
+  if (!lines.length && fallback) lines.push(compactLine(fallback, 160));
+  return lines.filter(Boolean).slice(0, 3);
+}
+
 function genericSummary(result, fallback) {
   const source = asObject(fallback) || result || {};
   if (source && typeof source === 'object') {
@@ -176,6 +194,7 @@ function summarizeToolMessage(message) {
   const result = message && message.detail && typeof message.detail === 'object' ? message.detail : {};
   const fallback = message && (message.summary || message.resultSummary) ? String(message.summary || message.resultSummary) : '';
   if (toolName === 'bash') return bashSummary(result, fallback);
+  if (toolName === 'loong_storage_check') return storageSummary(result, fallback);
   if (toolName === 'loong_env_check' || toolName === 'runtime_health' || toolName === 'board_profile') {
     return envSummary(result, fallback);
   }
