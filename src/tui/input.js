@@ -1,5 +1,7 @@
 'use strict';
 
+const { scrollByPages } = require('./scroll');
+
 function chars(text) {
   return Array.from(String(text || ''));
 }
@@ -356,8 +358,8 @@ function applyKey(state, key) {
   else if (key.type === 'down' || key.type === 'ctrl_n') historyDown(state);
   else if (key.type === 'ctrl_a' || key.type === 'home') state.cursor = 0;
   else if (key.type === 'ctrl_e' || key.type === 'end') state.cursor = chars(state.inputBuffer).length;
-  else if (key.type === 'page_up') state.scrollOffset = Math.min((state.scrollOffset || 0) + 5, 500);
-  else if (key.type === 'page_down') state.scrollOffset = Math.max((state.scrollOffset || 0) - 5, 0);
+  else if (key.type === 'page_up') scrollByPages(state, -1);
+  else if (key.type === 'page_down') scrollByPages(state, 1);
 }
 
 module.exports = {

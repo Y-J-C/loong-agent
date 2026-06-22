@@ -296,17 +296,33 @@ test('tool detail toggle selects latest tool when none is focused', async () => 
 
 test('tool focus navigation preserves scroll behavior through focused input', async () => {
   const state = createTuiState({});
+  state.scrollBodyLength = 40;
+  state.scrollVisibleRows = 12;
   state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash' });
   state.messages.push({ id: 'tool-two', type: 'tool', toolName: 'bash' });
   await handleFocusedKey(state, { type: 'page_up' }, {});
-  assert(state.scrollOffset === 5, 'page up should still scroll');
+  assert(state.scrollOffset === 11, 'page up should scroll by viewport step');
   assert(state.selectedMessageId === 'tool-two', 'first page navigation should select latest tool');
   await handleFocusedKey(state, { type: 'page_up' }, {});
-  assert(state.scrollOffset === 10, 'second page up should still scroll');
+  assert(state.scrollOffset === 22, 'second page up should still scroll by viewport step');
   assert(state.selectedMessageId === 'tool-one', 'page up should move to previous tool');
   await handleFocusedKey(state, { type: 'page_down' }, {});
-  assert(state.scrollOffset === 5, 'page down should still scroll back');
+  assert(state.scrollOffset === 11, 'page down should scroll back by viewport step');
   assert(state.selectedMessageId === 'tool-two', 'page down should move to next tool');
+});
+
+test('input submit returns to latest output from history view', async () => {
+  const state = createTuiState({});
+  state.scrollOffset = 12;
+  state.viewingHistory = true;
+  state.inputBuffer = 'run latest';
+  let submitted = '';
+  await handleFocusedKey(state, { type: 'enter' }, {
+    submit: async (text) => { submitted = text; },
+  });
+  assert(submitted === 'run latest', 'submit should still pass input text');
+  assert(state.scrollOffset === 0, 'submit should return to bottom');
+  assert(state.viewingHistory === false, 'submit should clear history view flag');
 });
 
 test('global tool detail toggle stays independent from selected tool state', async () => {

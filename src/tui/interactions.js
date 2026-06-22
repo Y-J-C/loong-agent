@@ -5,6 +5,7 @@ const { addMessage, autocompleteCommand, updateAutocomplete } = require('./state
 const { getFocusedSurface } = require('./focus');
 const { selectToolByDelta } = require('./tool-focus');
 const { matchesAction, resolveKeyAction } = require('./keybindings');
+const { scrollToBottom } = require('./scroll');
 const {
   collapseTreeNode,
   cycleTreeFilterMode,
@@ -395,6 +396,7 @@ async function handleInputKey(state, key, actions) {
     return true;
   }
   if (state.mode !== 'running' && matchesAction('editor', 'submit', key)) {
+    scrollToBottom(state);
     if (actions && actions.submit) await actions.submit(state.inputBuffer);
     return true;
   }

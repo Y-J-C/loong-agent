@@ -21,6 +21,7 @@ const { collectTuiStats, fileSize, formatBranchInfo, formatStats } = require('./
 const { hasTheme, listThemes } = require('./theme');
 const { toggleGlobalToolDetails } = require('./tool-focus');
 const { buildTreeSelector } = require('./session-tree');
+const { scrollToBottom, scrollToTop } = require('./scroll');
 const { shortcutHint } = require('./keybindings');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
 
@@ -656,6 +657,18 @@ async function runSlashCommandLegacy(context, text) {
 
   if (name === '/stats') {
     addMessage(state, { type: 'system', text: formatStats(collectTuiStats(config, state)) });
+    return;
+  }
+
+  if (name === '/bottom') {
+    scrollToBottom(state);
+    addMessage(state, { type: 'system', text: '已回到底部 / Back to latest output.' });
+    return;
+  }
+
+  if (name === '/top') {
+    scrollToTop(state);
+    addMessage(state, { type: 'system', text: '已跳到最早可见历史 / Jumped to oldest visible history.' });
     return;
   }
 

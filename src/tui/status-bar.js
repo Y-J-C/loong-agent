@@ -40,7 +40,10 @@ function renderStatusBar(state, width) {
   const modeIcon = state.agentStatus === 'running' ? 'RUN' : state.agentStatus === 'error' ? 'ERR' : 'IDLE';
   const modeText = statusLabel(state.agentStatus || state.status);
   const queued = state.queuedFollowUps && state.queuedFollowUps.length ? ` +${state.queuedFollowUps.length}` : '';
-  const left = `${cwdShort} ${modeIcon}/${modeText}${queued} ${truncateToWidth(board, Math.floor(width / 3))}`;
+  const history = state.scrollOffset > 0 ? ` history +${state.scrollOffset}` : '';
+  const left = history
+    ? `${history.trim()} ${cwdShort} ${modeIcon}/${modeText}${queued}`
+    : `${cwdShort} ${modeIcon}/${modeText}${queued} ${truncateToWidth(board, Math.floor(width / 3))}`;
   const tokens = `in ${formatTokens(state.tokenInput)} out ${formatTokens(state.tokenOutput)}${state.tokenCached ? ` cache ${formatTokens(state.tokenCached)}` : ''}`;
   const model = state.model ? `${state.provider || ''}/${state.model}` : state.provider || 'no-model';
   const think = state.thinkingLevel && state.thinkingLevel !== 'off' ? ` ${state.thinkingLevel}` : '';

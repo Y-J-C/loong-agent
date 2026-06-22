@@ -9,6 +9,7 @@ const {
   MessageListComponent,
   StatusBarComponent,
 } = require('./components');
+const { updateScrollMetrics } = require('./scroll');
 
 function fitFrameLine(line, width) {
   return padRight(truncateToWidth(String(line || ''), width), width);
@@ -36,7 +37,8 @@ function renderTui(state, size, options) {
   const available = Math.max(1, height - slotLines.length - autocompleteLines.length - statusLines.length);
 
   const body = renderComponentLines(new MessageListComponent(), width, context);
-  const end = Math.max(0, body.length - (state.scrollOffset || 0));
+  const scroll = updateScrollMetrics(state, body.length, available);
+  const end = Math.max(0, body.length - scroll.offset);
 
   let renderedBody;
   if (opts.fullHistory && !(state.scrollOffset > 0)) {

@@ -131,6 +131,23 @@ test('help and commands panel use the shared slash command definitions', async (
   assert(!/[åæäçèéêëìíîïðòóôõùúûüýþÿ]/i.test(help), 'help output still contains mojibake');
 });
 
+test('bottom and top commands control history view', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  context.state.scrollBodyLength = 40;
+  context.state.scrollVisibleRows = 10;
+  await handleCommand(context, '/top');
+  assert(context.state.scrollOffset === 30, 'top command should jump to max scroll offset');
+  assert(context.state.viewingHistory === true, 'top command should mark history view');
+  await handleCommand(context, '/bottom');
+  assert(context.state.scrollOffset === 0, 'bottom command should return to latest output');
+  assert(context.state.viewingHistory === false, 'bottom command should clear history view');
+  await handleCommand(context, '/commands');
+  const values = context.state.activePanel.items.map((item) => item.value);
+  assert(values.indexOf('/bottom') >= 0, 'commands panel missing bottom command');
+  assert(values.indexOf('/top') >= 0, 'commands panel missing top command');
+});
+
 test('tree lineage fork export and session commands work', async () => {
   const workspace = tempWorkspace();
   await runAgent(config(workspace), 'base');

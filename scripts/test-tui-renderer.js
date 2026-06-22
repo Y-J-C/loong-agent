@@ -69,6 +69,58 @@ test('startup intro scrolls with message history instead of staying fixed', () =
   assert(plain.indexOf('─') >= 0, 'editor area missing');
 });
 
+test('renderer clamps scroll offset and records scroll metrics', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 30; index += 1) {
+    state.messages.push({ type: 'system', text: `history line ${index}` });
+  }
+  state.scrollOffset = 999;
+  const output = renderTui(state, { columns: 80, rows: 12 });
+  assert(state.scrollVisibleRows > 0, 'missing visible row metric');
+  assert(state.scrollBodyLength > state.scrollVisibleRows, 'missing body length metric');
+  assert(state.scrollMaxOffset > 0, 'missing max scroll offset');
+  assert(state.scrollOffset === state.scrollMaxOffset, 'scroll offset was not clamped to max');
+  assert(stripAnsi(output).indexOf('history line 29') < 0, 'top scroll should not show latest history');
+});
+
+test('renderer shows history offset in status bar without exceeding width', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 30; index += 1) {
+    state.messages.push({ type: 'system', text: `history line ${index}` });
+  }
+  state.scrollOffset = 9;
+  const output = renderTui(state, { columns: 52, rows: 12 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('history +9') >= 0, 'status bar missing history offset');
+  for (const line of output.split('\n')) {
+    assert(visibleWidth(line) <= 52, `history status line exceeds width: ${stripAnsi(line)}`);
+  }
+});
+
+test('renderer follows new output only when already at bottom', () => {
+  const bottom = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 20; index += 1) {
+    bottom.messages.push({ type: 'system', text: `bottom history ${index}` });
+  }
+  renderTui(bottom, { columns: 80, rows: 12 });
+  bottom.messages.push({ type: 'system', text: 'new latest output' });
+  const latest = stripAnsi(renderTui(bottom, { columns: 80, rows: 12 }));
+  assert(latest.indexOf('new latest output') >= 0, 'bottom view should follow new output');
+
+  const history = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 20; index += 1) {
+    history.messages.push({ type: 'system', text: `stable history ${index}` });
+  }
+  renderTui(history, { columns: 80, rows: 12 });
+  history.scrollOffset = 8;
+  const before = stripAnsi(renderTui(history, { columns: 80, rows: 12 }));
+  history.messages.push({ type: 'system', text: 'new output while reading' });
+  const after = stripAnsi(renderTui(history, { columns: 80, rows: 12 }));
+  assert(after.indexOf('new output while reading') < 0, 'history view should not jump to new output');
+  assert(after.indexOf('stable history') >= 0 && before.indexOf('stable history') >= 0, 'history content should remain visible');
+  assert(history.scrollOffset > 8, 'history offset should grow to preserve viewed output');
+});
+
 test('full history mode keeps startup intro and old messages in the rendered stream', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   for (let index = 0; index < 30; index += 1) {
