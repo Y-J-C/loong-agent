@@ -144,6 +144,7 @@ function handleAgentEvent(state, event) {
     state.currentAssistantEventId = msg.id;
   } else if (event.type === 'message_update' && event.role === 'assistant') {
     const result = assistantPatch(event.content || '', event);
+    result.patch.wasLiveRendered = true;
     updateMessage(state, state.currentAssistantEventId, result.patch);
     if (result.normalized.displayKind === 'plain' || result.normalized.displayKind === 'model_answer') {
       state.lastAssistantText = result.normalized.text || state.lastAssistantText;

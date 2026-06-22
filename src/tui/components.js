@@ -33,6 +33,7 @@ const {
   brandTitle,
   toolStatusLabel,
 } = require('../cli-view');
+const { shouldRenderLiveMessage } = require('./transcript');
 
 const MAX_MESSAGE_LINES = 80;
 const MAX_TOOL_DETAIL_LINES = 18;
@@ -538,7 +539,7 @@ class MessageListComponent {
     body.push(...new HeaderComponent().render(width, context));
     let prevType = '';
     for (const message of state.messages) {
-      if (message.hidden) continue;
+      if (!shouldRenderLiveMessage(state, message)) continue;
       body.push(...renderTurnSeparator(prevType, message.type, width, theme));
       body.push(...createMessageComponent(message).render(width, context));
       prevType = message.type;

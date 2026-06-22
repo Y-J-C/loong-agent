@@ -152,7 +152,7 @@ async function runTui(config, options) {
       const size = terminalSize(output);
       const transcriptLines = collectTranscriptLines(state, size.columns);
       if (transcriptLines.length) {
-        output.write(`${ANSI.hideCursor}\r\n${transcriptLines.join('\n')}\r\n`);
+        output.write(`${ANSI.hideCursor}\r\n${transcriptLines.join('\n')}\r\n${ANSI.clear}${ANSI.home}`);
         diffRenderer.reset();
       }
       const lines = renderTui(state, size, {

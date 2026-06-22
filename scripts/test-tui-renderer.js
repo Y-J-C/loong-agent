@@ -220,6 +220,43 @@ test('transcript append records stable messages once and ignores live UI toggles
   assert(lines.length === 0, 'UI-only toggles should not append transcript again');
 });
 
+test('transcripted stable messages are removed from live viewport', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ id: 'user-one', type: 'user', text: 'disk question' });
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'loong_storage_check',
+    done: true,
+    resultSummary: 'root=5.0G used=3.4G',
+  });
+  state.messages.push({ id: 'answer-one', type: 'assistant_final', text: 'final disk answer' });
+  state.messages.push({ id: 'live-stream', type: 'assistant', text: 'current live stream' });
+
+  const transcript = stripAnsi(collectTranscriptLines(state, 80).join('\n'));
+  assert(transcript.indexOf('disk question') >= 0, 'user message missing from transcript');
+  assert(transcript.indexOf('tool loong_storage_check') >= 0, 'tool message missing from transcript');
+  assert(transcript.indexOf('final disk answer') >= 0, 'final answer missing from transcript');
+
+  const live = stripAnsi(renderTui(state, { columns: 100, rows: 18 }, { bodyAlign: 'top' }));
+  assert(live.indexOf('disk question') < 0, 'transcripted user message remained in live viewport');
+  assert(live.indexOf('tool loong_storage_check') < 0, 'transcripted tool message remained in live viewport');
+  assert(live.indexOf('final disk answer') < 0, 'transcripted final answer remained in live viewport');
+  assert(live.indexOf('current live stream') >= 0, 'non-stable live assistant message should remain visible');
+});
+
+test('streamed final answers are archived without duplicate transcript append', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ id: 'streamed-answer', type: 'assistant_final', text: 'already streamed final answer', wasLiveRendered: true });
+
+  const transcript = stripAnsi(collectTranscriptLines(state, 80).join('\n'));
+  assert(transcript.indexOf('already streamed final answer') < 0, 'streamed final answer should not be appended twice');
+  assert(state.transcriptAppended['streamed-answer'] === true, 'streamed final answer should still be archived');
+
+  const live = stripAnsi(renderTui(state, { columns: 100, rows: 18 }, { bodyAlign: 'top' }));
+  assert(live.indexOf('already streamed final answer') < 0, 'archived streamed final answer remained in live viewport');
+});
+
 test('clear resets transcript watermark for future messages only', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({ id: 'before-clear', type: 'system', text: 'before clear' });

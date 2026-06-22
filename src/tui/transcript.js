@@ -35,6 +35,7 @@ function transcriptLinesForMessage(message, width) {
   const maxWidth = Math.max(40, Number(width) || 100);
   let rawLines = [];
   if (!stableMessage(message)) return [];
+  if (message.type === 'assistant_final' && message.wasLiveRendered) return [];
   if (message.type === 'tool') rawLines = formatTool(message);
   else rawLines = String(message.text || '').split(/\r?\n/);
 
@@ -56,11 +57,22 @@ function collectTranscriptLines(state, width) {
     const id = messageId(message);
     if (!id || state.transcriptAppended[id]) continue;
     const messageLines = transcriptLinesForMessage(message, width);
-    if (!messageLines.length) continue;
+    if (!messageLines.length) {
+      if (stableMessage(message)) state.transcriptAppended[id] = true;
+      continue;
+    }
     state.transcriptAppended[id] = true;
     lines.push.apply(lines, messageLines);
   }
   return lines;
+}
+
+function shouldRenderLiveMessage(state, message) {
+  if (!message || message.hidden) return false;
+  const id = messageId(message);
+  if (!id) return true;
+  if (!state || !state.transcriptAppended || !state.transcriptAppended[id]) return true;
+  return !stableMessage(message);
 }
 
 function resetTranscript(state) {
@@ -71,6 +83,7 @@ function resetTranscript(state) {
 module.exports = {
   collectTranscriptLines,
   resetTranscript,
+  shouldRenderLiveMessage,
   stableMessage,
   transcriptLinesForMessage,
 };
