@@ -61,11 +61,28 @@ function compactText(text, limit) {
   return `${value.slice(0, max - 1)}…`;
 }
 
+function isRepeatedToolBlock(event) {
+  const result = event && event.result || {};
+  const text = [
+    event && event.errorType,
+    event && event.resultSummary,
+    event && event.summary,
+    event && event.error,
+    result && result.error,
+    result && result.message,
+    result && result.reason,
+  ].filter(Boolean).join('\n');
+  return /Repeated tool call blocked/i.test(text);
+}
+
 function arrayCount(value) {
   return Array.isArray(value) ? value.length : 0;
 }
 
 function toolResultSummary(event) {
+  if (isRepeatedToolBlock(event)) {
+    return '重复调用已跳过，沿用上一次工具结果';
+  }
   const result = event.result || {};
   const rawSummary = event.resultSummary || result.summary || result.error || '';
   const parsedSummary = parseMaybeJsonObject(rawSummary);
@@ -89,6 +106,7 @@ function toolResultSummary(event) {
 }
 
 function toolErrorType(event) {
+  if (isRepeatedToolBlock(event)) return 'repeated_suppressed';
   const result = event.result || {};
   if (event.errorType) return event.errorType;
   if (result.blocked) return 'policy_blocked';
@@ -121,6 +139,7 @@ function handleAgentEvent(state, event) {
     if (event.prompt) {
       addMessage(state, {
         type: 'system',
+        ephemeral: true,
         text: [
           workflow('intake', event.prompt),
           workflow('plan', `模型 ${event.providerProfile || event.provider || 'provider'}/${event.model || 'model'} 已接入`),
@@ -144,7 +163,6 @@ function handleAgentEvent(state, event) {
     state.currentAssistantEventId = msg.id;
   } else if (event.type === 'message_update' && event.role === 'assistant') {
     const result = assistantPatch(event.content || '', event);
-    result.patch.wasLiveRendered = true;
     updateMessage(state, state.currentAssistantEventId, result.patch);
     if (result.normalized.displayKind === 'plain' || result.normalized.displayKind === 'model_answer') {
       state.lastAssistantText = result.normalized.text || state.lastAssistantText;
@@ -206,7 +224,7 @@ function handleAgentEvent(state, event) {
       toolName: event.toolName,
       summary: toolResultSummary(event) || workflow('evidence', '工具已返回'),
       done: true,
-      isError: Boolean(event.isError),
+      isError: Boolean(event.isError) && errorType !== 'repeated_suppressed',
       status: errorType || (event.isError ? 'tool_error' : 'ok'),
       errorType,
       durationMs: event.durationMs,

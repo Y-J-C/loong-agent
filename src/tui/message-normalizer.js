@@ -75,6 +75,62 @@ function normalizeAssistantContent(content, options) {
   };
 }
 
+function normalizeStatusText(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9_:-]+/g, '_');
+}
+
+function textContainsRepeatedToolBlock() {
+  const text = Array.prototype.slice.call(arguments)
+    .filter(Boolean)
+    .join('\n');
+  return /Repeated tool call blocked/i.test(text);
+}
+
+function isLiveMessageVisible(message, state) {
+  if (!message || message.hidden) return false;
+  if (message.ephemeral && state && state.mode !== 'running') return false;
+  return true;
+}
+
+function normalizeToolDisplayStatus(message) {
+  const source = message || {};
+  const detail = source.detail && typeof source.detail === 'object' ? source.detail : {};
+  let value = normalizeStatusText(source.errorType || source.status || detail.status);
+
+  if (
+    value === 'repeated_suppressed' ||
+    textContainsRepeatedToolBlock(source.summary, source.resultSummary, source.error, detail.error, detail.message, detail.reason)
+  ) {
+    return { status: 'repeated_suppressed', isError: false, isRepeatedSuppressed: true };
+  }
+
+  if (value === 'cancelled' || value === 'canceled') {
+    return { status: 'cancelled', isError: true, isRepeatedSuppressed: false };
+  }
+  if (value === 'timeout' || value === 'timed_out') {
+    return { status: 'timeout', isError: true, isRepeatedSuppressed: false };
+  }
+  if (value === 'policy_blocked') {
+    return { status: 'policy_blocked', isError: true, isRepeatedSuppressed: false };
+  }
+  if (value === 'tool_error' || value === 'error' || value === 'failed') {
+    return { status: 'tool_error', isError: true, isRepeatedSuppressed: false };
+  }
+  if (value === 'ok' || value === 'success') {
+    return { status: 'ok', isError: false, isRepeatedSuppressed: false };
+  }
+  if (value === 'running') {
+    return { status: 'running', isError: false, isRepeatedSuppressed: false };
+  }
+
+  if (source.isError) return { status: 'tool_error', isError: true, isRepeatedSuppressed: false };
+  if (source.done) return { status: 'ok', isError: false, isRepeatedSuppressed: false };
+  return { status: 'running', isError: false, isRepeatedSuppressed: false };
+}
+
 module.exports = {
+  isLiveMessageVisible,
   normalizeAssistantContent,
+  normalizeStatusText,
+  normalizeToolDisplayStatus,
 };

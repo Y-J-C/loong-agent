@@ -72,7 +72,6 @@ function createTuiState(config) {
     undoStack: [],
     redoStack: [],
     undoDepth: 50,
-    transcriptAppended: {},
   };
 }
 
@@ -105,7 +104,6 @@ function clearMessages(state) {
   state.turnCount = 0;
   state.status = 'cleared';
   state.agentStatus = 'idle';
-  state.transcriptAppended = {};
 }
 
 function updateAutocomplete(state) {

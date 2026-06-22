@@ -4,7 +4,7 @@ const KEYBINDINGS = {
   global: [
     { action: 'abortOrExit', keys: [{ type: 'ctrl_c' }], hint: 'Ctrl+C' },
     { action: 'exitIfEmpty', keys: [{ type: 'ctrl_d' }], hint: 'Ctrl+D' },
-    { action: 'openModel', keys: [{ type: 'ctrl_l' }], hint: 'Ctrl+L' },
+    { action: 'forceRedraw', keys: [{ type: 'ctrl_l' }], hint: 'Ctrl+L' },
   ],
   tool: [
     { action: 'toggleCurrentDetail', keys: [{ type: 'ctrl_o' }], hint: 'Ctrl+O' },

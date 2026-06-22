@@ -1,6 +1,7 @@
 'use strict';
 
 const { redactJson, redactSensitive } = require('./screen');
+const { normalizeStatusText, normalizeToolDisplayStatus } = require('./message-normalizer');
 
 function asObject(value) {
   if (!value) return null;
@@ -47,7 +48,19 @@ function count(value) {
 }
 
 function normalizeToolStatus(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9_:-]+/g, '_');
+  return normalizeStatusText(value);
+}
+
+function isRepeatedSuppressed(source, fallback) {
+  const text = [
+    source && source.error,
+    source && source.message,
+    source && source.reason,
+    source && source.resultSummary,
+    fallback,
+  ].filter(Boolean).join('\n');
+  return normalizeToolStatus(source && source.status) === 'repeated_suppressed' ||
+    /Repeated tool call blocked/i.test(text);
 }
 
 function failureReason(source) {
@@ -175,6 +188,7 @@ function genericSummary(result, fallback) {
   const source = asObject(fallback) || result || {};
   if (source && typeof source === 'object') {
     const lines = [];
+    if (isRepeatedSuppressed(source, fallback)) lines.push('重复调用已跳过，沿用上一次工具结果');
     if (source.blocked || source.policy || normalizeToolStatus(source.status) === 'policy_blocked') lines.push('not_executed');
     if (source.error) lines.push(compactLine(source.error, 160));
     else if (source.summary) lines.push(compactLine(source.summary, 160));
@@ -190,6 +204,10 @@ function genericSummary(result, fallback) {
 }
 
 function summarizeToolMessage(message) {
+  const displayStatus = normalizeToolDisplayStatus(message);
+  if (displayStatus.status === 'repeated_suppressed') {
+    return ['重复调用已跳过，沿用上一次工具结果'];
+  }
   const toolName = message && message.toolName ? String(message.toolName) : '';
   const result = message && message.detail && typeof message.detail === 'object' ? message.detail : {};
   const fallback = message && (message.summary || message.resultSummary) ? String(message.summary || message.resultSummary) : '';

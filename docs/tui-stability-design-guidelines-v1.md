@@ -1,0 +1,780 @@
+# loong agent TUI 稳定性设计准则 v1
+
+## 一、文档目的
+
+这份文档用于约束 loong agent 后续 TUI 修复、优化和重构的技术判断。
+
+当前 TUI 已经具备输入、工具卡片、命令面板、会话浏览和长会话滚动等能力，但近期暴露出一类更底层的问题：不是单个快捷键或某个组件坏了，而是渲染源、事件分类、显示层级和终端写入策略没有形成严格不变量。
+
+因此，后续 TUI 改动必须先满足本准则，再讨论视觉细节、功能扩展和 Pi-style 体验对齐。
+
+## 二、适用范围
+
+适用于以下模块：
+
+- `src/tui/index.js`
+- `src/tui/renderer.js`
+- `src/tui/components.js`
+- `src/tui/event-adapter.js`
+- `src/tui/input.js`
+- `src/tui/interactions.js`
+- `src/tui/diff.js`
+- `src/tui/scroll.js`
+- `src/tui/commands.js`
+- `src/tui/slash-commands.js`
+- 所有 `scripts/test-tui-*.js`
+
+不适用于：
+
+- 非交互 CLI 输出格式
+- HTML session export
+- `dist` 打包产物
+- 模型供应商协议本身
+
+## 三、核心结论
+
+loong agent 的 TUI 必须采用“单一状态源 + 单一渲染管线”的设计。
+
+也就是说，用户最终看到的主界面只能由：
+
+```text
+runtime/event -> event-adapter -> state -> renderTui -> diffRenderer -> terminal
+```
+
+这一条路径产生。
+
+禁止再引入第二条并行显示路径，例如：
+
+```text
+message -> transcript append -> terminal scrollback
+```
+
+再反向从 live viewport 里过滤消息。这类设计会造成消息被吃掉、状态栏重复、输入框跳位、Ctrl+O 后显示错乱等问题。
+
+完整历史、导出、调试日志可以存在，但它们必须是显式功能，不能参与主 TUI 的实时渲染。
+
+## 四、第一性原理
+
+TUI 的本质不是“把文本打印到终端”，而是在一个不可靠、尺寸变化、输入编码复杂、终端能力不一致的环境里，维护一块受控屏幕。
+
+因此 TUI 稳定性依赖五个基础变量：
+
+1. **状态源**
+   当前界面到底由哪个状态决定。
+
+2. **事件语义**
+   runtime 事件、用户消息、工具结果、系统提示、debug 信息分别是什么。
+
+3. **布局边界**
+   哪些区域固定，哪些区域滚动，哪些区域覆盖，哪些区域临时显示。
+
+4. **终端写入**
+   每次写入是否可预测，是否会破坏已有 viewport、scrollback、光标和输入区。
+
+5. **恢复能力**
+   当终端显示异常、宽高变化、SSH 抖动、PTY 编码异常时，用户如何恢复。
+
+如果这五个变量没有被约束，再多小修都会变成局部补丁。
+
+## 五、架构不变量
+
+### 1. 单一消息源
+
+主 TUI 中的对话内容必须来自 `state.messages`。
+
+`state.messages` 是 live viewport 的唯一消息来源。所有 user、assistant、tool、error 等可见内容必须进入这个数组，再由 `MessageListComponent` 渲染。
+
+禁止：
+
+- 在 `render()` 之外直接向 stdout 写入对话消息。
+- 将某条已完成消息 append 到终端后，再从 `state.messages` 里过滤掉。
+- 用 watermark 判断某条消息是否“已经显示过”，从而影响 live viewport。
+
+允许：
+
+- session export 从 session JSONL 中生成 Markdown/HTML。
+- debug log 记录 ANSI 写入流。
+- 用户主动触发的 transcript dump，例如未来的 `/transcript terminal`。
+
+### 2. 单一渲染入口
+
+主界面必须只通过 `renderTui(state, size, options)` 生成完整 frame。
+
+`runTui()` 可以做：
+
+- 获取 terminal size。
+- 调用 `renderTui()`。
+- 调用 `diffRenderer.render()`。
+- 处理 raw mode、bracketed paste、退出恢复。
+
+`runTui()` 不应该做：
+
+- 拼接业务消息文本。
+- 根据消息类型直接写 stdout。
+- 在 `renderTui()` 之前插入 transcript、tool detail 或 assistant answer。
+
+### 3. 组件行宽契约
+
+所有组件的输出行都必须满足：
+
+```text
+visibleWidth(line) <= terminal columns
+```
+
+适用对象：
+
+- header
+- user block
+- assistant markdown
+- tool card
+- editor
+- autocomplete
+- command panel
+- session selector
+- status bar
+- overlay / panel
+
+任何新组件必须配套窄终端测试。
+
+推荐做法：
+
+- 长文本 wrap。
+- 单行状态 truncate。
+- ANSI 文本必须用 ANSI-aware width/truncate/wrap 工具。
+- 中文、全角字符、emoji、路径、ANSI 样式都纳入测试。
+
+### 4. 固定 frame 契约
+
+默认 live TUI 每次渲染的 frame 行数必须稳定等于 terminal rows。
+
+除非明确进入 full history/debug/export 模式，否则不能因为消息变长而让输入框和状态栏被挤出当前 viewport。
+
+必须保证：
+
+- 输入框位置稳定。
+- status bar 只出现一次。
+- hardware cursor marker 不泄漏。
+- resize 后 frame 重新计算。
+- Ctrl+O、/more、/commands 等 UI 状态变化不改变消息源。
+
+### 5. 焦点唯一
+
+同一时刻只有一个输入焦点：
+
+- editor
+- autocomplete
+- command panel
+- session selector
+- resume prompt
+- settings/model panel
+- running steer input
+
+焦点决策必须集中在 focused dispatcher 或等价层，不能由多个组件同时抢输入。
+
+焦点切换必须明确：
+
+- `Esc` 返回哪里。
+- `Enter` 是提交、选择、插入还是确认。
+- `Tab` 是补全还是切换。
+- 关闭 panel 后焦点回到哪里。
+
+## 六、事件分类准则
+
+runtime event 不能直接等同于用户可见消息。进入 TUI 前必须先分类。
+
+### 1. 用户消息
+
+用户提交的 prompt 必须进入 `state.messages`，类型为 user。
+
+要求：
+
+- 只记录用户明确提交的内容。
+- paste 中包含多行或 slash command 不自动拆成多条 user message。
+- 历史导航不重复写 user message。
+
+### 2. Assistant 流式消息
+
+assistant 流式输出必须只有一个 live message。
+
+要求：
+
+- `message_start` 创建当前 assistant message。
+- `message_update` 更新同一条 message。
+- `message_end` 或 final answer 将其标记为完成。
+- 不得同时保留 streaming assistant 和 duplicated assistant_final。
+
+禁止：
+
+- 把完整 `message.content` 当作 delta 追加。
+- final chunk 再次 append 已经流式显示过的完整回答。
+- 内部 retry/provisional answer 直接暴露为正式回答。
+
+### 3. 工具消息
+
+工具消息必须区分：
+
+- `running`
+- `success`
+- `failed`
+- `policy_blocked`
+- `repeated_suppressed`
+- `cancelled`
+- `timeout`
+
+其中 `policy_blocked` 又应区分：
+
+- 真正危险操作被拦截。
+- 重复工具调用被 repeat guard 拦截。
+
+重复调用保护不应以强错误形式打断用户理解。对于：
+
+```text
+Repeated tool call blocked: <tool> was already called with the same input.
+```
+
+TUI 应优先显示为：
+
+```text
+重复调用已跳过，沿用上一次工具结果
+```
+
+并将原始原因放入 tool details/debug，而不是作为第二张醒目的失败工具卡片。
+
+### 4. 系统状态消息
+
+例如：
+
+- 解析需求
+- 规划步骤
+- 风险提示
+- prompt metadata
+- receiving structured response
+
+这类信息默认是运行中状态，不是对话历史。
+
+要求：
+
+- running 时可以短暂显示。
+- idle 后默认隐藏。
+- 不进入最终对话 transcript。
+- 不参与 session answer 的主体展示。
+
+如果需要保留，应进入 debug/audit/export，而不是主消息流。
+
+### 5. 错误消息
+
+错误必须分层：
+
+- 用户需要处理的错误。
+- Agent 可自动恢复的错误。
+- 工具策略拦截。
+- 模型协议异常。
+- TUI 渲染异常。
+- 终端能力异常。
+
+用户可见错误必须包含：
+
+- 发生了什么。
+- 影响是什么。
+- 下一步能做什么。
+
+禁止直接铺 stack trace、原始 JSON、内部策略全文。
+
+## 七、布局准则
+
+### 1. 页面结构
+
+默认 TUI 结构：
+
+```text
+header
+message viewport
+editor / active panel slot
+status bar
+```
+
+其中：
+
+- header 可简短，不应频繁变化。
+- message viewport 是主要阅读区。
+- editor/panel slot 是输入和临时交互区。
+- status bar 放模式、板端、模型、token、时间等低频信息。
+
+### 2. Message viewport
+
+message viewport 负责展示当前对话上下文。
+
+要求：
+
+- 只展示经过分类后的用户可见消息。
+- 支持滚动。
+- 用户在底部时，新消息自动跟随。
+- 用户看历史时，新消息不强制跳底。
+- `/bottom` 或提交新输入时回到底部。
+
+### 3. Editor slot
+
+editor slot 只能承载一个主要交互对象：
+
+- 普通输入框。
+- command panel。
+- session selector。
+- resume prompt。
+- settings/model panel。
+
+禁止 panel 与 input 同时各自认为自己拥有焦点。
+
+### 4. Status bar
+
+status bar 必须稳定只出现一次。
+
+内容建议：
+
+- mode：IDLE/RUN。
+- board：board name / arch / node。
+- toolchain：npm/g++ 等关键限制。
+- token：input/output。
+- provider/model。
+- date。
+- scroll：history +N。
+
+禁止：
+
+- 多个 status bar 重复出现。
+- status bar 随消息内容进入 scrollback。
+- status bar 显示过长原始 provider id 导致超宽。
+
+### 5. Tool card
+
+工具卡片默认折叠，最多展示 2-3 行摘要。
+
+折叠态应回答：
+
+- 调了什么工具。
+- 成功/失败/跳过。
+- 核心结果是什么。
+- 是否有 warning/evidence。
+
+展开态才展示：
+
+- args。
+- result。
+- evidence。
+- warnings。
+- recovery。
+- raw detail。
+
+对于 `repeat guard`，折叠态不应看起来像严重失败。
+
+## 八、交互准则
+
+### 1. 输入
+
+当前规则保持：
+
+- `Enter` 提交。
+- `Tab` 补全。
+- `Ctrl+Enter` / `Alt+Enter` 插入换行。
+- 反斜杠结尾续行作为 fallback。
+- bracketed paste 不自动提交。
+
+### 2. 命令发现
+
+命令发现入口：
+
+- `/` autocomplete。
+- `/commands` / `/cmd` command panel。
+- `/help` 文本帮助。
+
+三者必须来自同一份 command definition。
+
+### 3. 恢复键
+
+必须实现并长期保留：
+
+- `Ctrl+L`：强制 full redraw，保留 state，不清空对话。
+- `Ctrl+C`：running 时中断；idle 时清空输入或二次退出，具体行为需明确。
+- `Ctrl+D`：退出。
+- `Esc`：关闭当前 panel；running 时 abort；普通输入时清空或返回。
+
+`Ctrl+L` 对 TUI 稳定性非常重要。它是用户遇到终端显示错乱时的第一恢复手段。
+
+### 4. Tool detail
+
+`Ctrl+O` 和 `/more` 只改变展示模式，不改变消息源。
+
+要求：
+
+- 不新增 message。
+- 不触发 runtime event。
+- 不写 transcript。
+- 不改变 scrollOffset，除非用户明确跳转。
+
+### 5. Command panel
+
+`/commands` 默认只插入命令，不直接执行。
+
+原因：
+
+- `/clear`、`/exit`、`/resume` 等命令有副作用。
+- 插入后再 Enter 是用户确认。
+
+## 九、终端写入准则
+
+### 1. 差分渲染
+
+diff renderer 应只负责屏幕更新策略，不理解业务消息。
+
+它可以处理：
+
+- first render。
+- normal diff。
+- width change full redraw。
+- height change full redraw。
+- cursor marker。
+- clear line。
+
+它不应该处理：
+
+- 哪些 message 应该展示。
+- 哪些 tool 应该折叠。
+- 哪些 system event 应隐藏。
+
+### 2. Synchronized output
+
+如果后续引入 CSI 2026 synchronized output，应只包裹单次 render buffer，不改变业务逻辑。
+
+优先级：
+
+1. 先保证单一渲染源正确。
+2. 再优化 flicker。
+3. 最后优化性能。
+
+### 3. Raw ANSI debug
+
+应提供可选 raw ANSI log：
+
+```text
+LOONG_TUI_WRITE_LOG=/tmp/loong-tui.log loong
+```
+
+该日志用于定位：
+
+- cursor move。
+- clear line。
+- width overflow。
+- resize。
+- bracketed paste。
+
+但不能直接用日志中文本重复次数判断最终 UI 是否重复，因为 diff renderer 本来会多次写同一片段。
+
+### 4. 不要混用 stdout 写法
+
+TUI 运行期间禁止业务代码直接 `console.log()` 到 stdout。
+
+允许：
+
+- 写 debug file。
+- 写 session JSONL。
+- 退出 TUI 后打印 final summary。
+
+## 十、参考对象与取舍
+
+### 1. Pi Agent / Pi TUI
+
+可借鉴：
+
+- component interface。
+- `render(width): string[]` 契约。
+- 每行不得超过 width。
+- diff renderer。
+- synchronized output。
+- bracketed paste。
+- keyboard protocol fallback。
+- cursor marker / IME 支持。
+- overlay focus。
+- raw ANSI debug log。
+- virtual terminal tests。
+
+不直接照搬：
+
+- npm runtime dependency。
+- TypeScript/ESM 架构。
+- native helper。
+- 图片协议。
+- 完整 overlay framework。
+
+原因：
+
+loong agent 当前约束是 Node.js 14 + CommonJS + 无 npm runtime 依赖，且需要在龙芯派上稳定运行。
+
+### 2. Claude Code
+
+可借鉴：
+
+- `Ctrl+L` redraw。
+- `Ctrl+O` transcript/tool viewer。
+- `/` command discovery。
+- `!` shell mode。
+- `@` file mention。
+- transcript viewer 与主界面分离。
+- command history。
+- side question / follow-up queue。
+
+不直接照搬：
+
+- 云端产品级完整功能。
+- plugin/skill 体系。
+- 复杂权限系统。
+- 全量 transcript viewer。
+
+### 3. Bubble Tea
+
+可借鉴：
+
+```text
+Model -> Update -> View
+```
+
+也就是：
+
+- Model：状态。
+- Update：事件更新状态。
+- View：纯渲染。
+
+loong agent 可对应为：
+
+```text
+state -> handleAgentEvent/handleFocusedKey -> renderTui
+```
+
+后续重构应逐步向这个模型收敛。
+
+### 4. Textual
+
+可借鉴：
+
+- App / Widget / Event / Screen 分层。
+- command palette。
+- widget testing。
+- focus 体系。
+- reactive state。
+
+不适合直接引入 Python/Textual。
+
+## 十一、测试准则
+
+每个 TUI 改动至少考虑以下测试层。
+
+### 1. 纯渲染测试
+
+文件：
+
+- `scripts/test-tui-renderer.js`
+
+必须覆盖：
+
+- frame 行数等于 rows。
+- 所有行 `visibleWidth <= columns`。
+- status bar 只出现一次。
+- input slot 稳定。
+- assistant final 不消失。
+- tool card 折叠/展开正常。
+- system ephemeral idle 后隐藏。
+- narrow terminal。
+- 中文/宽字符/ANSI。
+
+### 2. 交互状态测试
+
+文件：
+
+- `scripts/test-tui-interactions.js`
+- `scripts/test-tui-keybindings.js`
+- `scripts/test-tui-input.js`
+
+必须覆盖：
+
+- 焦点优先级。
+- Enter/Tab/Esc 语义。
+- Ctrl+O 不新增消息。
+- /commands 插入而不执行。
+- PageUp/PageDown 不破坏输入。
+- /bottom 回到底部。
+- paste 不自动执行。
+
+### 3. Runtime event 测试
+
+文件：
+
+- `scripts/test-runtime.js`
+
+必须覆盖：
+
+- streaming delta 不重复。
+- assistant final 不重复。
+- repeat guard 事件可分类。
+- tool lifecycle 正确。
+- policy block 不崩溃。
+- storage/env 等诊断工具证据进入 answer。
+
+### 4. 虚拟终端测试
+
+后续建议新增：
+
+```text
+scripts/test-tui-virtual-terminal.js
+```
+
+用途：
+
+- 模拟 terminal rows/columns。
+- 捕获写入 buffer。
+- 检查最终屏幕，而不是检查 raw ANSI 文本重复次数。
+- 模拟 resize。
+- 模拟 Ctrl+L full redraw。
+- 模拟 Ctrl+O 展开/收起。
+
+这是后续提高 TUI 稳定性的关键测试，不应只靠真实 pty smoke。
+
+### 5. 真实 pty smoke
+
+真实 pty 只验证：
+
+- 能启动。
+- 能输入。
+- 能执行。
+- 能退出。
+- 无残留进程。
+- 关键路径不明显错乱。
+
+不要用 raw pty log 里的文本出现次数判断 UI 是否重复，因为 diff rendering 会重复写帧。
+
+## 十二、验收标准
+
+任何 TUI 修改必须满足：
+
+1. 本地相关 TUI 测试通过。
+2. 板端相关 TUI 测试通过。
+3. 不处理 `dist`。
+4. 不新增 npm runtime 依赖。
+5. 不升级 Node。
+6. 不改变 session export 格式，除非任务明确要求。
+7. 不让 system/debug event 进入主对话历史。
+8. 不让 tool policy/repeat guard 以误导性错误展示给用户。
+9. 不让 Ctrl+O、/more、/commands 改变消息源。
+10. 真实 pty smoke 后无残留 `node src/index.js tui` 进程。
+
+## 十三、后续重构优先级
+
+### 阶段 A 实施结果：恢复与降噪
+
+状态：已完成。
+
+已完成能力：
+
+- `Ctrl+L` 已改为强制 full redraw，`/model` 继续作为模型选择入口。
+- `Repeated tool call blocked` 已在 TUI 中降噪为 `repeated_suppressed`。
+- `/more` 和 `Ctrl+O` 只改变工具详情展示状态，不再污染 `state.messages`。
+- 已增加 status bar 单例测试。
+- 已增加 final frame 级别测试，保护 user/tool/assistant final 不丢失。
+
+验收证据：
+
+- 本地通过：`test-tui-keybindings`、`test-tui-commands`、`test-tui-interactions`、`test-tui-renderer`、`test-runtime`。
+- 板端通过同一组测试。
+- 真实 pty smoke 通过，退出码为 0，退出后无残留 `node src/index.js tui` 进程。
+
+### 阶段 B 实施结果：事件分类与显示状态收敛
+
+状态：已完成。
+
+已完成能力：
+
+- `MessageListComponent` 的消息可见性判断已集中到 `message-normalizer.js`。
+- 工具卡片展示状态已通过统一函数归一为 `running / ok / tool_error / policy_blocked / repeated_suppressed / timeout / cancelled`。
+- `ToolMessageComponent` 不再自行拼接主要状态分支，而是消费统一展示状态。
+- `tool-display.js` 的重复调用摘要已复用统一工具状态判断。
+- `input / autocomplete / panel / selector` 的焦点优先级已有测试保护。
+
+验收证据：
+
+- 本地通过：`test-tui-renderer`、`test-tui-interactions`。
+- 后续修改仍需继续运行完整 TUI/runtime 测试和板端验证。
+
+### P0：稳定性修复
+
+- [x] 实现 `Ctrl+L` full redraw。
+- [x] 降噪 `Repeated tool call blocked` 工具卡片。
+- [ ] 明确 event-adapter 的消息分类表。
+- [x] 增加 status bar 单例测试。
+- [x] 增加 final screen 级别测试。
+
+### P1：架构收敛
+
+- [x] 把 `MessageListComponent` 的消息过滤规则集中化。
+- [x] 将 tool display status 统一枚举化。
+- [x] 将 panel/editor/selector 焦点转移表测试化。
+- [ ] 建立更完整的 `normalizeTuiMessage(event)` 或等价事件分类层。
+- [ ] 将焦点转移表进一步文档化。
+
+### P2：体验增强
+
+- transcript viewer，而不是自动 transcript append。
+- `/transcript` 或 `Ctrl+O` 内查看完整工具细节。
+- `/hotkeys` 或 `?` 快捷键帮助。
+- history search。
+- virtual terminal test harness。
+
+### P3：性能与终端兼容
+
+- synchronized output。
+- render cache。
+- resize 策略细化。
+- Kitty keyboard protocol 探测。
+- SSH/Windows Terminal/VS Code terminal 兼容矩阵。
+
+## 十四、明确禁止事项
+
+禁止重新引入以下模式：
+
+- 自动 transcript append 到 stdout。
+- append 后从 live viewport 过滤稳定消息。
+- 多处直接写 stdout 参与 UI。
+- 让 tool detail 展开改变消息数组。
+- 让 command panel 执行危险命令而不是插入。
+- 把 raw JSON 默认铺在折叠态工具卡片。
+- 把系统内部 prompt metadata 当作正式对话历史。
+- 仅凭 pty raw log 文本重复次数判断 UI 重复。
+
+## 十五、建议下一步
+
+建议执行下一个小阶段：
+
+```text
+TUI 稳定性阶段 C：事件分类表与虚拟终端测试雏形
+```
+
+范围：
+
+1. 建立更明确的 runtime event 到 TUI message 的分类表。
+2. 将 `agent_start`、`message_start/update/end`、`tool_execution_*`、`agent_end` 的 TUI 显示策略集中化。
+3. 新增轻量 virtual terminal / final screen 测试雏形，检查最终屏幕而不是 raw ANSI 文本重复次数。
+4. 补充 Ctrl+L、Ctrl+O、/commands、/sessions 在最终屏幕中的稳定性测试。
+5. 保持运行时协议、session export 和工具安全策略不变。
+
+不做：
+
+- 不做全量 TUI 重构。
+- 不引入 Pi TUI 依赖。
+- 不改 session 存储。
+- 不改 export 格式。
+- 不处理 `dist`。
+
+## 十六、参考资料
+
+- Command Line Interface Guidelines: https://clig.dev/
+- Bubble Tea: https://github.com/charmbracelet/bubbletea
+- Textual guide: https://textual.textualize.io/guide/
+- Claude Code interactive mode: https://code.claude.com/docs/en/interactive-mode
+- Pi TUI local docs: `upstream/pi/packages/tui/README.md`
+- Pi coding-agent TUI docs: `upstream/pi/packages/coding-agent/docs/tui.md`

@@ -7,7 +7,7 @@ const { renderTui } = require('../src/tui/renderer');
 const { CURSOR_MARKER, extractCursorPosition } = require('../src/tui/cursor');
 const { ANSI, stripAnsi, visibleWidth } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
-const { collectTranscriptLines } = require('../src/tui/transcript');
+const { isLiveMessageVisible, normalizeToolDisplayStatus } = require('../src/tui/message-normalizer');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -24,6 +24,18 @@ function test(name, fn) {
   }
 }
 
+function plainRows(output) {
+  return output.split('\n').map(stripAnsi);
+}
+
+function assertSingleStatusBar(output, expectedRows, marker) {
+  const rows = plainRows(output);
+  assert(rows.length === expectedRows, `frame should have ${expectedRows} rows, got ${rows.length}`);
+  assert(rows[rows.length - 1].indexOf(marker || 'mock/m') >= 0, 'status bar should be the final row');
+  const statusRows = rows.filter((line) => line.indexOf(marker || 'mock/m') >= 0);
+  assert(statusRows.length === 1, `status bar should appear once, got ${statusRows.length}`);
+}
+
 test('renderer includes header input and status bar', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.inputBuffer = '你好';
@@ -34,6 +46,34 @@ test('renderer includes header input and status bar', () => {
   assert(plain.indexOf('loong>') < 0, 'old prompt should not be rendered');
   assert(plain.indexOf('你好') >= 0, 'missing input');
   assert(plain.indexOf('mock/m') >= 0, 'missing model status');
+  assertSingleStatusBar(output, 20, 'mock/m');
+});
+
+test('message normalizer centralizes live message visibility', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  assert(isLiveMessageVisible({ type: 'user', text: 'visible' }, state) === true, 'normal user message should be visible');
+  assert(isLiveMessageVisible({ type: 'assistant_final', text: 'visible' }, state) === true, 'assistant final should be visible');
+  assert(isLiveMessageVisible({ type: 'tool', done: true }, state) === true, 'tool message should be visible');
+  assert(isLiveMessageVisible({ type: 'system', hidden: true, text: 'hidden' }, state) === false, 'hidden message should not be visible');
+  assert(isLiveMessageVisible({ type: 'system', ephemeral: true, text: 'running only' }, state) === false, 'idle ephemeral should not be visible');
+  state.mode = 'running';
+  assert(isLiveMessageVisible({ type: 'system', ephemeral: true, text: 'running only' }, state) === true, 'running ephemeral should be visible');
+});
+
+test('message normalizer centralizes tool display status', () => {
+  assert(normalizeToolDisplayStatus({ status: 'running' }).status === 'running', 'running status mismatch');
+  assert(normalizeToolDisplayStatus({ done: true }).status === 'ok', 'done status should become ok');
+  assert(normalizeToolDisplayStatus({ isError: true }).status === 'tool_error', 'generic error should become tool_error');
+  assert(normalizeToolDisplayStatus({ errorType: 'policy_blocked' }).status === 'policy_blocked', 'policy status mismatch');
+  assert(normalizeToolDisplayStatus({ status: 'timeout' }).status === 'timeout', 'timeout status mismatch');
+  assert(normalizeToolDisplayStatus({ status: 'cancelled' }).status === 'cancelled', 'cancelled status mismatch');
+  const repeated = normalizeToolDisplayStatus({
+    isError: true,
+    errorType: 'policy_blocked',
+    detail: { error: 'Repeated tool call blocked: bash was already called with the same input.' },
+  });
+  assert(repeated.status === 'repeated_suppressed', 'repeat guard should normalize to repeated_suppressed');
+  assert(repeated.isError === false, 'repeat guard should not display as severe error');
 });
 
 test('renderer can mark hardware cursor position for IME', () => {
@@ -187,40 +227,7 @@ test('bounded viewport mode keeps a stable frame across live UI changes', () => 
   assert(panel.length === 18, `panel live frame should fit viewport, got ${panel.length}`);
 });
 
-test('transcript append records stable messages once and ignores live UI toggles', () => {
-  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
-  state.messages.push({ id: 'user-one', type: 'user', text: 'first question' });
-  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', summary: 'running df', done: false });
-  state.messages.push({ id: 'assistant-one', type: 'assistant', text: 'streaming partial answer' });
-
-  let lines = collectTranscriptLines(state, 80);
-  let text = stripAnsi(lines.join('\n'));
-  assert(text.indexOf('first question') >= 0, 'user message missing from transcript');
-  assert(text.indexOf('running df') < 0, 'running tool should not be appended');
-  assert(text.indexOf('streaming partial answer') < 0, 'streaming assistant should not be appended');
-
-  state.messages[1].done = true;
-  state.messages[1].resultSummary = 'exit=0 /dev/root 29G';
-  state.messages[2].type = 'assistant_final';
-  state.messages[2].text = 'final disk answer';
-  lines = collectTranscriptLines(state, 80);
-  text = stripAnsi(lines.join('\n'));
-  assert(text.indexOf('first question') < 0, 'already appended user message repeated');
-  assert(text.indexOf('tool bash') >= 0, 'completed tool missing from transcript');
-  assert(text.indexOf('final disk answer') >= 0, 'final answer missing from transcript');
-
-  state.messages[1].expanded = true;
-  state.activePanel = {
-    type: 'command',
-    title: 'Command Palette',
-    hint: 'type to filter',
-    items: [{ label: '/help', value: '/help' }],
-  };
-  lines = collectTranscriptLines(state, 80);
-  assert(lines.length === 0, 'UI-only toggles should not append transcript again');
-});
-
-test('transcripted stable messages are removed from live viewport', () => {
+test('stable conversation messages remain in the live viewport', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({ id: 'user-one', type: 'user', text: 'disk question' });
   state.messages.push({
@@ -233,40 +240,30 @@ test('transcripted stable messages are removed from live viewport', () => {
   state.messages.push({ id: 'answer-one', type: 'assistant_final', text: 'final disk answer' });
   state.messages.push({ id: 'live-stream', type: 'assistant', text: 'current live stream' });
 
-  const transcript = stripAnsi(collectTranscriptLines(state, 80).join('\n'));
-  assert(transcript.indexOf('disk question') >= 0, 'user message missing from transcript');
-  assert(transcript.indexOf('tool loong_storage_check') >= 0, 'tool message missing from transcript');
-  assert(transcript.indexOf('final disk answer') >= 0, 'final answer missing from transcript');
-
   const live = stripAnsi(renderTui(state, { columns: 100, rows: 18 }, { bodyAlign: 'top' }));
-  assert(live.indexOf('disk question') < 0, 'transcripted user message remained in live viewport');
-  assert(live.indexOf('tool loong_storage_check') < 0, 'transcripted tool message remained in live viewport');
-  assert(live.indexOf('final disk answer') < 0, 'transcripted final answer remained in live viewport');
+  assert(live.indexOf('disk question') >= 0, 'user message should remain in live viewport');
+  assert(live.indexOf('tool') >= 0 && live.indexOf('loong_storage_check') >= 0, 'tool message should remain in live viewport');
+  assert(live.indexOf('final disk answer') >= 0, 'final answer should remain in live viewport');
   assert(live.indexOf('current live stream') >= 0, 'non-stable live assistant message should remain visible');
 });
 
-test('streamed final answers are archived without duplicate transcript append', () => {
+test('streamed final answers remain visible after completion', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
-  state.messages.push({ id: 'streamed-answer', type: 'assistant_final', text: 'already streamed final answer', wasLiveRendered: true });
-
-  const transcript = stripAnsi(collectTranscriptLines(state, 80).join('\n'));
-  assert(transcript.indexOf('already streamed final answer') < 0, 'streamed final answer should not be appended twice');
-  assert(state.transcriptAppended['streamed-answer'] === true, 'streamed final answer should still be archived');
+  state.messages.push({ id: 'streamed-answer', type: 'assistant_final', text: 'already streamed final answer' });
 
   const live = stripAnsi(renderTui(state, { columns: 100, rows: 18 }, { bodyAlign: 'top' }));
-  assert(live.indexOf('already streamed final answer') < 0, 'archived streamed final answer remained in live viewport');
+  assert(live.indexOf('already streamed final answer') >= 0, 'completed streamed final answer should remain visible');
 });
 
-test('clear resets transcript watermark for future messages only', () => {
+test('ephemeral system status is visible only while running', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
-  state.messages.push({ id: 'before-clear', type: 'system', text: 'before clear' });
-  assert(collectTranscriptLines(state, 80).join('\n').indexOf('before clear') >= 0, 'initial transcript missing');
-  state.messages = [];
-  state.transcriptAppended = {};
-  state.messages.push({ id: 'after-clear', type: 'system', text: 'after clear' });
-  const text = collectTranscriptLines(state, 80).join('\n');
-  assert(text.indexOf('after clear') >= 0, 'post-clear transcript missing');
-  assert(text.indexOf('before clear') < 0, 'clear should not replay old messages');
+  state.messages.push({ id: 'system-status', type: 'system', text: 'intake status live only', ephemeral: true });
+  state.mode = 'running';
+  let live = stripAnsi(renderTui(state, { columns: 100, rows: 18 }, { bodyAlign: 'top' }));
+  assert(live.indexOf('intake status live only') >= 0, 'ephemeral system status should be visible while running');
+  state.mode = 'idle';
+  live = stripAnsi(renderTui(state, { columns: 100, rows: 18 }, { bodyAlign: 'top' }));
+  assert(live.indexOf('intake status live only') < 0, 'ephemeral system status should be hidden when idle');
 });
 
 test('renderer does not expose api key-like text from state', () => {
@@ -664,6 +661,92 @@ test('renderer shows tool policy error metadata', () => {
   assert(output.indexOf('warnings=1') >= 0, 'missing warning count');
   assert(output.indexOf('dangerous_command') >= 0, 'missing policy id');
   assert(output.indexOf('not_executed') >= 0, 'blocked tool should say it was not executed');
+});
+
+test('renderer downgrades repeat guard blocks to repeated suppressed', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  handleAgentEvent(state, {
+    type: 'tool_execution_start',
+    loop: 1,
+    toolName: 'loong_storage_check',
+    callSummary: 'storage check',
+  });
+  handleAgentEvent(state, {
+    type: 'tool_execution_end',
+    loop: 1,
+    toolName: 'loong_storage_check',
+    isError: true,
+    errorType: 'policy_blocked',
+    durationMs: 37,
+    result: {
+      blocked: true,
+      error: 'Repeated tool call blocked: loong_storage_check was already called with the same input. Use the existing tool result to answer the user.',
+      evidence: [{ source: 'runtime' }],
+      warnings: ['repeat guard'],
+    },
+  });
+  const tool = state.messages.find((message) => message.type === 'tool');
+  assert(tool, 'missing repeated guard tool message');
+  assert(tool.status === 'repeated_suppressed', `repeat guard should be normalized, got ${tool.status}`);
+  assert(tool.isError === false, 'repeat guard should not render as a severe tool error');
+  const plain = stripAnsi(renderTui(state, { columns: 120, rows: 24 }));
+  assert(plain.indexOf('重复跳过') >= 0, 'missing repeated suppressed status label');
+  assert(plain.indexOf('重复调用已跳过') >= 0, 'missing friendly repeat guard summary');
+  assert(plain.indexOf('策略阻断') < 0, 'repeat guard should not render as policy blocked in compact card');
+});
+
+test('renderer keeps a single status bar across active surfaces', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ type: 'user', text: 'status check' });
+  state.messages.push({ type: 'assistant_final', text: 'answer' });
+  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', done: true, summary: 'exit=0' });
+  assertSingleStatusBar(renderTui(state, { columns: 90, rows: 18 }), 18, 'mock/m');
+
+  state.mode = 'running';
+  state.agentStatus = 'running';
+  assertSingleStatusBar(renderTui(state, { columns: 90, rows: 18 }), 18, 'mock/m');
+
+  state.expandedTools = true;
+  state.messages[2].expanded = true;
+  assertSingleStatusBar(renderTui(state, { columns: 90, rows: 18 }), 18, 'mock/m');
+
+  state.commandPanel = {
+    query: '',
+    selectedIndex: 0,
+    items: [{ command: '/help', usage: '/help', description: 'Help', category: 'core' }],
+  };
+  assertSingleStatusBar(renderTui(state, { columns: 70, rows: 16 }), 16, 'mock/m');
+
+  state.commandPanel = null;
+  state.selector = {
+    type: 'sessions',
+    items: [{ id: 's1', branchName: 'main', command: 'tui', entryCount: 1 }],
+    selectedIndex: 0,
+    filter: '',
+  };
+  assertSingleStatusBar(renderTui(state, { columns: 48, rows: 14 }), 14, 'mock/m');
+});
+
+test('final frame keeps conversation messages and hides idle ephemeral status', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ id: 'ephemeral', type: 'system', text: '解析需求: should hide', ephemeral: true });
+  state.messages.push({ id: 'user-one', type: 'user', text: '你好' });
+  state.messages.push({ id: 'answer-one', type: 'assistant_final', text: '你好，我可以帮助你诊断龙芯派。' });
+  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'runtime_health', done: true, summary: 'ok', resultSummary: 'ok' });
+  state.messages.push({ id: 'user-two', type: 'user', text: '硬盘情况' });
+  state.messages.push({ id: 'answer-two', type: 'assistant_final', text: '根分区剩余 1.7G。' });
+  state.mode = 'idle';
+  state.agentStatus = 'idle';
+
+  const output = renderTui(state, { columns: 100, rows: 24 }, { bodyAlign: 'top' });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('解析需求: should hide') < 0, 'idle ephemeral status should be hidden');
+  assert(plain.indexOf('你好') >= 0, 'first user message missing');
+  assert(plain.indexOf('我可以帮助你诊断龙芯派') >= 0, 'first assistant answer missing');
+  assert(plain.indexOf('runtime_health') >= 0, 'tool message missing');
+  assert(plain.indexOf('硬盘情况') >= 0, 'second user message missing');
+  assert(plain.indexOf('根分区剩余 1.7G') >= 0, 'final answer missing');
+  assertSingleStatusBar(output, 24, 'mock/m');
 });
 
 test('renderer expanded tool details label evidence warnings and recovery', () => {

@@ -13,7 +13,6 @@ const { createDiffRenderer } = require('./diff');
 const { handleFocusedKey } = require('./interactions');
 const { toggleGlobalToolDetails, toggleSelectedToolDetail } = require('./tool-focus');
 const { matchesAction } = require('./keybindings');
-const { collectTranscriptLines } = require('./transcript');
 
 const ENABLE_MODIFIED_KEYS = '\x1b[>4;2m';
 const DISABLE_MODIFIED_KEYS = '\x1b[>4;0m';
@@ -30,7 +29,7 @@ async function runTui(config, options) {
   }
 
   const state = createTuiState(config);
-  const diffRenderer = createDiffRenderer({ initialClear: false });
+  const diffRenderer = createDiffRenderer();
   let activeConfig = config;
   let agentSession = createAgentSession(config, { command: 'tui' });
   let unsubscribe = null;
@@ -150,11 +149,6 @@ async function runTui(config, options) {
     if (stopped) return;
     try {
       const size = terminalSize(output);
-      const transcriptLines = collectTranscriptLines(state, size.columns);
-      if (transcriptLines.length) {
-        output.write(`${ANSI.hideCursor}\r\n${transcriptLines.join('\n')}\r\n${ANSI.clear}${ANSI.home}`);
-        diffRenderer.reset();
-      }
       const lines = renderTui(state, size, {
         bodyAlign: 'top',
         showHardwareCursor: state.showHardwareCursor !== false,
@@ -329,21 +323,8 @@ async function runTui(config, options) {
       if (!state.inputBuffer) stop();
       return;
     }
-    if (matchesAction('global', 'openModel', key)) {
-      await handleCommand({
-        config: activeConfig,
-        state,
-        replaceAgentSession,
-        startPrompt,
-        reloadConfig: (nextConfig) => {
-          activeConfig = nextConfig;
-          state.provider = nextConfig.provider || state.provider;
-          state.model = nextConfig.model || state.model;
-          state.cwd = nextConfig.workspace || state.cwd;
-          refreshBoardStatus(nextConfig);
-        },
-        refreshBoardStatus,
-      }, '/model');
+    if (matchesAction('global', 'forceRedraw', key)) {
+      diffRenderer.reset();
       render();
       return;
     }

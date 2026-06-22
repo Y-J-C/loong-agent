@@ -63,7 +63,7 @@ function hotkeysText() {
     'Enter 发送命令',
     'Ctrl+Enter 换行（终端支持时）/ Alt+Enter 换行（推荐 fallback）/ \\ + Enter 换行（通用 fallback）',
     'Esc 中断/返回 / Ctrl+C 中断/退出 / Ctrl+D 空输入退出',
-    'Ctrl+L 模型选择 / Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
+    'Ctrl+L 强制重绘 / /model 模型选择 / Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
     'Ctrl+A / Home 行首 / Ctrl+E / End 行尾',
     'Ctrl+K 删除到行尾 / Ctrl+W / Ctrl+Backspace 删除前一词',
     'Up/Down 或 Ctrl+P/Ctrl+N 历史输入',
@@ -83,7 +83,7 @@ function hotkeysTextV2() {
     'Alt+Enter: 非运行中换行；运行中排队 follow-up',
     'Ctrl+Enter 或 \\ + Enter: 换行',
     'Esc 中断/返回 / Ctrl+C 中断或退出 / Ctrl+D 空输入退出',
-    'Ctrl+L 模型选择 / Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
+    'Ctrl+L 强制重绘 / /model 模型选择 / Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
     'Ctrl+A/Home 行首 / Ctrl+E/End 行尾',
     'Ctrl+K 删除到行尾 / Ctrl+W 或 Ctrl+Backspace 删除前一词',
     'Up/Down 或 Ctrl+P/Ctrl+N 历史输入',
@@ -102,7 +102,8 @@ function hotkeysTextClean() {
     'Esc: abort/back',
     'Ctrl+C: abort or exit',
     'Ctrl+D: exit on empty input',
-    'Ctrl+L: model selector',
+    'Ctrl+L: force redraw',
+    '/model: model selector',
     'Ctrl+O: current tool detail',
     'Shift+Ctrl+O or /more: all tool details',
     'Up/Down or Ctrl+P/Ctrl+N: history or list navigation',
@@ -270,6 +271,7 @@ function helpText() {
     '',
     '换行: Ctrl+Enter(终端支持时)/Alt+Enter(推荐)/\\+Enter(通用)',
     '退出: Ctrl+C / Ctrl+D(空输入) / /exit',
+    '恢复: Ctrl+L 强制重绘',
     '工具: Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
     '滚动: PageUp / PageDown',
     '',
@@ -304,6 +306,7 @@ function helpTextClean() {
     '',
     'Input: Enter send, Tab complete, Ctrl/Alt+Enter newline.',
     'Exit: Ctrl+C / Ctrl+D empty input / /exit.',
+    'Recovery: Ctrl+L force redraw.',
     'Tools: Ctrl+O current tool detail, Shift+Ctrl+O or /more all tool details.',
     'Scroll: PageUp / PageDown.',
     '',
@@ -745,7 +748,7 @@ async function runSlashCommandLegacy(context, text) {
 
   if (name === '/more') {
     toggleGlobalToolDetails(state);
-    addMessage(state, { type: 'system', text: state.expandedTools ? '工具调用已展开.' : '工具调用已折叠.' });
+    state.status = state.expandedTools ? 'tool details expanded' : 'tool details collapsed';
     return;
   }
 

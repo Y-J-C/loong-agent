@@ -14,6 +14,7 @@ const { paint } = require('./theme');
 const { GLYPHS, hline } = require('./glyphs');
 const { renderMarkdownBlock } = require('./markdown');
 const { detailLines, summarizeToolMessage } = require('./tool-display');
+const { isLiveMessageVisible, normalizeToolDisplayStatus } = require('./message-normalizer');
 const { CURSOR_MARKER } = require('./cursor');
 const { syncTreeSelection } = require('./session-tree');
 const { shortcutHint } = require('./keybindings');
@@ -33,7 +34,6 @@ const {
   brandTitle,
   toolStatusLabel,
 } = require('../cli-view');
-const { shouldRenderLiveMessage } = require('./transcript');
 
 const MAX_MESSAGE_LINES = 80;
 const MAX_TOOL_DETAIL_LINES = 18;
@@ -316,13 +316,13 @@ class HeaderComponent {
     const tiny = height < 14;
     const lines = tiny ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch'),
-      paint(theme, 'dim', `/help - ${hint('editor', 'clearOrBack')} abort - ${hint('tool', 'toggleCurrentDetail')} tool - /more all`),
+      paint(theme, 'dim', `/help - ${hint('global', 'forceRedraw')} redraw - ${hint('editor', 'clearOrBack')} abort - ${hint('tool', 'toggleCurrentDetail')} tool`),
     ] : compact ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch coding terminal'),
-      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} abort/back - / commands - ${hint('tool', 'toggleCurrentDetail')} tool - /more all`),
+      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} abort/back - / commands - ${hint('global', 'forceRedraw')} redraw - ${hint('tool', 'toggleCurrentDetail')} tool`),
     ] : [
       paint(theme, 'accent', `loong-agent v0.x | ${brandTitle()}`),
-      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} back - ${hint('global', 'abortOrExit')}/${hint('global', 'exitIfEmpty')} exit - / commands - ${hint('global', 'openModel')} model - ${hint('tool', 'toggleCurrentDetail')} tool - /more all tools`),
+      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} back - ${hint('global', 'abortOrExit')}/${hint('global', 'exitIfEmpty')} exit - / commands - ${hint('global', 'forceRedraw')} redraw - /model model - ${hint('tool', 'toggleCurrentDetail')} tool`),
     ];
     if (state && state.headerHidden) return [];
     return lines.map((line) => padRight(fitLine(line, width), width));
@@ -455,8 +455,10 @@ class ToolMessageComponent {
       globalExpanded: Boolean(context.state.expandedTools),
     });
     return cachedLines(context, toolRenderCache, cacheKey, () => {
-    const rawStatus = message.errorType || message.status || (message.isError ? 'tool_error' : message.done ? 'ok' : 'running');
-    const isError = message.isError || rawStatus === 'policy_blocked' || rawStatus === 'tool_error' || rawStatus === 'error';
+    const display = normalizeToolDisplayStatus(message);
+    const rawStatus = display.status;
+    const isRepeatedSuppressed = display.isRepeatedSuppressed;
+    const isError = display.isError;
     const statusToken = isError ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
     const blockToken = selected ? 'selectedBg' : isError ? 'toolErrorBg' : message.done ? 'toolSuccessBg' : 'toolPendingBg';
     const displayStatus = toolStatusLabel(rawStatus, message.isError);
@@ -474,6 +476,8 @@ class ToolMessageComponent {
     if (isError) {
       const errorDetail = message.errorType ? `policy: ${message.errorType}` : `error: ${rawStatus}`;
       lines.push(fullLine(`${GLYPHS.toolMid}${errorDetail}`, width, theme, 'toolError'));
+    } else if (isRepeatedSuppressed) {
+      lines.push(fullLine(`${GLYPHS.toolMid}重复调用已跳过，沿用上一次工具结果`, width, theme, 'muted'));
     }
 
     const compactSummary = summarizeToolMessage(message);
@@ -539,7 +543,7 @@ class MessageListComponent {
     body.push(...new HeaderComponent().render(width, context));
     let prevType = '';
     for (const message of state.messages) {
-      if (!shouldRenderLiveMessage(state, message)) continue;
+      if (!isLiveMessageVisible(message, state)) continue;
       body.push(...renderTurnSeparator(prevType, message.type, width, theme));
       body.push(...createMessageComponent(message).render(width, context));
       prevType = message.type;

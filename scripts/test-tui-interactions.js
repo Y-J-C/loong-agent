@@ -41,11 +41,14 @@ async function test(name, fn) {
 test('focus priority follows selector panel autocomplete input', async () => {
   const state = createTuiState({});
   assert(getFocusedSurface(state).id === 'input', 'default focus should be input');
+  assert(isEditorSlotOccupied(state) === false, 'plain input should not occupy editor slot');
   setInput(state, '/');
   updateAutocomplete(state);
   assert(getFocusedSurface(state).id === 'autocomplete', 'autocomplete should focus before input');
+  assert(isEditorSlotOccupied(state) === false, 'autocomplete should not occupy editor slot');
   state.activePanel = { type: 'settings', items: [] };
   assert(getFocusedSurface(state).id === 'panel', 'panel should focus before autocomplete');
+  assert(isEditorSlotOccupied(state) === true, 'panel should occupy editor slot');
   state.selector = { items: [] };
   assert(getFocusedSurface(state).id === 'selector', 'selector should focus before panel');
   assert(isEditorSlotOccupied(state) === true, 'selector should occupy editor slot');
@@ -286,12 +289,15 @@ test('tool detail toggle selects latest tool when none is focused', async () => 
   const state = createTuiState({});
   state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', detail: { stdout: 'one' } });
   state.messages.push({ id: 'tool-two', type: 'tool', toolName: 'bash', detail: { stdout: 'two' } });
+  const beforeToggleMessages = state.messages.length;
   assert(toggleSelectedToolDetail(state) === true, 'tool detail toggle should handle latest tool');
   assert(state.selectedMessageId === 'tool-two', 'latest tool should become selected');
   assert(state.messages[1].expanded === true, 'latest tool should expand');
+  assert(state.messages.length === beforeToggleMessages, 'tool detail toggle should not append messages');
   toggleSelectedToolDetail(state);
   assert(state.messages[1].expanded === false, 'second toggle should collapse selected tool');
   assert(state.messages[0].expanded !== true, 'older tool should remain unchanged');
+  assert(state.messages.length === beforeToggleMessages, 'tool detail collapse should not append messages');
 });
 
 test('tool focus navigation preserves scroll behavior through focused input', async () => {

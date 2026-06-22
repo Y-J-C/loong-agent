@@ -34,7 +34,7 @@ test('keybinding namespaces are present', () => {
 test('core global and tool actions resolve', () => {
   assert(resolveKeyAction('global', { type: 'ctrl_c' }) === 'abortOrExit', 'ctrl-c should abort or exit');
   assert(resolveKeyAction('global', { type: 'ctrl_d' }) === 'exitIfEmpty', 'ctrl-d should exit if empty');
-  assert(resolveKeyAction('global', { type: 'ctrl_l' }) === 'openModel', 'ctrl-l should open model');
+  assert(resolveKeyAction('global', { type: 'ctrl_l' }) === 'forceRedraw', 'ctrl-l should force redraw');
   assert(resolveKeyAction('tool', { type: 'ctrl_o' }) === 'toggleCurrentDetail', 'ctrl-o should toggle current tool detail');
   assert(resolveKeyAction('tool', { type: 'shift_ctrl_o' }) === 'toggleGlobalDetails', 'shift-ctrl-o should toggle global tool details');
 });
@@ -64,7 +64,8 @@ test('autocomplete selector tree and panel actions resolve', () => {
 });
 
 test('shortcut hints are stable human readable labels', () => {
-  assert(shortcutHint('global', 'openModel') === 'Ctrl+L', 'model shortcut hint mismatch');
+  assert(shortcutHint('global', 'forceRedraw') === 'Ctrl+L', 'redraw shortcut hint mismatch');
+  assert(shortcutHint('global', 'openModel') === '', 'model should not have a global shortcut');
   assert(shortcutHint('tool', 'toggleCurrentDetail') === 'Ctrl+O', 'tool shortcut hint mismatch');
   assert(shortcutHint('tree', 'toggleFold') === 'Enter/Space', 'tree fold hint mismatch');
   assert(shortcutHint('runningEditor', 'queueFollowUp') === 'Alt+Enter', 'running queue hint mismatch');

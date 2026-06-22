@@ -90,6 +90,7 @@ function statusLabel(status) {
   if (value === 'running') return '执行中';
   if (value === 'error') return '异常';
   if (value === 'policy_blocked') return '策略阻断';
+  if (value === 'repeated_suppressed') return '重复跳过';
   if (value === 'tool_error') return '工具异常';
   if (value === 'retry') return '重试';
   if (value === 'max_loops') return '达到轮次上限';
@@ -99,6 +100,7 @@ function statusLabel(status) {
 function toolStatusLabel(status, isError) {
   const value = String(status || '').toLowerCase();
   if (value === 'policy_blocked') return '策略阻断';
+  if (value === 'repeated_suppressed') return '重复跳过';
   if (value === 'running') return '执行中';
   if (value === 'ok') return '完成';
   if (isError || value === 'tool_error' || value === 'error') return '失败';
