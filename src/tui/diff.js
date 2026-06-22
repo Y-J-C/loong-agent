@@ -16,6 +16,11 @@ function createDiffRenderer(options) {
   let previousSize = { columns: 0, rows: 0 };
   let hardwareCursorRow = 0;
   let previousViewportTop = 0;
+  const RENDER_PATH = {
+    FIRST_FRAME: 'first_frame',
+    INCREMENTAL: 'incremental',
+    FULL_REDRAW: 'full_redraw',
+  };
 
   function moveBy(delta) {
     if (delta > 0) return `\x1b[${delta}B`;
@@ -74,11 +79,17 @@ function createDiffRenderer(options) {
     const heightChanged = previousSize.rows !== 0 && previousSize.rows !== rows;
     const padded = normalizeLines(cleanLines, { columns, rows }).padded;
 
-    if (firstFrame) {
+    const renderPath = firstFrame
+      ? RENDER_PATH.FIRST_FRAME
+      : widthChanged || heightChanged
+        ? RENDER_PATH.FULL_REDRAW
+        : RENDER_PATH.INCREMENTAL;
+
+    if (renderPath === RENDER_PATH.FIRST_FRAME) {
       return fullRender(cleanLines, { columns, rows }, initialClear, cursor);
     }
 
-    if (widthChanged || heightChanged) {
+    if (renderPath === RENDER_PATH.FULL_REDRAW) {
       return fullRender(cleanLines, { columns, rows }, true, cursor);
     }
 

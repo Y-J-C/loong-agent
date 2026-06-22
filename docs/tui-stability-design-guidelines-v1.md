@@ -450,6 +450,12 @@ diff renderer 应只负责屏幕更新策略，不理解业务消息。
 2. 再优化 flicker。
 3. 最后优化性能。
 
+阶段 D 结论：
+
+- 当前不引入 synchronized output。
+- 当前优先固化 diff renderer 的首帧、增量帧、full redraw 三类写入路径。
+- UI 正确性以 final screen / virtual terminal 测试为准，raw ANSI log 只作为定位材料。
+
 ### 3. Raw ANSI debug
 
 应提供可选 raw ANSI log：
@@ -467,6 +473,13 @@ LOONG_TUI_WRITE_LOG=/tmp/loong-tui.log loong
 - bracketed paste。
 
 但不能直接用日志中文本重复次数判断最终 UI 是否重复，因为 diff renderer 本来会多次写同一片段。
+
+raw ANSI log 的判断边界：
+
+- 可以用于判断是否发生 clear screen、home cursor、clear line、cursor move。
+- 可以用于定位 resize、cursor marker、bracketed paste 相关写入。
+- 不可以直接用某段业务文本出现多次来判定 UI 重复。
+- 最终 UI 是否重复，应通过 virtual terminal final screen、renderer frame 和真实 pty smoke 共同判断。
 
 ### 4. 不要混用 stdout 写法
 
@@ -698,14 +711,72 @@ scripts/test-tui-virtual-terminal.js
 
 验收证据：
 
-- 本地通过：`test-tui-renderer`、`test-tui-interactions`。
-- 后续修改仍需继续运行完整 TUI/runtime 测试和板端验证。
+- 本地通过：`test-tui-renderer`、`test-tui-interactions`、`test-tui-commands`、`test-tui-keybindings`、`test-runtime`。
+- 板端通过同一组测试。
+- 真实 pty smoke 通过，退出码为 0，退出后无残留 `node src/index.js tui` 进程。
+
+### 阶段 C 计划：事件分类表与虚拟终端测试雏形
+
+状态：已完成。
+
+已完成能力：
+
+- 已建立明确的 runtime event 到 TUI message / state 的分类函数。
+- `event-adapter.js` 已先基于分类结果处理事件，减少隐式分支语义。
+- 已新增轻量 virtual terminal / final screen 测试，检查最终屏幕，而不是 raw ANSI 文本重复次数。
+
+验收证据：
+
+- 本地通过：`test-tui-virtual-terminal`、`test-tui-renderer`、`test-tui-interactions`、`test-tui-commands`、`test-tui-keybindings`、`test-runtime`。
+- 板端通过同一组测试。
+- 真实 pty smoke 通过，退出码为 0，退出后无残留 `node src/index.js tui` 进程。
+
+本阶段约束：
+
+- 不改变 runtime event 协议。
+- 不改变 session JSONL 和 export 格式。
+- 不新增用户功能。
+- 不做全量 TUI 重构。
+- 不引入 Pi TUI 依赖。
+
+### 阶段 D 计划：渲染写入边界与终端兼容矩阵
+
+状态：已完成。
+
+已完成能力：
+
+- 已固化 `diff renderer -> terminal` 的写入边界。
+- 已明确首帧、增量帧、宽高变化、`Ctrl+L` redraw 的行为。
+- 已建立终端兼容矩阵，区分已验证与待确认环境。
+- 已补充 virtual terminal 测试，覆盖 first frame、resize full redraw、cursor marker、连续 surface 切换。
+
+验收证据：
+
+- 本地通过：`test-tui-virtual-terminal`、`test-tui-renderer`、`test-tui-interactions`、`test-tui-commands`、`test-tui-keybindings`、`test-runtime`。
+- 板端通过同一组测试。
+- 真实 pty smoke 通过，退出码为 0，退出后无残留 `node src/index.js tui` 进程。
+
+本阶段约束：
+
+- 不改变 `renderTui()` 和 `createDiffRenderer()` 的公开调用方式。
+- 不新增 synchronized output。
+- 不新增 runtime 依赖。
+- 不处理 `dist`。
+
+终端兼容矩阵：
+
+| 终端环境 | 启动 | 输入 | Ctrl+L | Ctrl+O / /more | /commands | /sessions | resize | /exit | 无残留进程 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Windows OpenSSH 到龙芯派 pty | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 待确认 | 已验证 | 已验证 |
+| VS Code / Codex terminal | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 待确认 | 待确认 |
+| SSH 到龙芯派 pty | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 待确认 | 已验证 | 已验证 |
+| 龙芯派本地终端 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 |
 
 ### P0：稳定性修复
 
 - [x] 实现 `Ctrl+L` full redraw。
 - [x] 降噪 `Repeated tool call blocked` 工具卡片。
-- [ ] 明确 event-adapter 的消息分类表。
+- [x] 明确 event-adapter 的消息分类表。
 - [x] 增加 status bar 单例测试。
 - [x] 增加 final screen 级别测试。
 
@@ -714,7 +785,7 @@ scripts/test-tui-virtual-terminal.js
 - [x] 把 `MessageListComponent` 的消息过滤规则集中化。
 - [x] 将 tool display status 统一枚举化。
 - [x] 将 panel/editor/selector 焦点转移表测试化。
-- [ ] 建立更完整的 `normalizeTuiMessage(event)` 或等价事件分类层。
+- [x] 建立更完整的 `normalizeTuiMessage(event)` 或等价事件分类层。
 - [ ] 将焦点转移表进一步文档化。
 
 ### P2：体验增强
@@ -751,16 +822,15 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-TUI 稳定性阶段 C：事件分类表与虚拟终端测试雏形
+TUI 稳定性阶段 E：焦点转移表文档化与快捷键恢复策略
 ```
 
 范围：
 
-1. 建立更明确的 runtime event 到 TUI message 的分类表。
-2. 将 `agent_start`、`message_start/update/end`、`tool_execution_*`、`agent_end` 的 TUI 显示策略集中化。
-3. 新增轻量 virtual terminal / final screen 测试雏形，检查最终屏幕而不是 raw ANSI 文本重复次数。
-4. 补充 Ctrl+L、Ctrl+O、/commands、/sessions 在最终屏幕中的稳定性测试。
-5. 保持运行时协议、session export 和工具安全策略不变。
+1. 将 `input / autocomplete / panel / selector / resume prompt / running steer input` 的焦点转移表写入文档。
+2. 明确 `Esc`、`Enter`、`Tab`、`Ctrl+C`、`Ctrl+D`、`Ctrl+L` 在不同焦点下的恢复语义。
+3. 补充焦点恢复测试，防止 panel/selector/autocomplete 同时抢 editor slot。
+4. 保持现有命令面板、会话选择器和工具详情行为不变。
 
 不做：
 

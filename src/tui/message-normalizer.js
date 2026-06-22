@@ -128,7 +128,38 @@ function normalizeToolDisplayStatus(message) {
   return { status: 'running', isError: false, isRepeatedSuppressed: false };
 }
 
+function classifyAgentEvent(event) {
+  if (!event || !event.type) return { kind: 'ignored' };
+  if (event.type === 'agent_start') return { kind: 'system_ephemeral' };
+  if (event.type === 'turn_start' || event.type === 'turn_end') return { kind: 'state_only' };
+  if (event.type === 'message_start' && event.role === 'user') {
+    return { kind: event.internal ? 'internal_user_message' : 'user_message' };
+  }
+  if (event.type === 'message_start' && event.role === 'assistant') {
+    return { kind: 'assistant_stream_start' };
+  }
+  if (event.type === 'message_update' && event.role === 'assistant') {
+    return { kind: 'assistant_stream_update' };
+  }
+  if (event.type === 'message_end' && event.role === 'assistant') {
+    return { kind: 'assistant_final' };
+  }
+  if (event.type === 'message_end' && event.role === 'user') {
+    return { kind: event.internal ? 'ignored' : 'state_only' };
+  }
+  if (event.type === 'tool_execution_start') return { kind: 'tool_start' };
+  if (event.type === 'tool_execution_update') return { kind: 'tool_update' };
+  if (event.type === 'tool_execution_end') return { kind: 'tool_end' };
+  if (event.type === 'model_usage') return { kind: 'usage_update' };
+  if (event.type === 'agent_end') return { kind: 'assistant_final' };
+  if (event.type === 'fork_start' || event.type === 'log_start' || event.type === 'log_end') {
+    return { kind: 'debug_log' };
+  }
+  return { kind: 'ignored' };
+}
+
 module.exports = {
+  classifyAgentEvent,
   isLiveMessageVisible,
   normalizeAssistantContent,
   normalizeStatusText,

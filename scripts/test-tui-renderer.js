@@ -7,7 +7,7 @@ const { renderTui } = require('../src/tui/renderer');
 const { CURSOR_MARKER, extractCursorPosition } = require('../src/tui/cursor');
 const { ANSI, stripAnsi, visibleWidth } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
-const { isLiveMessageVisible, normalizeToolDisplayStatus } = require('../src/tui/message-normalizer');
+const { classifyAgentEvent, isLiveMessageVisible, normalizeToolDisplayStatus } = require('../src/tui/message-normalizer');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -74,6 +74,29 @@ test('message normalizer centralizes tool display status', () => {
   });
   assert(repeated.status === 'repeated_suppressed', 'repeat guard should normalize to repeated_suppressed');
   assert(repeated.isError === false, 'repeat guard should not display as severe error');
+});
+
+test('message normalizer classifies agent events for the TUI adapter', () => {
+  const cases = [
+    [{ type: 'agent_start' }, 'system_ephemeral'],
+    [{ type: 'turn_start' }, 'state_only'],
+    [{ type: 'message_start', role: 'user' }, 'user_message'],
+    [{ type: 'message_start', role: 'user', internal: true }, 'internal_user_message'],
+    [{ type: 'message_start', role: 'assistant' }, 'assistant_stream_start'],
+    [{ type: 'message_update', role: 'assistant' }, 'assistant_stream_update'],
+    [{ type: 'message_end', role: 'assistant' }, 'assistant_final'],
+    [{ type: 'tool_execution_start' }, 'tool_start'],
+    [{ type: 'tool_execution_update' }, 'tool_update'],
+    [{ type: 'tool_execution_end' }, 'tool_end'],
+    [{ type: 'model_usage' }, 'usage_update'],
+    [{ type: 'agent_end' }, 'assistant_final'],
+    [{ type: 'fork_start' }, 'debug_log'],
+    [{ type: 'unknown' }, 'ignored'],
+  ];
+  cases.forEach(([event, expected]) => {
+    const actual = classifyAgentEvent(event).kind;
+    assert(actual === expected, `${event.type} should classify as ${expected}, got ${actual}`);
+  });
 });
 
 test('renderer can mark hardware cursor position for IME', () => {

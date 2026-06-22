@@ -1,7 +1,7 @@
 'use strict';
 
 const { addMessage, updateMessage } = require('./state');
-const { normalizeAssistantContent } = require('./message-normalizer');
+const { classifyAgentEvent, normalizeAssistantContent } = require('./message-normalizer');
 const { statusLabel, workflow } = require('../cli-view');
 
 function assistantPatch(content, event) {
@@ -131,7 +131,8 @@ function extractTokenUsage(event) {
 
 function handleAgentEvent(state, event) {
   if (!event || !event.type) return;
-  if (event.type === 'agent_start') {
+  const classification = classifyAgentEvent(event, state);
+  if (classification.kind === 'system_ephemeral') {
     state.mode = 'running';
     state.status = 'agent running';
     state.agentStatus = 'running';
@@ -148,34 +149,33 @@ function handleAgentEvent(state, event) {
         ].join('\n'),
       });
     }
-  } else if (event.type === 'turn_start') {
+  } else if (event.type === 'state_only' && event.type === 'turn_start') {
     state.turnCount = Math.max(state.turnCount || 0, event.loop || 0);
     state.status = `轮次 ${event.loop || state.turnCount} 规划中 / turn ${event.loop || state.turnCount} planning`;
     state.lastEventTime = Date.now();
-  } else if (event.type === 'message_start' && event.role === 'user') {
-    if (event.internal) {
-      hideLatestProvisionalAnswer(state);
-      return;
-    }
+  } else if (classification.kind === 'internal_user_message') {
+    hideLatestProvisionalAnswer(state);
+    return;
+  } else if (classification.kind === 'user_message') {
     addMessage(state, { type: 'user', text: event.content || '' });
-  } else if (event.type === 'message_start' && event.role === 'assistant') {
+  } else if (classification.kind === 'assistant_stream_start') {
     const msg = addMessage(state, { type: 'assistant', text: '' });
     state.currentAssistantEventId = msg.id;
-  } else if (event.type === 'message_update' && event.role === 'assistant') {
+  } else if (classification.kind === 'assistant_stream_update') {
     const result = assistantPatch(event.content || '', event);
     updateMessage(state, state.currentAssistantEventId, result.patch);
     if (result.normalized.displayKind === 'plain' || result.normalized.displayKind === 'model_answer') {
       state.lastAssistantText = result.normalized.text || state.lastAssistantText;
     }
-  } else if (event.type === 'message_end' && event.role === 'user') {
-    if (event.internal) return;
-  } else if (event.type === 'message_end' && event.role === 'assistant') {
+  } else if (classification.kind === 'state_only' && event.type === 'message_end') {
+    return;
+  } else if (classification.kind === 'assistant_final' && event.type === 'message_end') {
     const result = assistantPatch(event.content || '', event);
     updateMessage(state, state.currentAssistantEventId, result.patch);
     if (result.normalized.displayKind === 'plain' || result.normalized.displayKind === 'model_answer') {
       state.lastAssistantText = result.normalized.text || state.lastAssistantText;
     }
-  } else if (event.type === 'tool_execution_start') {
+  } else if (classification.kind === 'tool_start') {
     hideLatestProvisionalAnswer(state);
     state.toolCount += 1;
     state.status = `tool ${event.toolName || 'unknown'} running`;
@@ -196,7 +196,7 @@ function handleAgentEvent(state, event) {
       detail: event.args || {},
     });
     state.currentToolEventIdByKey[key] = item.id;
-  } else if (event.type === 'tool_execution_update') {
+  } else if (classification.kind === 'tool_update') {
     state.lastEventTime = Date.now();
     state.status = `tool ${event.toolName || 'unknown'} running`;
     const key = toolEventKey(event);
@@ -212,7 +212,7 @@ function handleAgentEvent(state, event) {
     };
     if (id && updateMessage(state, id, patch)) return;
     addMessage(state, Object.assign({ id: `tool-${key}` }, patch));
-  } else if (event.type === 'tool_execution_end') {
+  } else if (classification.kind === 'tool_end') {
     state.lastEventTime = Date.now();
     state.status = event.isError ? `tool ${event.toolName || 'unknown'} error` : `tool ${event.toolName || 'unknown'} ok`;
     const key = toolEventKey(event);
@@ -235,9 +235,9 @@ function handleAgentEvent(state, event) {
     };
     if (id && updateMessage(state, id, patch)) return;
     addMessage(state, patch);
-  } else if (event.type === 'turn_end') {
+  } else if (classification.kind === 'state_only' && event.type === 'turn_end') {
     if (event.status) state.status = `turn ${statusLabel(event.status)} (${event.status})`;
-  } else if (event.type === 'model_usage') {
+  } else if (classification.kind === 'usage_update') {
     const usage = extractTokenUsage(event);
     state.tokenInput += usage.input;
     state.tokenOutput += usage.output;
@@ -245,7 +245,7 @@ function handleAgentEvent(state, event) {
     if (usage.contextUsed) state.contextUsed = usage.contextUsed;
     if (usage.contextBudget) state.contextBudget = usage.contextBudget;
     state.lastEventTime = Date.now();
-  } else if (event.type === 'agent_end') {
+  } else if (classification.kind === 'assistant_final' && event.type === 'agent_end') {
     state.mode = 'idle';
     state.queuedFollowUps = [];
     const status = event.status || (event.error ? 'error' : 'ok');
@@ -293,11 +293,11 @@ function handleAgentEvent(state, event) {
         completionSource: event.completionSource || '',
       },
     });
-  } else if (event.type === 'fork_start') {
+  } else if (classification.kind === 'debug_log' && event.type === 'fork_start') {
     addMessage(state, { type: 'system', text: `会话分支开始 / fork_start: ${event.sourceSessionId || 'unknown'}` });
-  } else if (event.type === 'log_start') {
+  } else if (classification.kind === 'debug_log' && event.type === 'log_start') {
     addMessage(state, { type: 'system', text: `日志诊断开始 / log_start: ${event.file || ''}` });
-  } else if (event.type === 'log_end') {
+  } else if (classification.kind === 'debug_log' && event.type === 'log_end') {
     addMessage(state, { type: 'system', text: `日志诊断完成 / log_end: ${event.report && event.report.category || ''}` });
   }
 }
