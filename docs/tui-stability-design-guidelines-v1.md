@@ -178,6 +178,21 @@ visibleWidth(line) <= terminal columns
 - `Tab` 是补全还是切换。
 - 关闭 panel 后焦点回到哪里。
 
+当前焦点优先级固定为：
+
+```text
+selector > panel > autocomplete > input
+```
+
+editor slot 占用规则：
+
+| surface | 是否占用 editor slot | 说明 |
+| --- | --- | --- |
+| selector | 是 | `/sessions`、`/tree`、resume prompt 和 action menu 都属于 selector surface。 |
+| panel | 是 | `/commands`、`/model`、`/settings` 等面板属于 panel surface。 |
+| autocomplete | 否 | autocomplete 浮在 input 之上，不替换 input 的编辑状态。 |
+| input | 否 | 普通输入和 running steer input 是默认 fallback。 |
+
 ## 六、事件分类准则
 
 runtime event 不能直接等同于用户可见消息。进入 TUI 前必须先分类。
@@ -398,6 +413,24 @@ status bar 必须稳定只出现一次。
 - `Esc`：关闭当前 panel；running 时 abort；普通输入时清空或返回。
 
 `Ctrl+L` 对 TUI 稳定性非常重要。它是用户遇到终端显示错乱时的第一恢复手段。
+
+恢复键与确认键语义表：
+
+| surface | Esc | Enter | Tab | Ctrl+C | Ctrl+D | Ctrl+L | Ctrl+O |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| input idle | 清空输入 | 提交输入 | 由 autocomplete 接管时补全 | 输入非空清空，输入为空退出 | 输入为空退出 | full redraw | 工具详情 |
+| input running | abort 当前 run | steer 当前 run | 普通文本输入 | abort 当前 run | 不作为普通输入处理 | full redraw | 工具详情 |
+| autocomplete | 关闭候选 | fall through 到 input submit | 接受候选 | 全局恢复键 | 全局退出键 | full redraw | 工具详情 |
+| panel | 关闭 panel | 确认/插入当前项 | 作为筛选文本或由 panel 定义 | 全局恢复键 | 全局退出键 | full redraw | 工具详情 |
+| selector recent | 关闭 selector | 打开 action menu | 切换 recent/tree | 全局恢复键 | 全局退出键 | full redraw | 工具详情 |
+| selector tree | 关闭 selector | 折叠/展开节点 | 切换 recent/tree | 全局恢复键 | 全局退出键 | full redraw | 工具详情 |
+| resume prompt | 返回 action menu | 空 prompt 报错，非空提交 resume | 作为输入文本处理 | 全局恢复键 | 全局退出键 | full redraw | 工具详情 |
+
+约束：
+
+- `Enter` 不再接受 autocomplete，避免 slash command 需要两次 Enter。
+- `Ctrl+L` 必须保持全局恢复键，不得被 panel、selector、autocomplete 覆盖。
+- `Ctrl+O` 和 `/more` 只改变工具详情展示，不改变焦点归属和消息源。
 
 ### 4. Tool detail
 
@@ -772,6 +805,68 @@ scripts/test-tui-virtual-terminal.js
 | SSH 到龙芯派 pty | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 待确认 | 已验证 | 已验证 |
 | 龙芯派本地终端 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 |
 
+### 阶段 E 计划：焦点转移表文档化与快捷键恢复策略
+
+状态：已完成。
+
+已完成能力：
+
+- 已将 `selector > panel > autocomplete > input` 焦点优先级写入文档。
+- 已将 `Esc / Enter / Tab / Ctrl+C / Ctrl+D / Ctrl+L / Ctrl+O` 在不同 surface 下的语义写入文档。
+- 已补充焦点恢复测试，防止 panel、selector、autocomplete、input 同时抢 editor slot。
+- 已补充全局恢复键不被 focused namespace 遮蔽的测试。
+
+验收证据：
+
+- 本地通过：`test-tui-interactions`、`test-tui-keybindings`、`test-tui-virtual-terminal`、`test-tui-renderer`、`test-tui-commands`、`test-runtime`。
+- 板端通过同一组测试。
+- 真实 pty smoke 通过，退出码为 0，退出后无残留 `node src/index.js tui` 进程。
+
+本阶段约束：
+
+- 不改变现有快捷键设计。
+- 不新增 overlay framework。
+- 不引入 Pi TUI 依赖。
+- 不新增 runtime 依赖。
+- 不处理 `dist`。
+
+### 阶段 F 计划：用户可见快捷键帮助与状态提示一致性
+
+状态：已完成。
+
+目标：
+
+- 统一 header、status bar、editor hint、`/help`、`/hotkeys`、`/commands`、selector、panel、tool card 中的用户可见快捷键说明。
+- 用户可见快捷键文案必须以 `src/tui/keybindings.js` 和 `shortcutHint()` 为事实源。
+- 修正文案与实际行为不一致的问题，不改变现有快捷键行为。
+
+实施范围：
+
+- `/help` 和 `/hotkeys` 中的快捷键说明由 `shortcutHint()` 组合生成。
+- command panel 的 hint 由 `panel.confirm`、`panel.close` 等快捷键事实源生成。
+- header、running editor hint、selected tool hint 等渲染层提示必须与 `keybindings.js` 一致。
+- `Ctrl+L` 只展示为 redraw/full redraw；模型选择入口继续是 `/model`。
+- `Enter` 展示为提交、确认或插入命令；autocomplete 补全继续展示为 `Tab`。
+
+验收标准：
+
+- 本地通过 `test-tui-commands`、`test-tui-renderer`、`test-tui-keybindings`、`test-tui-interactions`、`test-tui-virtual-terminal`、`test-runtime`。
+- 板端通过同一组测试。
+- 真实 pty smoke 使用 timeout 安全脚本，验证 `/help`、`/commands`、`/sessions`、`Ctrl+O`、`Ctrl+L`、`/exit`，退出后无残留 `node src/index.js tui` 进程。
+
+验收结果：
+
+- 本地同组测试已通过。
+- 板端同组测试已通过，输出 `STAGE_F_BOARD_TESTS_PASS`。
+- 真实 pty smoke 退出码为 0，`pgrep -af 'node src/index.js [t]ui'` 无残留进程。
+
+本阶段不做：
+
+- 不新增 `/hotkeys` 或新的快捷键面板。
+- 不修改快捷键映射。
+- 不重构 TUI 架构。
+- 不处理 `dist`。
+
 ### P0：稳定性修复
 
 - [x] 实现 `Ctrl+L` full redraw。
@@ -786,7 +881,7 @@ scripts/test-tui-virtual-terminal.js
 - [x] 将 tool display status 统一枚举化。
 - [x] 将 panel/editor/selector 焦点转移表测试化。
 - [x] 建立更完整的 `normalizeTuiMessage(event)` 或等价事件分类层。
-- [ ] 将焦点转移表进一步文档化。
+- [x] 将焦点转移表进一步文档化。
 
 ### P2：体验增强
 
@@ -822,15 +917,15 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-TUI 稳定性阶段 E：焦点转移表文档化与快捷键恢复策略
+TUI 稳定性阶段 G：真实 pty smoke 脚本规范化与可观测性
 ```
 
 范围：
 
-1. 将 `input / autocomplete / panel / selector / resume prompt / running steer input` 的焦点转移表写入文档。
-2. 明确 `Esc`、`Enter`、`Tab`、`Ctrl+C`、`Ctrl+D`、`Ctrl+L` 在不同焦点下的恢复语义。
-3. 补充焦点恢复测试，防止 panel/selector/autocomplete 同时抢 editor slot。
-4. 保持现有命令面板、会话选择器和工具详情行为不变。
+1. 固化真实 pty smoke 的安全脚本模板，默认带 timeout。
+2. 避免 `ReadToEnd()` 在进程退出前永久阻塞。
+3. 记录 `/help`、`/commands`、`/sessions`、`Ctrl+O`、`Ctrl+L`、`/exit` 的标准验证路径。
+4. 输出明确的退出码、日志路径和残留进程检查结果。
 
 不做：
 

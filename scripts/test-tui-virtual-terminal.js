@@ -203,6 +203,38 @@ test('virtual terminal editor slot is exclusive for panel and selector', () => {
   assert(screen.indexOf('loong>') < 0, 'plain input should be hidden while session selector is open');
 });
 
+test('virtual terminal focus surfaces transition without duplicate editor slots', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  let screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('/settings') >= 0, 'autocomplete should render over input');
+  assert(screen.indexOf('loong>') < 0, 'legacy prompt should not render with autocomplete');
+  assertSingleStatusBar(screen);
+
+  state.activePanel = {
+    type: 'command',
+    title: 'Command Palette',
+    selectedIndex: 0,
+    items: [{ label: '/help', value: '/help', usage: '/help', description: 'Show help' }],
+  };
+  screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('Command Palette') >= 0, 'panel should replace editor slot');
+  assert(screen.indexOf('/settings') < 0, 'autocomplete should hide behind panel');
+  assertSingleStatusBar(screen);
+
+  state.selector = {
+    view: 'recent',
+    selectedIndex: 0,
+    items: [{ id: 'session-one', command: 'tui' }],
+  };
+  screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('Session selector') >= 0, 'selector should replace panel in editor slot');
+  assert(screen.indexOf('Command Palette') < 0, 'panel should hide behind selector');
+  assert(screen.indexOf('/settings') < 0, 'autocomplete should hide behind selector');
+  assertSingleStatusBar(screen);
+});
+
 test('virtual terminal shows ephemeral system only while running', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   handleAgentEvent(state, { type: 'agent_start', prompt: 'memory status', provider: 'mock', model: 'm' });

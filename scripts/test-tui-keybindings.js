@@ -75,3 +75,15 @@ test('keybinding validation reports no namespace conflicts', () => {
   const issues = validateKeybindings();
   assert(issues.length === 0, `unexpected keybinding conflicts: ${JSON.stringify(issues)}`);
 });
+
+test('global recovery keys are not shadowed by focused namespaces', () => {
+  for (const namespace of ['editor', 'runningEditor', 'autocomplete', 'selector', 'tree', 'panel']) {
+    assert(resolveKeyAction(namespace, { type: 'ctrl_l' }) === '', `${namespace} should not shadow ctrl-l redraw`);
+    assert(resolveKeyAction(namespace, { type: 'ctrl_c' }) === '', `${namespace} should not shadow ctrl-c global recovery`);
+    assert(resolveKeyAction(namespace, { type: 'ctrl_d' }) === '', `${namespace} should not shadow ctrl-d exit`);
+  }
+  for (const namespace of ['editor', 'runningEditor', 'autocomplete', 'selector', 'tree', 'panel', 'global']) {
+    assert(resolveKeyAction(namespace, { type: 'ctrl_o' }) === '', `${namespace} should not shadow ctrl-o tool detail`);
+  }
+  assert(resolveKeyAction('tool', { type: 'ctrl_o' }) === 'toggleCurrentDetail', 'tool namespace should own ctrl-o');
+});

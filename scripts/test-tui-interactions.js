@@ -54,6 +54,34 @@ test('focus priority follows selector panel autocomplete input', async () => {
   assert(isEditorSlotOccupied(state) === true, 'selector should occupy editor slot');
 });
 
+test('focus recovery matrix keeps one active surface', async () => {
+  const state = createTuiState({});
+  setInput(state, '/');
+  updateAutocomplete(state);
+  state.activePanel = {
+    type: 'command',
+    title: 'Command Palette',
+    selectedIndex: 0,
+    items: [{ label: '/help', value: '/help', usage: '/help', description: 'Show help' }],
+  };
+  state.selector = {
+    view: 'recent',
+    selectedIndex: 0,
+    items: [{ id: 'session-one', command: 'tui' }],
+  };
+
+  assert(getFocusedSurface(state).id === 'selector', 'selector should win over panel and autocomplete');
+  await handleFocusedKey(state, { type: 'escape' }, {});
+  assert(state.selector === null, 'escape should close selector first');
+  assert(getFocusedSurface(state).id === 'panel', 'panel should receive focus after selector closes');
+  await handleFocusedKey(state, { type: 'escape' }, {});
+  assert(state.activePanel === null, 'escape should close panel second');
+  assert(getFocusedSurface(state).id === 'autocomplete', 'autocomplete should receive focus after panel closes');
+  await handleFocusedKey(state, { type: 'escape' }, {});
+  assert(state.autoItems.length === 0, 'escape should close autocomplete third');
+  assert(getFocusedSurface(state).id === 'input', 'input should be the final fallback focus');
+});
+
 test('autocomplete controller accepts tab and clears list', async () => {
   const state = createTuiState({});
   setInput(state, '/se');
@@ -266,6 +294,12 @@ test('running input dispatch steers enter and queues alt-enter', async () => {
     queueFollowUp: async (text) => { queued = text; },
   });
   assert(queued === 'after this', 'alt-enter did not queue running follow-up');
+
+  let aborted = false;
+  await handleFocusedKey(state, { type: 'escape' }, {
+    abortRunning: () => { aborted = true; },
+  });
+  assert(aborted === true, 'escape should abort a running input surface');
 });
 
 test('editor slot resolves active component by focused surface state', async () => {

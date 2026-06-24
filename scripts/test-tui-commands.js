@@ -10,6 +10,7 @@ const { handleCommand } = require('../src/tui/commands');
 const { handlePanelKey } = require('../src/tui/interactions');
 const { createTuiState } = require('../src/tui/state');
 const { listSlashCommands } = require('../src/tui/slash-commands');
+const { shortcutHint } = require('../src/tui/keybindings');
 const { createJsonlSession, readSessionFromPath } = require('../src/session');
 
 function assert(condition, message) {
@@ -146,6 +147,23 @@ test('bottom and top commands control history view', async () => {
   const values = context.state.activePanel.items.map((item) => item.value);
   assert(values.indexOf('/bottom') >= 0, 'commands panel missing bottom command');
   assert(values.indexOf('/top') >= 0, 'commands panel missing top command');
+});
+
+test('help hotkeys and command panel use keybinding shortcut hints', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/help');
+  await handleCommand(context, '/hotkeys');
+  const text = context.state.messages.map((message) => message.text).join('\n');
+  assert(text.indexOf(`Input: ${shortcutHint('editor', 'submit')} send, ${shortcutHint('autocomplete', 'accept')} complete`) >= 0, 'help input shortcuts should come from keybindings');
+  assert(text.indexOf(`Running: ${shortcutHint('runningEditor', 'steer')} steer current run`) >= 0, 'help running shortcuts should come from keybindings');
+  assert(text.indexOf(`Recovery: ${shortcutHint('global', 'forceRedraw')} force redraw`) >= 0, 'help redraw shortcut should come from keybindings');
+  assert(text.indexOf(`${shortcutHint('tool', 'toggleGlobalDetails')} or /more`) >= 0, 'tool shortcut should come from keybindings');
+  assert(text.indexOf('Ctrl+L model') < 0, 'help should not advertise ctrl-l as model selector');
+
+  await handleCommand(context, '/commands');
+  assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'confirm')} insert command`) >= 0, 'command panel enter hint should come from keybindings');
+  assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'close')} back`) >= 0, 'command panel escape hint should come from keybindings');
 });
 
 test('tree lineage fork export and session commands work', async () => {

@@ -471,8 +471,8 @@ class ToolMessageComponent {
     const lines = [];
 
     const marker = selected ? '> ' : '';
-    const hint = selected ? '  Ctrl+O details / /more all' : '';
-    lines.push(fullLine(`${marker}${GLYPHS.toolTop} tool ${toolName} / ${displayStatus}${suffix}${hint}`, width, theme, blockToken));
+    const toolHint = selected ? `  ${hint('tool', 'toggleCurrentDetail')} details / /more all` : '';
+    lines.push(fullLine(`${marker}${GLYPHS.toolTop} tool ${toolName} / ${displayStatus}${suffix}${toolHint}`, width, theme, blockToken));
     if (isError) {
       const errorDetail = message.errorType ? `policy: ${message.errorType}` : `error: ${rawStatus}`;
       lines.push(fullLine(`${GLYPHS.toolMid}${errorDetail}`, width, theme, 'toolError'));

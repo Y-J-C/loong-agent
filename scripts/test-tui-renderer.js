@@ -8,6 +8,7 @@ const { CURSOR_MARKER, extractCursorPosition } = require('../src/tui/cursor');
 const { ANSI, stripAnsi, visibleWidth } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
 const { classifyAgentEvent, isLiveMessageVisible, normalizeToolDisplayStatus } = require('../src/tui/message-normalizer');
+const { shortcutHint } = require('../src/tui/keybindings');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -43,6 +44,8 @@ test('renderer includes header input and status bar', () => {
   const plain = stripAnsi(output);
   assert(output.indexOf(CURSOR_MARKER) < 0, 'default render should not include cursor marker');
   assert(plain.indexOf('loong-agent v0.x') >= 0, 'missing header');
+  assert(plain.indexOf(`${shortcutHint('global', 'forceRedraw')} redraw`) >= 0, 'header redraw hint should come from keybindings');
+  assert(plain.indexOf(`${shortcutHint('global', 'forceRedraw')} model`) < 0, 'header should not advertise ctrl-l as model selector');
   assert(plain.indexOf('loong>') < 0, 'old prompt should not be rendered');
   assert(plain.indexOf('你好') >= 0, 'missing input');
   assert(plain.indexOf('mock/m') >= 0, 'missing model status');
@@ -241,7 +244,7 @@ test('bounded viewport mode keeps a stable frame across live UI changes', () => 
   state.activePanel = {
     type: 'command',
     title: 'Command Palette',
-    hint: 'type to filter - Enter insert - Esc close',
+    hint: `type filter - ${shortcutHint('panel', 'confirm')} insert command - ${shortcutHint('panel', 'close')} back`,
     query: '',
     selectedIndex: 0,
     items: [{ label: '/help', value: '/help', usage: '/help', description: 'Show help', group: 'core' }],
@@ -486,7 +489,7 @@ test('renderer marks selected tool block', () => {
   });
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 20 }));
   assert(plain.indexOf('> ╭─ tool bash') >= 0, 'selected tool marker missing');
-  assert(plain.indexOf('Ctrl+O details') >= 0, 'selected tool hint missing');
+  assert(plain.indexOf(`${shortcutHint('tool', 'toggleCurrentDetail')} details`) >= 0, 'selected tool hint should come from keybindings');
 });
 
 test('renderer keeps json tool summaries compact by default', () => {
@@ -876,7 +879,7 @@ test('renderer displays command panel and keeps narrow lines bounded', () => {
   state.activePanel = {
     type: 'command',
     title: '命令面板 / Command Palette',
-    hint: 'type to filter - Enter insert - Esc close',
+    hint: `type filter - ${shortcutHint('panel', 'confirm')} insert command - ${shortcutHint('panel', 'close')} back`,
     query: 'sess',
     selectedIndex: 0,
     items: [
@@ -899,6 +902,7 @@ test('renderer displays command panel and keeps narrow lines bounded', () => {
   const output = renderTui(state, { columns: 52, rows: 18 });
   const plain = stripAnsi(output);
   assert(plain.indexOf('命令面板 / Command Palette') >= 0, 'command panel title missing');
+  assert(plain.indexOf(`${shortcutHint('panel', 'confirm')} insert command`) >= 0, 'command panel hint should come from keybindings');
   assert(plain.indexOf('/sessions') >= 0, 'command panel item missing');
   assert(plain.indexOf('loong>') < 0, 'input area should be replaced while command panel is open');
   output.split('\n').forEach((line) => {
@@ -1080,8 +1084,8 @@ test('renderer shows running editor steer queue hints', () => {
   state.inputBuffer = 'next instruction';
   state.queuedFollowUps = ['after this run', 'then summarize'];
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
-  assert(plain.indexOf('running: Enter steers current run') >= 0, 'running steer hint missing');
-  assert(plain.indexOf('Alt+Enter queues follow-up') >= 0, 'running queue hint missing');
+  assert(plain.indexOf(`running: ${shortcutHint('runningEditor', 'steer')} steers current run`) >= 0, 'running steer hint should come from keybindings');
+  assert(plain.indexOf(`${shortcutHint('runningEditor', 'queueFollowUp')} queues follow-up`) >= 0, 'running queue hint should come from keybindings');
   assert(plain.indexOf('queued follow-ups: 2') >= 0, 'queued follow-up count missing');
   assert(plain.indexOf('after this run') >= 0, 'queued follow-up preview missing');
 });

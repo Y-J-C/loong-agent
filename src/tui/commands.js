@@ -29,6 +29,34 @@ function keyHint(namespace, action) {
   return shortcutHint(namespace, action);
 }
 
+function commandPanelHint() {
+  return `type filter - ${keyHint('panel', 'confirm')} insert command - ${keyHint('panel', 'close')} back`;
+}
+
+function inputShortcutSummary() {
+  return `Input: ${keyHint('editor', 'submit')} send, ${keyHint('autocomplete', 'accept')} complete, ${keyHint('editor', 'newline')} newline.`;
+}
+
+function runningShortcutSummary() {
+  return `Running: ${keyHint('runningEditor', 'steer')} steer current run, ${keyHint('runningEditor', 'queueFollowUp')} queue follow-up, ${keyHint('runningEditor', 'abort')} abort.`;
+}
+
+function exitShortcutSummary() {
+  return `Exit: ${keyHint('global', 'abortOrExit')} / ${keyHint('global', 'exitIfEmpty')} empty input / /exit.`;
+}
+
+function recoveryShortcutSummary() {
+  return `Recovery: ${keyHint('global', 'forceRedraw')} force redraw.`;
+}
+
+function toolShortcutSummary() {
+  return `Tools: ${keyHint('tool', 'toggleCurrentDetail')} current tool detail, ${keyHint('tool', 'toggleGlobalDetails')} or /more all tool details.`;
+}
+
+function scrollShortcutSummary() {
+  return `Scroll: ${keyHint('editor', 'pageUp')} / ${keyHint('editor', 'pageDown')}.`;
+}
+
 function formatTree(nodes, depth) {
   const lines = [];
   for (const node of nodes || []) {
@@ -95,20 +123,20 @@ function hotkeysTextV2() {
 function hotkeysTextClean() {
   return [
     'Hotkeys:',
-    'Enter: send; while running, steer current task',
-    'Tab: accept autocomplete',
-    'Alt+Enter: newline; while running, queue follow-up',
-    'Ctrl+Enter or \\ + Enter: newline fallback',
-    'Esc: abort/back',
-    'Ctrl+C: abort or exit',
-    'Ctrl+D: exit on empty input',
-    'Ctrl+L: force redraw',
+    `${keyHint('editor', 'submit')}: send; while running, steer current task`,
+    `${keyHint('autocomplete', 'accept')}: accept autocomplete`,
+    `${keyHint('runningEditor', 'queueFollowUp')}: newline; while running, queue follow-up`,
+    `${keyHint('editor', 'newline')} or \\ + Enter: newline fallback`,
+    `${keyHint('editor', 'clearOrBack')}: abort/back`,
+    `${keyHint('global', 'abortOrExit')}: abort or exit`,
+    `${keyHint('global', 'exitIfEmpty')}: exit on empty input`,
+    `${keyHint('global', 'forceRedraw')}: force redraw`,
     '/model: model selector',
-    'Ctrl+O: current tool detail',
-    'Shift+Ctrl+O or /more: all tool details',
-    'Up/Down or Ctrl+P/Ctrl+N: history or list navigation',
-    'PageUp/PageDown: scroll and tool focus',
-    'Tree: Ctrl+T switches filter mode',
+    `${keyHint('tool', 'toggleCurrentDetail')}: current tool detail`,
+    `${keyHint('tool', 'toggleGlobalDetails')} or /more: all tool details`,
+    `${keyHint('editor', 'historyPrev')}/${keyHint('editor', 'historyNext')}: history or list navigation`,
+    `${keyHint('editor', 'pageUp')}/${keyHint('editor', 'pageDown')}: scroll and tool focus`,
+    `Tree: ${keyHint('tree', 'cycleFilter')} switches filter mode`,
   ].join('\n');
 }
 
@@ -223,8 +251,8 @@ function createCommandPanel() {
   return {
     type: 'command',
     title: '命令面板 / Command Palette',
-    hint: '输入筛选 - Enter 插入命令 - Esc 返回',
     query: '',
+    hint: commandPanelHint(),
     items,
     selectedIndex: 0,
   };
@@ -304,11 +332,12 @@ function helpTextClean() {
   return [
     lines.join('\n'),
     '',
-    'Input: Enter send, Tab complete, Ctrl/Alt+Enter newline.',
-    'Exit: Ctrl+C / Ctrl+D empty input / /exit.',
-    'Recovery: Ctrl+L force redraw.',
-    'Tools: Ctrl+O current tool detail, Shift+Ctrl+O or /more all tool details.',
-    'Scroll: PageUp / PageDown.',
+    inputShortcutSummary(),
+    runningShortcutSummary(),
+    exitShortcutSummary(),
+    recoveryShortcutSummary(),
+    toolShortcutSummary(),
+    scrollShortcutSummary(),
     '',
     brandMotto(),
   ].join('\n');
