@@ -22,7 +22,7 @@ const { hasTheme, listThemes } = require('./theme');
 const { toggleGlobalToolDetails } = require('./tool-focus');
 const { buildTreeSelector } = require('./session-tree');
 const { scrollToBottom, scrollToTop } = require('./scroll');
-const { shortcutHint } = require('./keybindings');
+const { KEYBINDINGS, shortcutHint } = require('./keybindings');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
 
 function keyHint(namespace, action) {
@@ -31,6 +31,10 @@ function keyHint(namespace, action) {
 
 function commandPanelHint() {
   return `type filter - ${keyHint('panel', 'confirm')} insert command - ${keyHint('panel', 'close')} back`;
+}
+
+function hotkeysPanelHint() {
+  return `type filter - ${keyHint('panel', 'confirm')} close - ${keyHint('panel', 'close')} back`;
 }
 
 function inputShortcutSummary() {
@@ -265,6 +269,125 @@ function openCommandPanel(state) {
   state.commandPanel = panel;
 }
 
+function hotkeyDescription(namespace, action) {
+  const descriptions = {
+    global: {
+      abortOrExit: 'Abort current run or exit',
+      exitIfEmpty: 'Exit when input is empty',
+      forceRedraw: 'Force full redraw without changing state',
+    },
+    tool: {
+      toggleCurrentDetail: 'Toggle selected tool details',
+      toggleGlobalDetails: 'Toggle all tool details',
+    },
+    editor: {
+      submit: 'Send input',
+      newline: 'Insert newline',
+      clearOrBack: 'Clear input or go back',
+      historyPrev: 'Previous history item',
+      historyNext: 'Next history item',
+      pageUp: 'Scroll history up',
+      pageDown: 'Scroll history down',
+      moveStart: 'Move cursor to line start',
+      moveEnd: 'Move cursor to line end',
+    },
+    runningEditor: {
+      steer: 'Steer current running task',
+      queueFollowUp: 'Queue follow-up while running',
+      abort: 'Abort current run',
+    },
+    autocomplete: {
+      accept: 'Accept autocomplete candidate',
+      prev: 'Previous autocomplete candidate',
+      next: 'Next autocomplete candidate',
+      close: 'Close autocomplete',
+      newline: 'Insert newline while autocomplete is open',
+    },
+    selector: {
+      close: 'Close selector or return to previous selector mode',
+      prev: 'Previous selector item',
+      next: 'Next selector item',
+      switchView: 'Switch session selector view',
+      openActions: 'Open or confirm selector action',
+      filterBackspace: 'Delete selector filter character',
+      filterAppend: 'Type selector filter text',
+    },
+    tree: {
+      cycleFilter: 'Cycle session tree filter',
+      toggleFold: 'Fold or unfold tree node',
+      expandOrActions: 'Expand node or open actions',
+      collapseOrParent: 'Collapse node or select parent',
+      openActions: 'Open tree action menu',
+      resume: 'Resume selected session',
+      session: 'Show session trace',
+      audit: 'Audit selected session',
+      export: 'Export selected session',
+      lineage: 'Show selected session lineage',
+      name: 'Rename selected session',
+    },
+    panel: {
+      close: 'Close panel',
+      prev: 'Previous panel item',
+      next: 'Next panel item',
+      confirm: 'Confirm selected panel item',
+      cycleLeft: 'Cycle setting left',
+      cycleRight: 'Cycle setting right',
+      filterBackspace: 'Delete panel filter character',
+      filterAppend: 'Type panel filter text',
+    },
+  };
+  return descriptions[namespace] && descriptions[namespace][action]
+    ? descriptions[namespace][action]
+    : action;
+}
+
+function hotkeyGroupLabel(namespace) {
+  const labels = {
+    global: 'global',
+    tool: 'tool',
+    editor: 'input',
+    runningEditor: 'running',
+    autocomplete: 'autocomplete',
+    selector: 'selector',
+    tree: 'tree',
+    panel: 'panel',
+  };
+  return labels[namespace] || namespace;
+}
+
+function createHotkeysPanel() {
+  const items = [];
+  Object.keys(KEYBINDINGS).forEach((namespace) => {
+    (KEYBINDINGS[namespace] || []).forEach((binding) => {
+      const keys = shortcutHint(namespace, binding.action) || binding.hint || '';
+      const description = hotkeyDescription(namespace, binding.action);
+      items.push({
+        label: `${keys}  ${description}`,
+        value: `${namespace}.${binding.action}`,
+        usage: keys,
+        command: binding.action,
+        description,
+        group: hotkeyGroupLabel(namespace),
+        aliases: [namespace, binding.action],
+      });
+    });
+  });
+  return {
+    type: 'hotkeys',
+    title: 'Hotkeys / Keyboard Shortcuts',
+    query: '',
+    hint: hotkeysPanelHint(),
+    items,
+    selectedIndex: 0,
+  };
+}
+
+function openHotkeysPanel(state) {
+  const panel = createHotkeysPanel();
+  state.mode = 'panel';
+  state.activePanel = panel;
+}
+
 function writeDebugFile(config, state) {
   const filePath = path.join(config.workspace, 'runs', 'tui-debug.txt');
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -319,6 +442,7 @@ function helpTextClean() {
   const lines = [
     'Commands:',
     'Use /commands to search and insert a command.',
+    'Use /hotkeys to view and filter keyboard shortcuts.',
     '! <shell command>',
     '',
   ];
@@ -526,6 +650,10 @@ async function dispatchSlashCommand(context, parsed) {
     openCommandPanel(state);
     return;
   }
+  if (command.name === 'hotkeys') {
+    openHotkeysPanel(state);
+    return;
+  }
   if (command.name === 'theme') {
     const next = parsed.args[0] || '';
     if (!next) {
@@ -564,7 +692,7 @@ async function runSlashCommandLegacy(context, text) {
   }
 
   if (name === '/hotkeys') {
-    addMessage(state, { type: 'system', text: hotkeysTextClean() });
+    openHotkeysPanel(state);
     return;
   }
 

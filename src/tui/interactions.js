@@ -346,7 +346,7 @@ function handlePanelKey(state, key, actions) {
     }
     return true;
   }
-  if (panel.type === 'model' || panel.type === 'command') {
+  if (panel.type === 'model' || panel.type === 'command' || panel.type === 'hotkeys') {
     if (matchesAction('panel', 'filterBackspace', key)) {
       panel.query = String(panel.query || '').slice(0, -1);
       panel.selectedIndex = 0;
@@ -371,6 +371,11 @@ function handlePanelKey(state, key, actions) {
       if (item) {
         setInput(state, item.insertText || item.command || item.value || '');
       }
+      closePanel(state);
+      updateAutocomplete(state);
+      return true;
+    }
+    if (panel.type === 'hotkeys') {
       closePanel(state);
       updateAutocomplete(state);
       return true;

@@ -235,6 +235,28 @@ test('virtual terminal focus surfaces transition without duplicate editor slots'
   assertSingleStatusBar(screen);
 });
 
+test('virtual terminal hotkeys panel owns editor slot without duplicate status', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  state.mode = 'panel';
+  state.activePanel = {
+    type: 'hotkeys',
+    title: 'Hotkeys / Keyboard Shortcuts',
+    selectedIndex: 0,
+    items: [
+      { label: 'Ctrl+L  Force redraw', value: 'global.forceRedraw', usage: 'Ctrl+L', description: 'Force redraw', group: 'global' },
+      { label: 'Tab  Accept autocomplete', value: 'autocomplete.accept', usage: 'Tab', description: 'Accept autocomplete', group: 'autocomplete' },
+    ],
+  };
+  const screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('Hotkeys / Keyboard Shortcuts') >= 0, 'hotkeys panel missing from editor slot');
+  assert(screen.indexOf('Ctrl+L') >= 0, 'hotkeys panel shortcut missing');
+  assert(screen.indexOf('/settings') < 0, 'autocomplete should hide behind hotkeys panel');
+  assert(screen.indexOf('loong>') < 0, 'plain input should be hidden while hotkeys panel is open');
+  assertSingleStatusBar(screen);
+});
+
 test('virtual terminal shows ephemeral system only while running', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   handleAgentEvent(state, { type: 'agent_start', prompt: 'memory status', provider: 'mock', model: 'm' });

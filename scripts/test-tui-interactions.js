@@ -212,6 +212,29 @@ test('panel controller cycles settings and confirms model', async () => {
   assert(state.activePanel === null, 'model panel did not close');
 });
 
+test('hotkeys panel filters and enter only closes', async () => {
+  const state = createTuiState({});
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  state.activePanel = {
+    type: 'hotkeys',
+    title: 'Hotkeys',
+    query: '',
+    selectedIndex: 0,
+    items: [
+      { label: 'Ctrl+L  Force redraw', value: 'global.forceRedraw', description: 'Force redraw', group: 'global' },
+      { label: 'Ctrl+O  Toggle tool detail', value: 'tool.toggleCurrentDetail', description: 'Tool detail', group: 'tool' },
+    ],
+  };
+  assert(getFocusedSurface(state).id === 'panel', 'hotkeys panel should take focus over autocomplete');
+  await handlePanelKey(state, { type: 'text', text: 'r' }, {});
+  assert(state.activePanel.query === 'r', 'hotkeys panel should accept filter text');
+  await handlePanelKey(state, { type: 'enter' }, {});
+  assert(state.activePanel === null, 'hotkeys panel enter should close panel');
+  assert(state.inputBuffer === '/', 'hotkeys panel enter should not mutate input');
+  assert(state.messages.length === 0, 'hotkeys panel enter should not append messages');
+});
+
 test('panel component cycles settings and confirms model', async () => {
   const state = createTuiState({ model: 'old' });
   let settingApplied = 0;

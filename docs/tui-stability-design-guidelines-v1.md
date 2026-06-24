@@ -852,7 +852,7 @@ scripts/test-tui-virtual-terminal.js
 
 - 本地通过 `test-tui-commands`、`test-tui-renderer`、`test-tui-keybindings`、`test-tui-interactions`、`test-tui-virtual-terminal`、`test-runtime`。
 - 板端通过同一组测试。
-- 真实 pty smoke 使用 timeout 安全脚本，验证 `/help`、`/commands`、`/sessions`、`Ctrl+O`、`Ctrl+L`、`/exit`，退出后无残留 `node src/index.js tui` 进程。
+- 真实 pty smoke 使用 timeout 安全脚本，验证 `/help`、`/hotkeys`、`/commands`、`/sessions`、`Ctrl+O`、`Ctrl+L`、`/exit`，退出后无残留 `node src/index.js tui` 进程。
 
 验收结果：
 
@@ -862,9 +862,52 @@ scripts/test-tui-virtual-terminal.js
 
 本阶段不做：
 
-- 不新增 `/hotkeys` 或新的快捷键面板。
+- 不新增裸键 `?` 或额外快捷键映射。
 - 不修改快捷键映射。
 - 不重构 TUI 架构。
+- 不处理 `dist`。
+
+### 阶段 G 计划：真实 pty smoke 脚本规范化与可观测性
+
+状态：已完成。
+
+目标：
+
+- 将真实 pty smoke 从临时手写命令固化为可复用脚本。
+- 避免 `ReadToEnd()`、无 timeout 的 SSH/TUI 进程、`pgrep` 自匹配等导致验收卡住或误判。
+- 将 raw pty log 定位为诊断材料，而不是 UI 重复与否的判定依据。
+
+实施范围：
+
+- 新增 `scripts/test-tui-pty-smoke.js`，使用 Node.js 14 + CommonJS，无新增 runtime 依赖。
+- 支持 `--host`、`--port`、`--user`、`--workspace`、`--timeout`、`--log`、`--json`、`--dry-run`。
+- 默认远端执行 `timeout <seconds>s node src/index.js tui`。
+- 固定 payload 覆盖 `/help`、`/hotkeys`、`Esc`、`/commands`、`Esc`、`/sessions`、`Esc`、`Ctrl+O`、`Ctrl+L`、`/exit`。
+- 使用本地 watchdog 和远端 timeout 双重防卡死。
+- 使用 `pgrep -af 'node src/index.js [t]ui'` 避免残留进程检查自匹配。
+- 输出 pty log 和 JSON 报告，记录退出码、耗时、超时状态、残留进程检查和失败建议。
+
+验收标准：
+
+- `node scripts/test-tui-pty-smoke.js --dry-run` 能输出计划且不连接板端。
+- 真实 pty smoke 退出码为 0。
+- JSON 报告包含 `startedAt`、`endedAt`、`durationMs`、`sshExitCode`、`timedOut`、`logPath`、`residualProcessOutput`、`passed`、`checks`。
+- 残留进程检查无输出。
+- 本地与板端原有 TUI/runtime 测试继续通过。
+
+验收结果：
+
+- dry-run 已通过，能输出 ssh 命令、payload 摘要、log/json 路径和 timeout。
+- 真实 pty smoke 已通过，报告写入 `runs/phase-stability-g-pty.json`，退出码为 0，`passed=true`。
+- 残留进程检查 `pgrep -af 'node src/index.js [t]ui'` 无输出。
+- pty log 只作为诊断材料，不用于按业务文本重复次数判断 UI 是否重复。
+
+本阶段不做：
+
+- 不改变 TUI 行为。
+- 不改变渲染、focus、event adapter 或 session export。
+- 不把 raw pty log 文本重复次数作为通过/失败标准。
+- 不新增 npm runtime 依赖。
 - 不处理 `dist`。
 
 ### P0：稳定性修复
@@ -885,11 +928,11 @@ scripts/test-tui-virtual-terminal.js
 
 ### P2：体验增强
 
-- transcript viewer，而不是自动 transcript append。
-- `/transcript` 或 `Ctrl+O` 内查看完整工具细节。
-- `/hotkeys` 或 `?` 快捷键帮助。
-- history search。
-- virtual terminal test harness。
+- [x] P2-1：`/hotkeys` 快捷键帮助面板。
+- [ ] transcript viewer，而不是自动 transcript append。
+- [ ] `/transcript` 或 `Ctrl+O` 内查看完整工具细节。
+- [ ] history search。
+- [ ] virtual terminal test harness 持续增强。
 
 ### P3：性能与终端兼容
 
@@ -898,6 +941,42 @@ scripts/test-tui-virtual-terminal.js
 - resize 策略细化。
 - Kitty keyboard protocol 探测。
 - SSH/Windows Terminal/VS Code terminal 兼容矩阵。
+- TUI 可观测日志与故障包导出（原阶段 H）：属于 P3 诊断与可观测性增强，不是 P0 稳定性修复前置。
+
+### P2 正式开始：P2-1 用户可见快捷键帮助面板
+
+状态：已完成。
+
+目标：
+
+- 将 `/hotkeys` 从追加 system message 改为 TUI panel，避免污染 `state.messages`。
+- 继续复用 `PanelComponent`，不新增 overlay framework。
+- 快捷键内容以 `src/tui/keybindings.js` 和 `shortcutHint()` 为事实源。
+- 支持筛选、上下选择、`Esc` 关闭。
+- `Enter` 只关闭面板，不执行快捷键动作。
+- 暂不实现裸键 `?`，避免影响普通输入。
+
+实施结果：
+
+- `/hotkeys` 打开 `activePanel.type = 'hotkeys'`。
+- `/hotkeys` 不再追加 system message。
+- `/help` 明确提示可以使用 `/hotkeys` 查看快捷键帮助。
+- `/commands` 继续从统一 slash command 定义中显示 `/hotkeys`。
+- `scripts/test-tui-pty-smoke.js` 默认 payload 已加入 `/hotkeys` + `Esc`。
+
+验收结果：
+
+- 本地通过：`test-tui-commands`、`test-tui-renderer`、`test-tui-interactions`、`test-tui-keybindings`、`test-tui-virtual-terminal`、`test-runtime`。
+- pty smoke dry-run 已显示 payload 包含 `/hotkeys`。
+- 板端同步与同组验证按本阶段验收执行。
+
+本阶段不做：
+
+- 不改变任何快捷键映射。
+- 不实现裸键 `?`。
+- 不改 runtime event、session export 或 agent loop。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
 
 ## 十四、明确禁止事项
 
@@ -917,15 +996,15 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-TUI 稳定性阶段 G：真实 pty smoke 脚本规范化与可观测性
+P2-2：历史搜索与定位体验
 ```
 
 范围：
 
-1. 固化真实 pty smoke 的安全脚本模板，默认带 timeout。
-2. 避免 `ReadToEnd()` 在进程退出前永久阻塞。
-3. 记录 `/help`、`/commands`、`/sessions`、`Ctrl+O`、`Ctrl+L`、`/exit` 的标准验证路径。
-4. 输出明确的退出码、日志路径和残留进程检查结果。
+1. 增加 `/find <keyword>` 或等价搜索入口。
+2. 在当前 TUI 消息历史中定位 assistant、tool、error、evidence、command。
+3. 搜索结果只作为视图状态，不改变 session 存储。
+4. 命中后可跳转到对应历史位置，并显示 `match i/n`。
 
 不做：
 

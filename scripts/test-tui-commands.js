@@ -73,10 +73,8 @@ test('slash commands render help health project and sessions', async () => {
   await handleCommand(context, '/help');
   await handleCommand(context, '/health');
   await handleCommand(context, '/project');
-  await handleCommand(context, '/hotkeys');
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf('Commands:') >= 0, 'missing help');
-  assert(text.indexOf('Hotkeys:') >= 0, 'missing hotkeys');
   assert(text.indexOf('运行健康检查') >= 0 || text.indexOf('provider') >= 0, 'missing health');
   assert(text.indexOf('项目结构摘要') >= 0 || text.indexOf('provider') >= 0, 'missing project map');
 });
@@ -153,17 +151,42 @@ test('help hotkeys and command panel use keybinding shortcut hints', async () =>
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);
   await handleCommand(context, '/help');
-  await handleCommand(context, '/hotkeys');
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf(`Input: ${shortcutHint('editor', 'submit')} send, ${shortcutHint('autocomplete', 'accept')} complete`) >= 0, 'help input shortcuts should come from keybindings');
   assert(text.indexOf(`Running: ${shortcutHint('runningEditor', 'steer')} steer current run`) >= 0, 'help running shortcuts should come from keybindings');
   assert(text.indexOf(`Recovery: ${shortcutHint('global', 'forceRedraw')} force redraw`) >= 0, 'help redraw shortcut should come from keybindings');
   assert(text.indexOf(`${shortcutHint('tool', 'toggleGlobalDetails')} or /more`) >= 0, 'tool shortcut should come from keybindings');
+  assert(text.indexOf('/hotkeys') >= 0, 'help should advertise hotkeys panel');
   assert(text.indexOf('Ctrl+L model') < 0, 'help should not advertise ctrl-l as model selector');
+
+  const beforeHotkeysMessages = context.state.messages.length;
+  await handleCommand(context, '/hotkeys');
+  assert(context.state.messages.length === beforeHotkeysMessages, 'hotkeys panel should not append a message');
+  assert(context.state.activePanel && context.state.activePanel.type === 'hotkeys', 'hotkeys command should open hotkeys panel');
+  assert(context.state.activePanel.items.some((item) => item.value === 'global.forceRedraw'), 'hotkeys panel missing redraw shortcut');
+  assert(context.state.activePanel.items.some((item) => item.label.indexOf(shortcutHint('autocomplete', 'accept')) >= 0), 'hotkeys panel should use keybinding shortcut hints');
 
   await handleCommand(context, '/commands');
   assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'confirm')} insert command`) >= 0, 'command panel enter hint should come from keybindings');
   assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'close')} back`) >= 0, 'command panel escape hint should come from keybindings');
+});
+
+test('hotkeys panel filters and closes without executing shortcuts', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/hotkeys');
+  assert(context.state.mode === 'panel', 'hotkeys panel should enter panel mode');
+  assert(context.state.activePanel && context.state.activePanel.type === 'hotkeys', 'hotkeys panel did not open');
+  context.state.activePanel.query = 'redraw';
+  await handlePanelKey(context.state, { type: 'enter' }, {});
+  assert(context.state.activePanel === null, 'hotkeys panel enter should close the panel');
+  assert(context.state.inputBuffer === '', 'hotkeys panel enter should not write input');
+  assert(context.state.messages.length === 0, 'hotkeys panel enter should not append messages');
+
+  await handleCommand(context, '/hotkeys');
+  context.state.activePanel.query = 'tool';
+  await handlePanelKey(context.state, { type: 'escape' }, {});
+  assert(context.state.activePanel === null && context.state.mode === 'idle', 'hotkeys panel escape should close the panel');
 });
 
 test('tree lineage fork export and session commands work', async () => {

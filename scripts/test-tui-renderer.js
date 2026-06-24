@@ -910,6 +910,45 @@ test('renderer displays command panel and keeps narrow lines bounded', () => {
   });
 });
 
+test('renderer displays hotkeys panel and keeps narrow lines bounded', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  state.mode = 'panel';
+  state.activePanel = {
+    type: 'hotkeys',
+    title: 'Hotkeys / Keyboard Shortcuts',
+    hint: `type filter - ${shortcutHint('panel', 'confirm')} close - ${shortcutHint('panel', 'close')} back`,
+    query: 'redraw',
+    selectedIndex: 0,
+    items: [
+      {
+        label: `${shortcutHint('global', 'forceRedraw')}  Force redraw`,
+        value: 'global.forceRedraw',
+        usage: shortcutHint('global', 'forceRedraw'),
+        description: 'Repaint the TUI without changing state',
+        group: 'global',
+      },
+      {
+        label: `${shortcutHint('tool', 'toggleCurrentDetail')}  Current tool detail`,
+        value: 'tool.toggleCurrentDetail',
+        usage: shortcutHint('tool', 'toggleCurrentDetail'),
+        description: 'Toggle selected tool details',
+        group: 'tool',
+      },
+    ],
+  };
+  const output = renderTui(state, { columns: 48, rows: 18 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('Hotkeys / Keyboard Shortcuts') >= 0, 'hotkeys panel title missing');
+  assert(plain.indexOf(shortcutHint('global', 'forceRedraw')) >= 0, 'hotkeys panel shortcut missing');
+  assert(plain.indexOf('loong>') < 0, 'input area should be replaced while hotkeys panel is open');
+  assert(plain.indexOf('/settings') < 0, 'autocomplete should be hidden while hotkeys panel is open');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 48, `hotkeys panel line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
+});
+
 test('renderer uses editor slot for selector and hides autocomplete', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({ type: 'assistant', text: 'chat content above selector' });

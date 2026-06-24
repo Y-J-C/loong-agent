@@ -722,7 +722,7 @@ class PanelComponent {
     for (let index = win.start; index < win.end; index += 1) {
       const item = items[index];
       const group = item.group || item.provider || item.providerProfile || (item.model && (item.model.providerProfile || item.model.provider)) || '';
-      if ((panel.type === 'settings' || panel.type === 'model' || panel.type === 'command') && group && group !== lastGroup && lines.length < maxRows - 1) {
+      if ((panel.type === 'settings' || panel.type === 'model' || panel.type === 'command' || panel.type === 'hotkeys') && group && group !== lastGroup && lines.length < maxRows - 1) {
         lastGroup = group;
         lines.push(paint(theme, 'dim', fitLine(`  ${group}`, width)));
       }
