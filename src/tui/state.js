@@ -6,6 +6,7 @@ const {
   scoreSlashCommand,
   slashCommandDefinitions,
 } = require('./slash-commands');
+const { createSearchState } = require('./search');
 
 const SLASH_COMMAND_DEFINITIONS = slashCommandDefinitions();
 const SLASH_COMMANDS = SLASH_COMMAND_DEFINITIONS.map((item) => item.command);
@@ -26,6 +27,7 @@ function createTuiState(config) {
     currentSession: null,
     expandedTools: false,
     scrollOffset: 0,
+    search: createSearchState(),
     queuedFollowUps: [],
     selector: null,
     status: 'idle',
@@ -100,6 +102,7 @@ function clearMessages(state) {
   state.currentToolEventIdByKey = {};
   state.pendingMessages = [];
   state.queuedFollowUps = [];
+  state.search = createSearchState();
   state.toolCount = 0;
   state.turnCount = 0;
   state.status = 'cleared';

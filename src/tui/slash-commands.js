@@ -33,6 +33,9 @@ const COMMANDS = [
   { name: 'compact', description: '查看会话摘要占位', category: 'session' },
   { name: 'goto', description: '按 entry id 定位事件', argumentHint: '<entry-id>', category: 'session' },
   { name: 'more', description: '展开/折叠工具细节', category: 'ui' },
+  { name: 'find', description: '搜索当前 TUI 历史', argumentHint: '<keyword|--next|--prev|--clear>', category: 'ui' },
+  { name: 'details', description: '打开当前工具完整详情', category: 'ui' },
+  { name: 'transcript', description: '打开当前会话只读 transcript', category: 'ui' },
   { name: 'exit', aliases: ['quit'], description: '退出 TUI', category: 'core' },
   { name: 'login', description: '暂未实现: 登录', category: 'account', unsupported: true },
   { name: 'logout', description: '暂未实现: 登出', category: 'account', unsupported: true },
@@ -75,6 +78,9 @@ const DISPLAY_COMMANDS = [
   { name: 'compact', description: 'Preview session compaction / 查看会话摘要占位', category: 'session' },
   { name: 'goto', description: 'Jump to entry id / 按 entry id 定位事件', argumentHint: '<entry-id>', category: 'session' },
   { name: 'more', description: 'Toggle all tool details / 展开或折叠工具细节', category: 'ui' },
+  { name: 'find', description: 'Find text in current TUI history / 搜索当前历史', argumentHint: '<keyword|--next|--prev|--clear>', category: 'ui' },
+  { name: 'details', description: 'Open current tool detail viewer / 打开当前工具完整详情', category: 'ui' },
+  { name: 'transcript', description: 'Open read-only transcript viewer / 打开只读 transcript', category: 'ui' },
   { name: 'exit', aliases: ['quit'], description: 'Exit TUI / 退出 TUI', category: 'core' },
   { name: 'login', description: 'Not implemented: login / 暂未实现：登录', category: 'account', unsupported: true },
   { name: 'logout', description: 'Not implemented: logout / 暂未实现：登出', category: 'account', unsupported: true },
@@ -213,6 +219,7 @@ function staticTargetCompletions(commandName) {
   if (commandName === 'export') return ['latest', 'current', 'selected', 'demo'];
   if (commandName === 'resume') return ['latest', 'selected'];
   if (commandName === 'debug') return ['keys'];
+  if (commandName === 'find') return ['--next', '--prev', '--clear'];
   if (commandName === 'health' || commandName === 'project') return ['--json'];
   return [];
 }

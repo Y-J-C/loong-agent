@@ -172,6 +172,44 @@ test('virtual terminal tool detail toggle does not mutate message source', () =>
   assertSingleStatusBar(screen);
 });
 
+test('virtual terminal tool detail and transcript viewers keep one editor slot and status', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ type: 'user', text: 'disk status' });
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    resultSummary: 'exit=0 ok',
+    detail: { evidence: Array.from({ length: 20 }, (_, index) => ({ index, command: 'df -h' })) },
+  });
+  state.activePanel = {
+    type: 'tool_detail',
+    title: 'Tool Detail Viewer',
+    hint: 'Esc close',
+    scrollOffset: 0,
+    lines: ['tool: bash', 'args: {"command":"df -h"}', 'evidence: long evidence payload'],
+  };
+  let screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('Tool Detail Viewer') >= 0, 'tool detail viewer missing');
+  assert(screen.indexOf('evidence: long evidence payload') >= 0, 'tool detail viewer content missing');
+  assert(screen.indexOf('loong>') < 0, 'input should be hidden while tool detail viewer is open');
+  assertSingleStatusBar(screen);
+
+  state.activePanel = {
+    type: 'transcript',
+    title: 'Transcript Viewer',
+    hint: 'Esc close',
+    scrollOffset: 0,
+    lines: ['user: disk status', 'tool bash: exit=0 ok'],
+  };
+  screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('Transcript Viewer') >= 0, 'transcript viewer missing');
+  assert(screen.indexOf('user: disk status') >= 0, 'transcript viewer content missing');
+  assert(screen.indexOf('loong>') < 0, 'input should be hidden while transcript viewer is open');
+  assertSingleStatusBar(screen);
+});
+
 test('virtual terminal editor slot is exclusive for panel and selector', () => {
   const panelState = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   panelState.inputBuffer = '/';
@@ -254,6 +292,18 @@ test('virtual terminal hotkeys panel owns editor slot without duplicate status',
   assert(screen.indexOf('Ctrl+L') >= 0, 'hotkeys panel shortcut missing');
   assert(screen.indexOf('/settings') < 0, 'autocomplete should hide behind hotkeys panel');
   assert(screen.indexOf('loong>') < 0, 'plain input should be hidden while hotkeys panel is open');
+  assertSingleStatusBar(screen);
+});
+
+test('virtual terminal search state highlights one match and keeps one status bar', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ type: 'user', text: 'memory status' });
+  state.messages.push({ type: 'assistant_final', text: 'disk usage is stable' });
+  state.search = { query: 'disk', matches: [], index: 0, pendingJump: true, message: '' };
+  const screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('disk usage is stable') >= 0, 'search match should remain visible');
+  assert(screen.indexOf('match 1/1 "disk"') >= 0, 'search status missing');
+  assert(state.messages.length === 2, 'search should not append messages');
   assertSingleStatusBar(screen);
 });
 

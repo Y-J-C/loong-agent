@@ -5,6 +5,7 @@ const { padRight, redactSensitive, truncateToWidth, visibleWidth } = require('./
 const { formatBoardStatus } = require('./board-status');
 const { getTheme, paint } = require('./theme');
 const { statusLabel } = require('../cli-view');
+const { searchLabel } = require('./search');
 
 function formatCwd(cwd) {
   if (cwd === null || cwd === undefined) cwd = process.cwd();
@@ -41,8 +42,10 @@ function renderStatusBar(state, width) {
   const modeText = statusLabel(state.agentStatus || state.status);
   const queued = state.queuedFollowUps && state.queuedFollowUps.length ? ` +${state.queuedFollowUps.length}` : '';
   const history = state.scrollOffset > 0 ? ` history +${state.scrollOffset}` : '';
-  const left = history
-    ? `${history.trim()} ${cwdShort} ${modeIcon}/${modeText}${queued}`
+  const search = searchLabel(state.search);
+  const viewPrefix = [search, history.trim()].filter(Boolean).join(' ');
+  const left = viewPrefix
+    ? `${viewPrefix} ${cwdShort} ${modeIcon}/${modeText}${queued}`
     : `${cwdShort} ${modeIcon}/${modeText}${queued} ${truncateToWidth(board, Math.floor(width / 3))}`;
   const tokens = `in ${formatTokens(state.tokenInput)} out ${formatTokens(state.tokenOutput)}${state.tokenCached ? ` cache ${formatTokens(state.tokenCached)}` : ''}`;
   const model = state.model ? `${state.provider || ''}/${state.model}` : state.provider || 'no-model';

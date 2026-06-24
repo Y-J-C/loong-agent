@@ -929,9 +929,8 @@ scripts/test-tui-virtual-terminal.js
 ### P2：体验增强
 
 - [x] P2-1：`/hotkeys` 快捷键帮助面板。
-- [ ] transcript viewer，而不是自动 transcript append。
-- [ ] `/transcript` 或 `Ctrl+O` 内查看完整工具细节。
-- [ ] history search。
+- [x] P2-2：`/find` 历史搜索与定位体验。
+- [x] P2-3：transcript viewer 与完整工具详情查看。
 - [ ] virtual terminal test harness 持续增强。
 
 ### P3：性能与终端兼容
@@ -978,6 +977,77 @@ scripts/test-tui-virtual-terminal.js
 - 不处理 `dist`。
 - 不引入新 npm runtime 依赖。
 
+### P2-2：历史搜索与定位体验
+
+状态：已完成。
+
+目标：
+
+- 在长会话中提供 `/find <keyword>` 搜索当前 TUI 消息历史。
+- 支持 `/find --next`、`/find --prev`、`/find --clear`。
+- 搜索状态只影响 TUI 视图，不写入 session JSONL，不追加 `state.messages`。
+- 命中后跳转到对应历史位置，并在状态栏显示 `match i/n "keyword"`。
+
+实施结果：
+
+- 新增 `src/tui/search.js`，集中维护搜索状态、匹配计算、跳转滚动和当前命中高亮。
+- TUI state 增加 `search` 视图状态，`/clear` 会同步清空搜索状态。
+- `/find` 已加入统一 slash command 定义，`/help`、autocomplete、`/commands` 自动可见。
+- `renderTui()` 基于实际 `MessageListComponent` body 做 ANSI strip 后搜索，并将当前命中滚动到可见区域。
+- 状态栏可同时显示搜索状态和 `history +N`，并继续按终端宽度截断。
+- `scripts/test-tui-pty-smoke.js` 默认 payload 已加入 `/find help`、`/find --next`、`/find --clear`。
+
+验收结果：
+
+- 本地通过：`test-tui-commands`、`test-tui-renderer`、`test-tui-virtual-terminal`、`test-tui-interactions`、`test-tui-keybindings`、`test-runtime`。
+- pty smoke dry-run 已显示 payload 包含 `/find` 路径。
+- 板端同步与同组验证按本阶段验收执行。
+
+本阶段不做：
+
+- 不做跨 session 全文检索。
+- 不改 session 存储。
+- 不改 export 格式。
+- 不新增快捷键。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
+
+### P2-3：Transcript Viewer 与完整工具详情查看
+
+状态：已完成。
+
+目标：
+
+- 提供只读 transcript viewer，避免重新引入自动 transcript append。
+- 提供完整工具详情 viewer，解决内联工具卡片行数受限的问题。
+- 将 `Ctrl+O` 从内联展开工具卡片改为打开/关闭工具详情 viewer。
+- 保持 viewer 为 TUI 视图状态，不写入 session JSONL，不追加 `state.messages`。
+
+实施结果：
+
+- 新增 viewer 构建层，用于生成 `tool_detail` 与 `transcript` 面板内容。
+- `/details` 打开当前选中或最近工具的完整详情 viewer。
+- `/transcript` 打开当前 TUI 消息历史的只读 transcript viewer。
+- `Ctrl+O` 打开或关闭工具详情 viewer，不再修改 tool message 的 `expanded` 字段。
+- viewer 复用 `activePanel` / `PanelComponent`，支持 `Esc` 关闭、`Up/Down` 单行滚动、`PageUp/PageDown` 分页滚动。
+- viewer 占用 editor slot，隐藏普通 input/autocomplete，继续保持单一 status bar。
+- `scripts/test-tui-pty-smoke.js` 默认 payload 已加入 `/transcript`、`/details` 和 `Ctrl+O` 打开/关闭路径。
+
+验收结果：
+
+- 本地通过：`test-tui-commands`、`test-tui-renderer`、`test-tui-virtual-terminal`、`test-tui-interactions`、`test-tui-keybindings`、`test-runtime`。
+- pty smoke dry-run 已显示 payload 包含 `/transcript`、`/details`、`Ctrl+O` 路径。
+- 板端同步与同组验证按本阶段验收执行。
+
+本阶段不做：
+
+- 不实现 viewer 内搜索或高亮跳转。
+- 不做跨 session transcript。
+- 不改 session 存储。
+- 不改 export 格式。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
+
 ## 十四、明确禁止事项
 
 禁止重新引入以下模式：
@@ -996,15 +1066,15 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-P2-2：历史搜索与定位体验
+P2-4：viewer 内搜索/跳转或长内容阅读增强
 ```
 
 范围：
 
-1. 增加 `/find <keyword>` 或等价搜索入口。
-2. 在当前 TUI 消息历史中定位 assistant、tool、error、evidence、command。
-3. 搜索结果只作为视图状态，不改变 session 存储。
-4. 命中后可跳转到对应历史位置，并显示 `match i/n`。
+1. 评估是否将 `/find` 扩展到 viewer 内。
+2. 支持 viewer 内跳转到下一条 evidence、warning 或 tool result。
+3. 增强长内容阅读提示，例如当前位置、总行数和快捷键提示。
+4. 继续保持 viewer 为 TUI 视图状态，不改变 session 存储。
 
 不做：
 

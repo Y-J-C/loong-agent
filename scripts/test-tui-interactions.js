@@ -342,19 +342,41 @@ test('focused dispatcher uses component-dispatched input behavior', async () => 
   assert(state.inputBuffer === 'x', 'focused dispatcher did not apply input component behavior');
 });
 
-test('tool detail toggle selects latest tool when none is focused', async () => {
+test('tool detail toggle opens viewer for latest tool without mutating message', async () => {
   const state = createTuiState({});
   state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', detail: { stdout: 'one' } });
   state.messages.push({ id: 'tool-two', type: 'tool', toolName: 'bash', detail: { stdout: 'two' } });
   const beforeToggleMessages = state.messages.length;
   assert(toggleSelectedToolDetail(state) === true, 'tool detail toggle should handle latest tool');
   assert(state.selectedMessageId === 'tool-two', 'latest tool should become selected');
-  assert(state.messages[1].expanded === true, 'latest tool should expand');
-  assert(state.messages.length === beforeToggleMessages, 'tool detail toggle should not append messages');
+  assert(state.activePanel && state.activePanel.type === 'tool_detail', 'tool detail toggle should open detail viewer');
+  assert(state.messages[1].expanded !== true, 'tool detail toggle should not mutate expanded state');
+  assert(state.messages.length === beforeToggleMessages, 'tool detail viewer should not append messages');
   toggleSelectedToolDetail(state);
-  assert(state.messages[1].expanded === false, 'second toggle should collapse selected tool');
+  assert(state.activePanel === null, 'second toggle should close detail viewer');
   assert(state.messages[0].expanded !== true, 'older tool should remain unchanged');
-  assert(state.messages.length === beforeToggleMessages, 'tool detail collapse should not append messages');
+  assert(state.messages.length === beforeToggleMessages, 'tool detail close should not append messages');
+});
+
+test('viewer panel scrolls and closes without taking input focus', async () => {
+  const state = createTuiState({});
+  state.activePanel = {
+    type: 'transcript',
+    title: 'Transcript Viewer',
+    selectedIndex: 0,
+    scrollOffset: 0,
+    visibleRows: 5,
+    lines: Array.from({ length: 20 }, (_, index) => `line ${index}`),
+  };
+  assert(getFocusedSurface(state).id === 'panel', 'viewer should occupy panel focus');
+  await handlePanelKey(state, { type: 'down' }, {});
+  assert(state.activePanel.scrollOffset === 1, 'viewer down should scroll one line');
+  await handlePanelKey(state, { type: 'page_down' }, {});
+  assert(state.activePanel.scrollOffset > 1, 'viewer page down should scroll by page');
+  await handlePanelKey(state, { type: 'up' }, {});
+  assert(state.activePanel.scrollOffset > 0, 'viewer up should preserve legal scroll offset');
+  await handlePanelKey(state, { type: 'escape' }, {});
+  assert(state.activePanel === null && state.mode === 'idle', 'viewer escape should close panel');
 });
 
 test('tool focus navigation preserves scroll behavior through focused input', async () => {

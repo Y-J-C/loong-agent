@@ -147,6 +147,87 @@ test('bottom and top commands control history view', async () => {
   assert(values.indexOf('/top') >= 0, 'commands panel missing top command');
 });
 
+test('find command updates search state without appending messages', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  context.state.messages.push({ type: 'user', text: 'disk status' });
+  context.state.messages.push({ type: 'assistant_final', text: 'disk usage ok' });
+
+  const beforeMessages = context.state.messages.length;
+  await handleCommand(context, '/find disk');
+  assert(context.state.messages.length === beforeMessages, 'find should not append messages');
+  assert(context.state.search && context.state.search.query === 'disk', 'find should set search query');
+  assert(context.state.search.pendingJump === true, 'find should request a search jump');
+
+  context.state.search.matches = [{ line: 1 }, { line: 4 }];
+  context.state.search.index = 0;
+  await handleCommand(context, '/find --next');
+  assert(context.state.search.index === 1, 'find next should advance to next match');
+  assert(context.state.search.pendingJump === true, 'find next should request a jump');
+
+  await handleCommand(context, '/find --prev');
+  assert(context.state.search.index === 0, 'find prev should move to previous match');
+
+  await handleCommand(context, '/find --clear');
+  assert(context.state.search.query === '', 'find clear should clear query');
+  assert(context.state.search.matches.length === 0, 'find clear should clear matches');
+  assert(context.state.messages.length === beforeMessages, 'find clear should not append messages');
+});
+
+test('find command is available in shared help autocomplete and command panel', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/help');
+  await handleCommand(context, '/commands');
+  const help = context.state.messages.map((message) => message.text).join('\n');
+  const values = context.state.activePanel.items.map((item) => item.value);
+  assert(help.indexOf('/find') >= 0, 'help output missing find command');
+  assert(values.indexOf('/find') >= 0, 'commands panel missing find command');
+});
+
+test('details and transcript open read-only viewer panels without appending messages', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  context.state.messages.push({ type: 'user', text: 'disk status' });
+  context.state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    args: { command: 'df -h' },
+    resultSummary: 'exit=0 ok',
+    detail: { evidence: [{ command: 'df -h' }], warnings: ['low space'], recovery: 'inspect /data' },
+  });
+  context.state.messages.push({ type: 'assistant_final', text: 'disk answer' });
+  context.state.messages.push({ type: 'system', text: 'hidden meta', hidden: true });
+  const beforeMessages = context.state.messages.length;
+
+  await handleCommand(context, '/details');
+  assert(context.state.messages.length === beforeMessages, 'details should not append messages');
+  assert(context.state.activePanel && context.state.activePanel.type === 'tool_detail', 'details should open tool detail viewer');
+  assert(context.state.activePanel.lines.some((line) => line.indexOf('df -h') >= 0), 'tool detail viewer missing args/detail');
+
+  await handleCommand(context, '/transcript');
+  assert(context.state.messages.length === beforeMessages, 'transcript should not append messages');
+  assert(context.state.activePanel && context.state.activePanel.type === 'transcript', 'transcript should open transcript viewer');
+  assert(context.state.activePanel.lines.some((line) => line.indexOf('disk status') >= 0), 'transcript missing user message');
+  assert(context.state.activePanel.lines.some((line) => line.indexOf('disk answer') >= 0), 'transcript missing assistant final');
+  assert(!context.state.activePanel.lines.some((line) => line.indexOf('hidden meta') >= 0), 'transcript should hide hidden messages');
+});
+
+test('details and transcript are available in shared help and command panel', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/help');
+  await handleCommand(context, '/commands');
+  const help = context.state.messages.map((message) => message.text).join('\n');
+  const values = context.state.activePanel.items.map((item) => item.value);
+  assert(help.indexOf('/details') >= 0, 'help output missing details command');
+  assert(help.indexOf('/transcript') >= 0, 'help output missing transcript command');
+  assert(values.indexOf('/details') >= 0, 'commands panel missing details command');
+  assert(values.indexOf('/transcript') >= 0, 'commands panel missing transcript command');
+});
+
 test('help hotkeys and command panel use keybinding shortcut hints', async () => {
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);

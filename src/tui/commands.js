@@ -19,9 +19,11 @@ const {
 } = require('./slash-commands');
 const { collectTuiStats, fileSize, formatBranchInfo, formatStats } = require('./stats');
 const { hasTheme, listThemes } = require('./theme');
-const { toggleGlobalToolDetails } = require('./tool-focus');
+const { toggleGlobalToolDetails, toggleSelectedToolDetail } = require('./tool-focus');
 const { buildTreeSelector } = require('./session-tree');
 const { scrollToBottom, scrollToTop } = require('./scroll');
+const { clearSearch, ensureSearchState, moveSearch, setSearchQuery } = require('./search');
+const { createTranscriptPanel } = require('./viewer');
 const { KEYBINDINGS, shortcutHint } = require('./keybindings');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
 
@@ -277,7 +279,7 @@ function hotkeyDescription(namespace, action) {
       forceRedraw: 'Force full redraw without changing state',
     },
     tool: {
-      toggleCurrentDetail: 'Toggle selected tool details',
+      toggleCurrentDetail: 'Open or close current tool detail viewer',
       toggleGlobalDetails: 'Toggle all tool details',
     },
     editor: {
@@ -386,6 +388,34 @@ function openHotkeysPanel(state) {
   const panel = createHotkeysPanel();
   state.mode = 'panel';
   state.activePanel = panel;
+}
+
+function handleFindCommand(state, args) {
+  const parts = args || [];
+  const first = parts[0] || '';
+  if (!first) {
+    const search = ensureSearchState(state);
+    search.message = search.query ? search.message : 'find: /find <keyword>';
+    state.status = search.message;
+    return;
+  }
+  if (first === '--clear') {
+    clearSearch(state);
+    state.status = 'find cleared';
+    return;
+  }
+  if (first === '--next') {
+    const search = moveSearch(state, 1);
+    state.status = search.message || 'find: /find <keyword>';
+    return;
+  }
+  if (first === '--prev') {
+    const search = moveSearch(state, -1);
+    state.status = search.message || 'find: /find <keyword>';
+    return;
+  }
+  const search = setSearchQuery(state, parts.join(' '));
+  state.status = search.message;
 }
 
 function writeDebugFile(config, state) {
@@ -654,6 +684,19 @@ async function dispatchSlashCommand(context, parsed) {
     openHotkeysPanel(state);
     return;
   }
+  if (command.name === 'find') {
+    handleFindCommand(state, parsed.args);
+    return;
+  }
+  if (command.name === 'details') {
+    toggleSelectedToolDetail(state);
+    return;
+  }
+  if (command.name === 'transcript') {
+    state.mode = 'panel';
+    state.activePanel = createTranscriptPanel(state);
+    return;
+  }
   if (command.name === 'theme') {
     const next = parsed.args[0] || '';
     if (!next) {
@@ -693,6 +736,22 @@ async function runSlashCommandLegacy(context, text) {
 
   if (name === '/hotkeys') {
     openHotkeysPanel(state);
+    return;
+  }
+
+  if (name === '/find') {
+    handleFindCommand(state, parts.slice(1));
+    return;
+  }
+
+  if (name === '/details') {
+    toggleSelectedToolDetail(state);
+    return;
+  }
+
+  if (name === '/transcript') {
+    state.mode = 'panel';
+    state.activePanel = createTranscriptPanel(state);
     return;
   }
 

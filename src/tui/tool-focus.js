@@ -1,5 +1,7 @@
 'use strict';
 
+const { createToolDetailPanel, isViewerPanel } = require('./viewer');
+
 function toolMessages(state) {
   return (state && state.messages ? state.messages : []).filter((message) => (
     message && message.type === 'tool' && !message.hidden
@@ -37,9 +39,15 @@ function selectToolByDelta(state, delta) {
 }
 
 function toggleSelectedToolDetail(state) {
+  if (state && isViewerPanel(state.activePanel) && state.activePanel.type === 'tool_detail') {
+    state.activePanel = null;
+    if (state.mode === 'panel') state.mode = 'idle';
+    return true;
+  }
   const tool = ensureSelectedTool(state);
   if (!tool) return false;
-  tool.expanded = !tool.expanded;
+  state.activePanel = createToolDetailPanel(tool);
+  state.mode = 'panel';
   return true;
 }
 

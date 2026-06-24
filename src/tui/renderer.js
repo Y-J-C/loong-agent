@@ -10,6 +10,7 @@ const {
   StatusBarComponent,
 } = require('./components');
 const { updateScrollMetrics } = require('./scroll');
+const { applySearchHighlight, updateSearchMatches } = require('./search');
 
 function fitFrameLine(line, width) {
   return padRight(truncateToWidth(String(line || ''), width), width);
@@ -33,16 +34,19 @@ function renderTui(state, size, options) {
   const autocompleteLines = editorSlot.isOccupied(state)
     ? []
     : renderComponentLines(new AutocompleteComponent(), width, context);
-  const statusLines = renderComponentLines(new StatusBarComponent(), width, context);
-  const available = Math.max(1, height - slotLines.length - autocompleteLines.length - statusLines.length);
+  const statusLineCount = 1;
+  const available = Math.max(1, height - slotLines.length - autocompleteLines.length - statusLineCount);
 
   const body = renderComponentLines(new MessageListComponent(), width, context);
-  const scroll = updateScrollMetrics(state, body.length, available);
-  const end = Math.max(0, body.length - scroll.offset);
+  const search = updateSearchMatches(state, body, available);
+  const displayBody = applySearchHighlight(body, search.currentLine, width, theme);
+  const scroll = updateScrollMetrics(state, displayBody.length, available);
+  const end = Math.max(0, displayBody.length - scroll.offset);
+  const statusLines = renderComponentLines(new StatusBarComponent(), width, context);
 
   let renderedBody;
   if (opts.fullHistory && !(state.scrollOffset > 0)) {
-    renderedBody = body.slice();
+    renderedBody = displayBody.slice();
     while (renderedBody.length < available) renderedBody.push('');
     return renderedBody
       .concat(slotLines, autocompleteLines, statusLines)
@@ -50,7 +54,7 @@ function renderTui(state, size, options) {
       .join('\n');
   }
 
-  renderedBody = body.slice(Math.max(0, end - available), end);
+  renderedBody = displayBody.slice(Math.max(0, end - available), end);
   while (renderedBody.length < available) {
     if (opts.bodyAlign === 'top') renderedBody.push('');
     else renderedBody.unshift('');

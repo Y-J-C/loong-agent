@@ -164,6 +164,46 @@ test('renderer shows history offset in status bar without exceeding width', () =
   }
 });
 
+test('renderer searches history, jumps to match, and highlights current line', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 30; index += 1) {
+    state.messages.push({
+      type: 'assistant_final',
+      text: index === 4 ? 'memory status is normal' : index === 23 ? 'disk usage is stable' : `history filler ${index}`,
+    });
+  }
+  state.search = {
+    query: 'disk',
+    matches: [],
+    index: 0,
+    pendingJump: true,
+    message: '',
+  };
+  const output = renderTui(state, { columns: 72, rows: 12 });
+  const plain = stripAnsi(output);
+  assert(state.search.matches.length === 1, 'search should find one disk match');
+  assert(state.search.message.indexOf('match 1/1') >= 0, 'search message should show match count');
+  assert(state.scrollOffset > 0, 'search jump should move into history');
+  assert(plain.indexOf('disk usage is stable') >= 0, 'search jump should reveal matched line');
+  assert(plain.indexOf('match 1/1 "disk"') >= 0, 'status bar should show search match');
+  assert(output.indexOf(ANSI.selectedBg) >= 0, 'current search match should be highlighted');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 72, `search render line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
+});
+
+test('renderer reports zero search matches without appending messages', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ type: 'user', text: 'memory status' });
+  const before = state.messages.length;
+  state.search = { query: 'not-found', matches: [], index: 0, pendingJump: true, message: '' };
+  const output = renderTui(state, { columns: 64, rows: 12 });
+  const plain = stripAnsi(output);
+  assert(state.messages.length === before, 'search should not mutate message source');
+  assert(state.search.matches.length === 0, 'search should have no matches');
+  assert(plain.indexOf('match 0/0 "not-found"') >= 0, 'status should show zero matches');
+});
+
 test('renderer follows new output only when already at bottom', () => {
   const bottom = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   for (let index = 0; index < 20; index += 1) {
@@ -947,6 +987,51 @@ test('renderer displays hotkeys panel and keeps narrow lines bounded', () => {
   output.split('\n').forEach((line) => {
     assert(visibleWidth(line) <= 48, `hotkeys panel line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
   });
+});
+
+test('renderer displays tool detail and transcript viewers as read-only panels', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  state.mode = 'panel';
+  state.activePanel = {
+    type: 'tool_detail',
+    title: 'Tool Detail Viewer',
+    hint: 'Esc close',
+    scrollOffset: 0,
+    lines: Array.from({ length: 35 }, (_, index) => (
+      index === 28
+        ? 'evidence item 28 with a very long path /tmp/loong-agent/tool/detail/output/value'
+        : `detail line ${index}`
+    )),
+  };
+  let output = renderTui(state, { columns: 58, rows: 18 });
+  let plain = stripAnsi(output);
+  assert(plain.indexOf('Tool Detail Viewer') >= 0, 'tool detail viewer title missing');
+  assert(plain.indexOf('detail line 0') >= 0, 'tool detail viewer missing initial content');
+  assert(plain.indexOf('/settings') < 0, 'autocomplete should hide behind viewer');
+  assert(plain.indexOf('loong>') < 0, 'input should hide behind viewer');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 58, `tool detail viewer line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
+
+  state.activePanel.scrollOffset = 26;
+  output = renderTui(state, { columns: 58, rows: 18 });
+  plain = stripAnsi(output);
+  assert(plain.indexOf('evidence item 28') >= 0, 'tool detail viewer should page through long detail');
+
+  state.activePanel = {
+    type: 'transcript',
+    title: 'Transcript Viewer',
+    hint: 'Esc close',
+    scrollOffset: 0,
+    lines: ['user: disk status', 'tool bash: exit=0', 'assistant: disk answer'],
+  };
+  output = renderTui(state, { columns: 58, rows: 18 });
+  plain = stripAnsi(output);
+  assert(plain.indexOf('Transcript Viewer') >= 0, 'transcript viewer title missing');
+  assert(plain.indexOf('user: disk status') >= 0, 'transcript viewer missing user line');
+  assert(plain.indexOf('assistant: disk answer') >= 0, 'transcript viewer missing assistant line');
 });
 
 test('renderer uses editor slot for selector and hides autocomplete', () => {

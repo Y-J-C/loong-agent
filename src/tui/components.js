@@ -18,6 +18,7 @@ const { isLiveMessageVisible, normalizeToolDisplayStatus } = require('./message-
 const { CURSOR_MARKER } = require('./cursor');
 const { syncTreeSelection } = require('./session-tree');
 const { shortcutHint } = require('./keybindings');
+const { isViewerPanel } = require('./viewer');
 const {
   createRenderCache,
   listCacheKey,
@@ -678,6 +679,24 @@ class PanelComponent {
     const panel = state.activePanel || state.settingsMenu || state.modelSelector;
     if (!panel) return [];
     const maxRows = slotMaxRows(context);
+    if (isViewerPanel(panel)) {
+      const lines = [
+        divider(theme, width, false),
+        paint(theme, 'header', fitLine(panel.title || 'Viewer', width)),
+        paint(theme, 'dim', fitLine(panel.hint || 'Up/Down scroll - Esc close', width)),
+      ];
+      const content = (panel.lines || []).map((line) => fitLine(line, width));
+      const bodyRows = Math.max(1, maxRows - lines.length - 2);
+      const maxOffset = Math.max(0, content.length - bodyRows);
+      panel.scrollOffset = Math.max(0, Math.min(maxOffset, Number(panel.scrollOffset) || 0));
+      panel.visibleRows = bodyRows;
+      lines.push(paint(theme, 'muted', fitLine(`lines ${listPosition(panel.scrollOffset, Math.min(content.length, panel.scrollOffset + bodyRows), content.length)}`, width)));
+      content.slice(panel.scrollOffset, panel.scrollOffset + bodyRows).forEach((line) => {
+        lines.push(fitLine(line, width));
+      });
+      lines.push(divider(theme, width, false));
+      return lines.slice(0, maxRows);
+    }
     const cacheKey = listCacheKey(width, context, {
       component: 'panel',
       maxRows,

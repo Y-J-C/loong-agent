@@ -6,6 +6,7 @@ const { getFocusedSurface } = require('./focus');
 const { selectToolByDelta } = require('./tool-focus');
 const { matchesAction, resolveKeyAction } = require('./keybindings');
 const { scrollToBottom } = require('./scroll');
+const { isViewerPanel } = require('./viewer');
 const {
   collapseTreeNode,
   cycleTreeFilterMode,
@@ -326,6 +327,34 @@ function handlePanelKey(state, key, actions) {
     return true;
   }
   const items = filteredPanelItems(state);
+  if (isViewerPanel(panel)) {
+    const visibleRows = Math.max(1, Number(panel.visibleRows) || 5);
+    const maxOffset = Math.max(0, (panel.lines || []).length - visibleRows);
+    function scroll(delta) {
+      panel.scrollOffset = Math.max(0, Math.min(maxOffset, (Number(panel.scrollOffset) || 0) + delta));
+    }
+    if (matchesAction('panel', 'close', key)) {
+      closePanel(state);
+      return true;
+    }
+    if (matchesAction('panel', 'prev', key)) {
+      scroll(-1);
+      return true;
+    }
+    if (matchesAction('panel', 'next', key)) {
+      scroll(1);
+      return true;
+    }
+    if (key && key.type === 'page_up') {
+      scroll(-Math.max(1, visibleRows - 1));
+      return true;
+    }
+    if (key && key.type === 'page_down') {
+      scroll(Math.max(1, visibleRows - 1));
+      return true;
+    }
+    return true;
+  }
   if (matchesAction('panel', 'close', key)) {
     closePanel(state);
     return true;

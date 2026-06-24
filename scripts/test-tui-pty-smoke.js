@@ -19,7 +19,7 @@ const DEFAULTS = {
 const ESC = '\x1b';
 const CTRL_O = '\x0f';
 const CTRL_L = '\x0c';
-const PAYLOAD = `/help\r/hotkeys\r${ESC}/commands\r${ESC}/sessions\r${ESC}${CTRL_O}${CTRL_L}/exit\r`;
+const PAYLOAD = `/help\r/find help\r/find --next\r/find --clear\r/transcript\r${ESC}/details\r${ESC}${CTRL_O}${CTRL_O}/hotkeys\r${ESC}/commands\r${ESC}/sessions\r${ESC}${CTRL_L}/exit\r`;
 
 function usage() {
   return [
@@ -120,7 +120,7 @@ function displayCommand(command, args) {
 }
 
 function payloadSummary() {
-  return ['/help', '/hotkeys', 'Esc', '/commands', 'Esc', '/sessions', 'Esc', 'Ctrl+O', 'Ctrl+L', '/exit'];
+  return ['/help', '/find help', '/find --next', '/find --clear', '/transcript', 'Esc', '/details', 'Esc', 'Ctrl+O', 'Ctrl+O', '/hotkeys', 'Esc', '/commands', 'Esc', '/sessions', 'Esc', 'Ctrl+L', '/exit'];
 }
 
 function ensureParent(filePath) {
@@ -201,7 +201,7 @@ function runProcess(command, args, input, timeoutMs) {
 }
 
 function hasSmokeMarker(log) {
-  return /loong-agent v0\.x|Commands:|Command Palette|Hotkeys|Keyboard Shortcuts|Session selector|Session tree|\/help/i.test(log || '');
+  return /loong-agent v0\.x|Commands:|Command Palette|Hotkeys|Keyboard Shortcuts|Session selector|Session tree|Transcript Viewer|Tool Detail Viewer|match \d+\/\d+|\/help/i.test(log || '');
 }
 
 async function runSmoke(options) {
