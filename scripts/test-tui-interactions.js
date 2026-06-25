@@ -373,8 +373,14 @@ test('viewer panel scrolls and closes without taking input focus', async () => {
   assert(state.activePanel.scrollOffset === 1, 'viewer down should scroll one line');
   await handlePanelKey(state, { type: 'page_down' }, {});
   assert(state.activePanel.scrollOffset > 1, 'viewer page down should scroll by page');
+  state.activePanel.scrollOffset = 999;
+  await handlePanelKey(state, { type: 'page_down' }, {});
+  assert(state.activePanel.scrollOffset === 15, 'viewer page down should clamp to max offset');
   await handlePanelKey(state, { type: 'up' }, {});
   assert(state.activePanel.scrollOffset > 0, 'viewer up should preserve legal scroll offset');
+  state.activePanel.scrollOffset = -10;
+  await handlePanelKey(state, { type: 'up' }, {});
+  assert(state.activePanel.scrollOffset === 0, 'viewer up should clamp to top offset');
   await handlePanelKey(state, { type: 'escape' }, {});
   assert(state.activePanel === null && state.mode === 'idle', 'viewer escape should close panel');
 });

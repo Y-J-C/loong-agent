@@ -932,7 +932,8 @@ scripts/test-tui-virtual-terminal.js
 - [x] P2-2：`/find` 历史搜索与定位体验。
 - [x] P2-3：transcript viewer 与完整工具详情查看。
 - [x] P2-4：viewer 内搜索与长内容定位增强。
-- [ ] virtual terminal test harness 持续增强。
+- [x] P2-5：viewer 阅读细节 polish。
+- [x] P2-6：virtual terminal test harness 持续增强。
 
 ### P3：性能与终端兼容
 
@@ -1084,6 +1085,72 @@ scripts/test-tui-virtual-terminal.js
 - 不处理 `dist`。
 - 不引入新 npm runtime 依赖。
 
+### P2-5：Viewer 阅读细节 Polish
+
+状态：已完成。
+
+目标：
+
+- 让 `tool_detail` / `transcript` viewer 的长内容更容易阅读。
+- 固化 viewer 的分段、角色标签、位置提示和滚动提示。
+- 保持 viewer 为 TUI 视图状态，不新增命令，不污染 `state.messages`。
+
+实施结果：
+
+- `tool_detail` viewer 已按固定段落输出：Overview、Summary、Args、Result / Detail、Evidence、Warnings、Recovery。
+- `transcript` viewer 已改为更清晰的 `[user]`、`[tool name]`、`[assistant]`、`[error]` 标签，并在消息之间加入轻量分隔。
+- viewer hint 已统一为 `Up/Down scroll - PageUp/PageDown page - /find search - Esc close`。
+- viewer 状态行已同时显示 `lines a-b/n`、`top` / `bottom` 和搜索状态 `match i/n "keyword"`。
+- `Up/Down/PageUp/PageDown/Esc` 行为保持不变，只补充 scrollOffset 合法 clamp 和窄终端宽度保护。
+
+验收结果：
+
+- 本地通过：`test-tui-renderer`、`test-tui-interactions`、`test-tui-virtual-terminal`、`test-tui-commands`、`test-tui-keybindings`、`test-runtime`。
+- pty smoke dry-run 继续覆盖 `/transcript`、`/details`、viewer 内 `/find`、`Esc`、`Ctrl+L`、`/exit`。
+- 板端同步与同组验证按本阶段验收执行。
+
+本阶段不做：
+
+- 不实现 evidence / warning / result 的结构化快捷跳转。
+- 不新增 slash command。
+- 不改变 `/find` 已有语义。
+- 不改 session 存储。
+- 不改 export 格式。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
+
+### P2-6：Virtual Terminal Test Harness 持续增强
+
+状态：已完成。
+
+目标：
+
+- 增强 final screen / virtual terminal 测试，减少对 raw pty log 文本次数的依赖。
+- 覆盖 panel、selector、viewer、搜索、滚动、redraw 和关闭后的最终屏幕状态。
+- 只增强测试和文档，不改变 TUI 用户可见行为。
+
+实施结果：
+
+- `scripts/test-tui-virtual-terminal.js` 已收敛出统一 final screen helper，用于渲染多帧、断言单一 status bar、无 cursor marker 泄漏和当前 surface 独占 editor slot。
+- 新增连续 surface 切换测试：command panel、hotkeys panel、tool detail viewer、transcript viewer、session selector 之间切换时，最终屏幕只保留当前 surface。
+- 新增 viewer 搜索、滚动、diff reset、关闭后的 final screen 测试，确保 viewer 不污染 `state.messages`，关闭后 input/editor slot 恢复。
+- 新增 running ephemeral system 与 panel 共存场景，确认 running 可见、idle 后隐藏，并保持单一 status bar。
+- status bar 断言已改为识别最终非空状态栏行，而不是依赖模型名等可能出现在正文里的文本。
+
+验收结果：
+
+- 本地通过：`test-tui-virtual-terminal`、`test-tui-renderer`、`test-tui-interactions`、`test-tui-commands`、`test-tui-keybindings`、`test-runtime`。
+- pty smoke dry-run 继续通过。
+- 板端同步与同组验证按本阶段验收执行。
+
+本阶段不做：
+
+- 不改 `renderTui()`、`createDiffRenderer()`、focus、event adapter 或 session export。
+- 不新增用户命令。
+- 不改变 TUI 可见行为。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
+
 ## 十四、明确禁止事项
 
 禁止重新引入以下模式：
@@ -1102,15 +1169,15 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-P2-5：viewer 阅读细节 polish 或 virtual terminal test harness 持续增强
+P2-7：viewer 结构化跳转评估
 ```
 
 范围：
 
-1. 增强 viewer 长内容阅读提示，例如当前位置、总行数和快捷键提示。
-2. 评估是否需要 evidence / warning / result 的结构化跳转。
-3. 持续增强 virtual terminal test harness，覆盖更多 panel/viewer 切换组合。
-4. 继续保持 viewer 为 TUI 视图状态，不改变 session 存储。
+1. 评估是否需要在 viewer 中支持 evidence / warning / result 的结构化跳转。
+2. 如果进入实现，优先保持 viewer 为只读视图状态，不改变 session 存储。
+3. 明确结构化跳转是否真的优于现有 `/find` 文本搜索。
+4. 不改变 TUI 稳定性底线：不污染消息源、不依赖 raw pty log 文本次数。
 
 不做：
 

@@ -9,6 +9,7 @@ const { ANSI, stripAnsi, visibleWidth } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
 const { classifyAgentEvent, isLiveMessageVisible, normalizeToolDisplayStatus } = require('../src/tui/message-normalizer');
 const { shortcutHint } = require('../src/tui/keybindings');
+const { createToolDetailPanel, createTranscriptPanel } = require('../src/tui/viewer');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -1032,6 +1033,75 @@ test('renderer displays tool detail and transcript viewers as read-only panels',
   assert(plain.indexOf('Transcript Viewer') >= 0, 'transcript viewer title missing');
   assert(plain.indexOf('user: disk status') >= 0, 'transcript viewer missing user line');
   assert(plain.indexOf('assistant: disk answer') >= 0, 'transcript viewer missing assistant line');
+});
+
+test('renderer shows polished viewer sections and position state', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.activePanel = createToolDetailPanel({
+    id: 'tool-polish',
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    durationMs: 25,
+    args: { command: 'df -h' },
+    resultSummary: 'exit=0 ok',
+    evidenceCount: 2,
+    warningCount: 1,
+    detail: {
+      stdout: 'Filesystem Size Used Avail Use% Mounted on',
+      evidence: [{ source: 'runtime', command: 'df -h' }],
+      warnings: ['root filesystem nearly full'],
+      recovery: 'Run read-only follow-up checks.',
+    },
+  });
+  assert(state.activePanel.lines.indexOf('Overview') >= 0, 'tool detail viewer missing Overview section');
+  assert(state.activePanel.lines.indexOf('Summary') >= 0, 'tool detail viewer missing Summary section');
+  assert(state.activePanel.lines.indexOf('Args') >= 0, 'tool detail viewer missing Args section');
+  assert(state.activePanel.lines.indexOf('Evidence') >= 0, 'tool detail viewer missing Evidence section');
+  assert(state.activePanel.lines.indexOf('Warnings') >= 0, 'tool detail viewer missing Warnings section');
+  let output = renderTui(state, { columns: 72, rows: 18 });
+  let plain = stripAnsi(output);
+  assert(plain.indexOf('/find search') >= 0, 'viewer hint should mention /find search');
+  assert(plain.indexOf('lines 1-') >= 0 && plain.indexOf('top') >= 0, 'viewer should show top position state');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 72, `polished tool viewer line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
+
+  state.activePanel.scrollOffset = 999;
+  output = renderTui(state, { columns: 72, rows: 18 });
+  plain = stripAnsi(output);
+  assert(plain.indexOf('bottom') >= 0, 'viewer should show bottom position state after clamp');
+
+  state.activePanel.search = { query: 'recovery', matches: [], index: 0, pendingJump: true, message: '' };
+  output = renderTui(state, { columns: 48, rows: 18 });
+  plain = stripAnsi(output);
+  assert(plain.indexOf('match 1/1 "recovery"') >= 0, 'viewer should show search and position state together');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 48, `polished viewer search line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
+});
+
+test('transcript viewer uses readable labels separators and hides internal messages', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({ type: 'user', text: 'disk status' });
+  state.messages.push({ type: 'system', text: 'temporary running status', ephemeral: true });
+  state.messages.push({ type: 'system', text: 'hidden internal prompt', hidden: true });
+  state.messages.push({ type: 'tool', toolName: 'bash', resultSummary: 'exit=0 ok' });
+  state.messages.push({ type: 'assistant_final', text: 'disk answer' });
+  state.activePanel = createTranscriptPanel(state);
+  assert(state.activePanel.lines.indexOf('[user]') >= 0, 'transcript viewer missing user label');
+  assert(state.activePanel.lines.indexOf('[tool bash]') >= 0, 'transcript viewer missing tool label');
+  assert(state.activePanel.lines.indexOf('[assistant]') >= 0, 'transcript viewer missing assistant label');
+  assert(state.activePanel.lines.indexOf('---') >= 0, 'transcript viewer missing message separator');
+  assert(state.activePanel.lines.join('\n').indexOf('hidden internal prompt') < 0, 'transcript viewer should hide hidden messages');
+  assert(state.activePanel.lines.join('\n').indexOf('temporary running status') < 0, 'transcript viewer should hide idle ephemeral messages');
+  const output = renderTui(state, { columns: 66, rows: 18 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('[user]') >= 0, 'transcript viewer missing user label');
+  assert(plain.indexOf('---') >= 0, 'transcript viewer missing message separator');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 66, `transcript polish line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
 });
 
 test('renderer searches and highlights inside active viewers', () => {

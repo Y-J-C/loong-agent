@@ -211,6 +211,13 @@ function listPosition(start, end, total) {
   return `${start + 1}-${end}/${total}`;
 }
 
+function viewerPositionFlags(offset, maxOffset) {
+  const flags = [];
+  if ((Number(offset) || 0) <= 0) flags.push('top');
+  if ((Number(offset) || 0) >= (Number(maxOffset) || 0)) flags.push('bottom');
+  return flags.join(' ');
+}
+
 function selectedLine(theme, text, width) {
   return fullLine(text, width, theme, 'selectedBg');
 }
@@ -681,10 +688,11 @@ class PanelComponent {
     if (!panel) return [];
     const maxRows = slotMaxRows(context);
     if (isViewerPanel(panel)) {
+      const viewerHint = 'Up/Down scroll - PageUp/PageDown page - /find search - Esc close';
       const lines = [
         divider(theme, width, false),
         paint(theme, 'header', fitLine(panel.title || 'Viewer', width)),
-        paint(theme, 'dim', fitLine(panel.hint || 'Up/Down scroll - Esc close', width)),
+        paint(theme, 'dim', fitLine(viewerHint, width)),
       ];
       const bodyRows = Math.max(1, maxRows - lines.length - 2);
       panel.visibleRows = bodyRows;
@@ -695,7 +703,7 @@ class PanelComponent {
       panel.scrollOffset = Math.max(0, Math.min(maxOffset, Number(panel.scrollOffset) || 0));
       const positionText = `lines ${listPosition(panel.scrollOffset, Math.min(content.length, panel.scrollOffset + bodyRows), content.length)}`;
       const matchText = searchLabel(panel.search);
-      const metaText = [matchText, positionText].filter(Boolean).join('  ');
+      const metaText = [matchText, positionText, viewerPositionFlags(panel.scrollOffset, maxOffset)].filter(Boolean).join('  ');
       lines.push(paint(theme, 'muted', fitLine(metaText, width)));
       content.slice(panel.scrollOffset, panel.scrollOffset + bodyRows).forEach((line) => {
         lines.push(fitLine(line, width));

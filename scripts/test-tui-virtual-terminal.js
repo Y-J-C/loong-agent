@@ -8,6 +8,8 @@ const { CURSOR_MARKER, stripCursorMarker } = require('../src/tui/cursor');
 const { ANSI, stripAnsi } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
 
+const DEFAULT_VIEWPORT = { columns: 100, rows: 20 };
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -25,7 +27,7 @@ function test(name, fn) {
 
 function finalScreen(state, size) {
   const renderer = createDiffRenderer();
-  const viewport = size || { columns: 100, rows: 20 };
+  const viewport = size || DEFAULT_VIEWPORT;
   renderer.render(renderTui(state, viewport).split('\n'), viewport);
   return stripAnsi(renderTui(state, viewport).split('\n').join('\n'));
 }
@@ -36,20 +38,52 @@ function rows(screen) {
 
 function assertSingleStatusBar(screen, marker) {
   const lines = rows(screen);
-  const needle = marker || 'mock/m';
-  assert(lines[lines.length - 1].indexOf(needle) >= 0, 'status bar should be the final line');
-  const matches = lines.filter((line) => line.indexOf(needle) >= 0);
+  const nonEmpty = lines.filter((line) => String(line || '').trim().length > 0);
+  const finalLine = nonEmpty[nonEmpty.length - 1] || '';
+  const statusPattern = /\b(?:IDLE|RUN|ERR)\//;
+  assert(statusPattern.test(finalLine), 'status bar should be the final non-empty line');
+  if (marker) assert(finalLine.indexOf(marker) >= 0, `status bar missing marker: ${marker}`);
+  const matches = lines.filter((line) => statusPattern.test(line));
   assert(matches.length === 1, `status bar should appear once, got ${matches.length}`);
 }
 
+function assertNoCursorLeak(screen) {
+  assert(screen.indexOf(CURSOR_MARKER) < 0, 'cursor marker leaked into final screen');
+}
+
+function assertSurface(screen, present, absent) {
+  (present || []).forEach((text) => {
+    assert(screen.indexOf(text) >= 0, `expected surface text missing: ${text}`);
+  });
+  (absent || []).forEach((text) => {
+    assert(screen.indexOf(text) < 0, `stale surface text leaked: ${text}`);
+  });
+}
+
+function assertStableFinalScreen(screen, marker) {
+  assertSingleStatusBar(screen, marker);
+  assertNoCursorLeak(screen);
+}
+
 function renderFrame(state, renderer, size) {
-  const viewport = size || { columns: 100, rows: 20 };
+  const viewport = size || DEFAULT_VIEWPORT;
   const frame = renderTui(state, viewport, { showHardwareCursor: true }).split('\n');
   const output = renderer.render(frame, viewport);
   return {
     output,
     screen: stripCursorMarker(stripAnsi(frame.join('\n'))),
   };
+}
+
+function renderSequence(state, steps, size) {
+  const renderer = createDiffRenderer();
+  const viewport = size || DEFAULT_VIEWPORT;
+  const screens = [];
+  (steps || []).forEach((step) => {
+    if (typeof step === 'function') step(state, renderer);
+    screens.push(renderFrame(state, renderer, viewport).screen);
+  });
+  return screens;
 }
 
 test('virtual terminal first diff frame preserves header editor and status', () => {
@@ -59,7 +93,7 @@ test('virtual terminal first diff frame preserves header editor and status', () 
   assert(rendered.output.indexOf(ANSI.clear) >= 0, 'first frame should clear when initialClear is enabled');
   assert(rendered.screen.indexOf('loong-agent v0.x') >= 0, 'header missing from first frame');
   assert(rendered.screen.indexOf('hello') >= 0, 'editor input missing from first frame');
-  assertSingleStatusBar(rendered.screen);
+  assertStableFinalScreen(rendered.screen);
 });
 
 test('virtual terminal width and height changes force full redraw', () => {
@@ -75,7 +109,7 @@ test('virtual terminal width and height changes force full redraw', () => {
   const heightChanged = renderFrame(state, renderer, { columns: 100, rows: 22 });
   assert(heightChanged.output.indexOf(ANSI.clear) >= 0, 'height change should force full redraw');
   assert(heightChanged.output.indexOf(ANSI.home) >= 0, 'height change should home cursor');
-  assertSingleStatusBar(heightChanged.screen);
+  assertStableFinalScreen(heightChanged.screen);
 });
 
 test('virtual terminal unchanged frame is stable and cursor marker never leaks', () => {
@@ -87,8 +121,7 @@ test('virtual terminal unchanged frame is stable and cursor marker never leaks',
   const unchanged = renderFrame(state, renderer, { columns: 90, rows: 18 });
   assert(unchanged.output.indexOf(ANSI.clear) < 0, 'unchanged frame should not clear screen');
   assert(unchanged.output.indexOf(CURSOR_MARKER) < 0, 'cursor marker leaked into diff output');
-  assert(unchanged.screen.indexOf(CURSOR_MARKER) < 0, 'cursor marker leaked into final screen');
-  assertSingleStatusBar(unchanged.screen);
+  assertStableFinalScreen(unchanged.screen);
 });
 
 test('virtual terminal consecutive surfaces keep one editor slot and status bar', () => {
@@ -288,6 +321,110 @@ test('virtual terminal focus surfaces transition without duplicate editor slots'
   assert(screen.indexOf('Command Palette') < 0, 'panel should hide behind selector');
   assert(screen.indexOf('/settings') < 0, 'autocomplete should hide behind selector');
   assertSingleStatusBar(screen);
+});
+
+test('virtual terminal keeps only the current surface through panel viewer selector transitions', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = '/';
+  updateAutocomplete(state);
+  const screens = renderSequence(state, [
+    (s) => {
+      s.activePanel = {
+        type: 'command',
+        title: 'Command Palette',
+        selectedIndex: 0,
+        items: [{ label: '/help', value: '/help', usage: '/help', description: 'Show help' }],
+      };
+    },
+    (s) => {
+      s.activePanel = {
+        type: 'hotkeys',
+        title: 'Hotkeys / Keyboard Shortcuts',
+        selectedIndex: 0,
+        items: [{ label: 'Ctrl+L  Force redraw', value: 'global.forceRedraw', usage: 'Ctrl+L' }],
+      };
+    },
+    (s) => {
+      s.activePanel = {
+        type: 'tool_detail',
+        title: 'Tool Detail Viewer',
+        scrollOffset: 0,
+        lines: ['Overview', 'tool: bash', 'Evidence', 'df -h evidence'],
+      };
+    },
+    (s) => {
+      s.activePanel = {
+        type: 'transcript',
+        title: 'Transcript Viewer',
+        scrollOffset: 0,
+        lines: ['[user]', 'disk status'],
+      };
+    },
+    (s) => {
+      s.activePanel = null;
+      s.selector = { view: 'recent', selectedIndex: 0, items: [{ id: 'session-one', command: 'tui' }] };
+    },
+  ], { columns: 92, rows: 18 });
+
+  assertSurface(screens[0], ['Command Palette'], ['Hotkeys / Keyboard Shortcuts', 'Tool Detail Viewer', 'Transcript Viewer', 'Session selector', '/settings']);
+  assertSurface(screens[1], ['Hotkeys / Keyboard Shortcuts'], ['Command Palette', 'Tool Detail Viewer', 'Transcript Viewer', 'Session selector', '/settings']);
+  assertSurface(screens[2], ['Tool Detail Viewer'], ['Command Palette', 'Hotkeys / Keyboard Shortcuts', 'Transcript Viewer', 'Session selector', '/settings']);
+  assertSurface(screens[3], ['Transcript Viewer'], ['Command Palette', 'Hotkeys / Keyboard Shortcuts', 'Tool Detail Viewer', 'Session selector', '/settings']);
+  assertSurface(screens[4], ['Session selector'], ['Command Palette', 'Hotkeys / Keyboard Shortcuts', 'Tool Detail Viewer', 'Transcript Viewer', '/settings']);
+  screens.forEach((screen) => assertStableFinalScreen(screen));
+});
+
+test('virtual terminal viewer search scroll reset and close keep final screen stable', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = 'restored input';
+  state.activePanel = {
+    type: 'tool_detail',
+    title: 'Tool Detail Viewer',
+    scrollOffset: 0,
+    search: { query: 'needle', matches: [], index: 0, pendingJump: true, message: '' },
+    lines: Array.from({ length: 32 }, (_, index) => (
+      index === 24 ? 'needle target line in detail viewer' : `detail line ${index}`
+    )),
+  };
+  const beforeMessages = state.messages.length;
+  const screens = renderSequence(state, [
+    () => {},
+    (s) => {
+      s.activePanel.scrollOffset = 999;
+    },
+    (s, renderer) => {
+      renderer.reset();
+    },
+    (s) => {
+      s.activePanel = null;
+    },
+  ], { columns: 92, rows: 18 });
+
+  assertSurface(screens[0], ['Tool Detail Viewer', 'needle target line', 'match 1/1 "needle"'], ['restored input']);
+  assertSurface(screens[1], ['Tool Detail Viewer', 'bottom'], ['restored input']);
+  assertSurface(screens[2], ['Tool Detail Viewer'], ['restored input']);
+  assertSurface(screens[3], ['restored input'], ['Tool Detail Viewer', 'needle target line']);
+  assert(state.messages.length === beforeMessages, 'viewer search scroll reset and close should not mutate messages');
+  screens.forEach((screen) => assertStableFinalScreen(screen));
+});
+
+test('virtual terminal running ephemeral coexists with panel and hides after idle', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.activePanel = {
+    type: 'command',
+    title: 'Command Palette',
+    selectedIndex: 0,
+    items: [{ label: '/help', value: '/help', usage: '/help', description: 'Show help' }],
+  };
+  handleAgentEvent(state, { type: 'agent_start', prompt: 'memory status', provider: 'mock', model: 'm' });
+  let screen = finalScreen(state, { columns: 100, rows: 18 });
+  assertSurface(screen, ['Command Palette', 'memory status'], ['loong>']);
+  assertStableFinalScreen(screen);
+
+  handleAgentEvent(state, { type: 'agent_end', status: 'ok', summary: 'done' });
+  screen = finalScreen(state, { columns: 100, rows: 18 });
+  assertSurface(screen, ['Command Palette', 'done'], ['memory status', 'loong>']);
+  assertStableFinalScreen(screen);
 });
 
 test('virtual terminal hotkeys panel owns editor slot without duplicate status', () => {
