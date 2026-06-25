@@ -51,6 +51,8 @@ function createTuiState(config) {
     thinkingLevel: (config && config.thinkingLevel) || 'off',
     agentStatus: 'idle',
     lastEventTime: 0,
+    lastRender: null,
+    lastRenderError: null,
     autoItems: [],
     autoIndex: -1,
     currentSessionName: '',

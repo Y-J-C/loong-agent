@@ -19,7 +19,7 @@ const DEFAULTS = {
 const ESC = '\x1b';
 const CTRL_O = '\x0f';
 const CTRL_L = '\x0c';
-const PAYLOAD = `/help\r/find help\r/find --next\r/find --clear\r/transcript\r/find help\r/find --next\r/find --clear\r${ESC}/details\r/find tool\r${ESC}${CTRL_O}${CTRL_O}/hotkeys\r${ESC}/commands\r${ESC}/sessions\r${ESC}${CTRL_L}/exit\r`;
+const PAYLOAD = `/help\r/find help\r/find --next\r/find --clear\r/transcript\r/find help\r/find --next\r/find --clear\r${ESC}/details\r/find tool\r${ESC}${CTRL_O}${CTRL_O}/hotkeys\r${ESC}/commands\r${ESC}/sessions\r${ESC}/debug package runs/tui-pty-debug-package\r${CTRL_L}/exit\r`;
 
 function usage() {
   return [
@@ -141,6 +141,7 @@ function payloadSummary() {
     'Esc',
     '/sessions',
     'Esc',
+    '/debug package runs/tui-pty-debug-package',
     'Ctrl+L',
     '/exit',
   ];

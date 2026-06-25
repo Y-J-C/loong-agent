@@ -153,8 +153,22 @@ async function runTui(config, options) {
         bodyAlign: 'top',
         showHardwareCursor: state.showHardwareCursor !== false,
       }).split('\n');
+      state.lastRender = {
+        at: new Date().toISOString(),
+        columns: size.columns,
+        rows: size.rows,
+        frameLines: lines.length,
+        mode: state.mode,
+        scrollOffset: state.scrollOffset || 0,
+        activePanel: state.activePanel ? state.activePanel.type || '' : '',
+        selector: state.selector ? state.selector.view || state.selector.subMode || '' : '',
+      };
       output.write(diffRenderer.render(lines, size));
     } catch (error) {
+      state.lastRenderError = {
+        at: new Date().toISOString(),
+        message: error && error.message ? error.message : String(error),
+      };
       try {
         output.write(`${ANSI.showCursor}${ANSI.reset}\n[TUI render error] ${error && error.message ? error.message : String(error)}\n`);
       } catch (writeError) {

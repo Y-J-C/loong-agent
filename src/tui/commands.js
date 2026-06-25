@@ -22,6 +22,7 @@ const { hasTheme, listThemes } = require('./theme');
 const { toggleGlobalToolDetails, toggleSelectedToolDetail } = require('./tool-focus');
 const { buildTreeSelector } = require('./session-tree');
 const { scrollToBottom, scrollToTop } = require('./scroll');
+const { writeTuiDebugPackage } = require('./diagnostics');
 const {
   clearSearch,
   clearViewerSearch,
@@ -492,6 +493,10 @@ function writeDebugFile(config, state) {
   return filePath;
 }
 
+function writeDebugPackage(config, state, out) {
+  return writeTuiDebugPackage(config, state, out);
+}
+
 function helpText() {
   const commands = listSlashCommands()
     .filter((command) => !command.unsupported)
@@ -881,6 +886,15 @@ async function runSlashCommandLegacy(context, text) {
         return `${rawPart}${k.type}${k.type === 'text' && k.raw ? ` (${k.raw})` : ''}`;
       });
       addMessage(state, { type: 'system', text: `Recent key presses (${keys.length}):\n${lines.join('\n')}` });
+      return;
+    }
+    if (sub === 'package') {
+      try {
+        const written = writeDebugPackage(config, state, parts[2] || '');
+        addMessage(state, { type: 'system', text: `TUI debug package written: ${written}` });
+      } catch (error) {
+        addMessage(state, { type: 'error', text: `TUI debug package failed: ${error && error.message ? error.message : String(error)}` });
+      }
       return;
     }
     const written = writeDebugFile(config, state);

@@ -798,12 +798,13 @@ scripts/test-tui-virtual-terminal.js
 
 终端兼容矩阵：
 
-| 终端环境 | 启动 | 输入 | Ctrl+L | Ctrl+O / /more | /commands | /sessions | resize | /exit | 无残留进程 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Windows OpenSSH 到龙芯派 pty | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 待确认 | 已验证 | 已验证 |
-| VS Code / Codex terminal | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 待确认 | 待确认 |
-| SSH 到龙芯派 pty | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 待确认 | 已验证 | 已验证 |
-| 龙芯派本地终端 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 |
+| 终端环境 | 启动 | 输入 | 面板 | Viewer | Debug package | Ctrl+L | Resize | /exit | 无残留进程 | 证据文件 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Windows OpenSSH 到龙芯派 pty | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 待确认 | 已验证 | 已验证 | `runs/tui-pty-smoke-latest.json` | 自动化通过，真实 resize 待确认 |
+| SSH 到龙芯派 pty | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 已验证 | 待确认 | 已验证 | 已验证 | `runs/tui-pty-smoke-latest.json` | 自动化通过，真实 resize 待确认 |
+| Virtual terminal final screen | 已验证 | 已验证 | 已验证 | 已验证 | 不适用 | 已验证 | 已验证 | 不适用 | 不适用 | `scripts/test-tui-virtual-terminal.js` | final screen 测试通过 |
+| Codex / VS Code terminal | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 脚本通过 | 待确认 | 待确认 | 待确认 | local TUI tests + pty dry-run | 交互退出和 resize 待人工确认 |
+| 龙芯派本地物理终端 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待确认 | 待补充 | 无法由当前自动化环境确认 |
 
 ### 阶段 E 计划：焦点转移表文档化与快捷键恢复策略
 
@@ -941,8 +942,9 @@ scripts/test-tui-virtual-terminal.js
 - render cache。
 - resize 策略细化。
 - Kitty keyboard protocol 探测。
-- SSH/Windows Terminal/VS Code terminal 兼容矩阵。
-- TUI 可观测日志与故障包导出（原阶段 H）：属于 P3 诊断与可观测性增强，不是 P0 稳定性修复前置。
+- [x] P3-2：终端兼容矩阵实测与记录。
+- [x] P3-1：TUI 可观测日志与按需故障包导出（原阶段 H）。
+- TUI 可观测日志与故障包导出属于 P3 诊断与可观测性增强，不是 P0 稳定性修复前置。
 
 ### P2 正式开始：P2-1 用户可见快捷键帮助面板
 
@@ -1151,6 +1153,79 @@ scripts/test-tui-virtual-terminal.js
 - 不处理 `dist`。
 - 不引入新 npm runtime 依赖。
 
+### P3-1：TUI 可观测日志与按需故障包导出
+
+状态：已完成。
+
+目标：
+
+- 将原阶段 H 落地为 P3-1，可观测性增强不再阻塞 P0/P2。
+- 提供用户显式触发的 TUI 故障包导出能力。
+- 不做常驻文件日志，不新增第二条实时显示或写入路径。
+- 故障包用于定位 TUI 问题，不替代 session export。
+
+实施结果：
+
+- `/debug` 与 `/debug keys` 保持原行为。
+- 新增 `/debug package [out]`，默认写入 `runs/tui-debug-package-latest/`。
+- 支持 `runs/...` 目录输出，也支持 `runs/name.json` 作为 JSON 文件名前缀输出。
+- 故障包包含 manifest、safe state snapshot、messages summary、recent keys、active surface、search/viewer 状态、board status、provider/model、token 统计、render metrics 和最近 session 信息。
+- `runTui()` 只在内存中记录最近一次 render metrics 与 render error 摘要，不常驻写日志。
+- `/help`、autocomplete、`/commands` 已同步显示 `/debug [keys|package [out]]`。
+- `scripts/test-tui-pty-smoke.js` 默认 payload 已加入 `/debug package runs/tui-pty-debug-package`。
+
+验收标准：
+
+- `/debug package` 只允许写入 workspace 的 `runs/` 路径。
+- 故障包不得包含 API key、token、`.env`、provider secret 或完整 provider config。
+- `/debug package` 只追加一条简短 system message，不污染 viewer/search/session 状态。
+- 正常 TUI 运行不产生常驻诊断日志。
+- 本地、板端同组 TUI/runtime 测试通过，真实 pty smoke 通过并无残留进程。
+
+本阶段不做：
+
+- 不实现常驻文件日志。
+- 不改变 `renderTui()`、diff renderer、event adapter 或 session export。
+- 不新增用户主流程功能。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
+
+### P3-2：终端兼容矩阵实测与记录
+
+状态：已完成。
+
+目标：
+
+- 将终端兼容矩阵从静态描述升级为可复验的 JSON / Markdown 记录。
+- 用结构化 pty smoke JSON、virtual terminal final screen 测试和故障包路径作为证据。
+- 不使用 raw pty log 文本重复次数判断 UI 是否重复。
+- 不修 TUI 行为，只记录兼容性状态与待确认项。
+
+实施结果：
+
+- 新增 `scripts/test-tui-terminal-matrix.js`。
+- 默认读取 `runs/tui-pty-smoke-latest.json`，支持 `--pty-json` 指定结构化证据。
+- 默认输出 `runs/tui-terminal-matrix-latest.json` 与 `runs/tui-terminal-matrix-latest.md`。
+- 支持 `--dry-run`，只展示输入输出路径与矩阵环境，不连接板端。
+- 矩阵环境包含 Windows OpenSSH 到龙芯派 pty、SSH 到龙芯派 pty、virtual terminal final screen、Codex / VS Code terminal、龙芯派本地物理终端。
+- 状态收敛为 `pass / partial / pending / fail`，其中真实 resize 和本地物理终端无法自动确认时标注为 `pending` 或 `partial`。
+
+验收标准：
+
+- passing pty smoke JSON 会生成带证据路径的 `partial` pty 结论，因为 resize 仍待人工确认。
+- failing / timeout pty smoke JSON 会生成 `fail` 结论并保留 next steps。
+- 龙芯派本地物理终端默认保持 `pending`，不伪造通过。
+- Markdown 表格包含环境、关键能力、证据文件和结论。
+- 本地、板端同组 TUI/runtime 测试通过，真实 pty smoke 与 terminal matrix 生成通过。
+
+本阶段不做：
+
+- 不改变 TUI 可见行为。
+- 不改快捷键、render/diff/focus/event adapter。
+- 不新增 SSH 驱动逻辑，继续复用 pty smoke 结构化 JSON。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
+
 ## 十四、明确禁止事项
 
 禁止重新引入以下模式：
@@ -1169,15 +1244,15 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-P2-7：viewer 结构化跳转评估
+P3-3：长会话与长输出性能基准
 ```
 
 范围：
 
-1. 评估是否需要在 viewer 中支持 evidence / warning / result 的结构化跳转。
-2. 如果进入实现，优先保持 viewer 为只读视图状态，不改变 session 存储。
-3. 明确结构化跳转是否真的优于现有 `/find` 文本搜索。
-4. 不改变 TUI 稳定性底线：不污染消息源、不依赖 raw pty log 文本次数。
+1. 构造长会话、长工具输出、长 viewer 内容和频繁 redraw 场景。
+2. 记录 render 耗时、frame 行数、消息数量、viewer 行数和滚动状态。
+3. 明确板端 Node 14 环境下的可接受基线。
+4. 优先测量，不先做性能优化。
 
 不做：
 

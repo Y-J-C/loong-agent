@@ -12,6 +12,11 @@ const { createTuiState } = require('../src/tui/state');
 const { listSlashCommands } = require('../src/tui/slash-commands');
 const { shortcutHint } = require('../src/tui/keybindings');
 const { createJsonlSession, readSessionFromPath } = require('../src/session');
+const { payloadSummary } = require('./test-tui-pty-smoke');
+const {
+  dryRunPlan: terminalMatrixDryRunPlan,
+  writeMatrixReport,
+} = require('./test-tui-terminal-matrix');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -368,6 +373,138 @@ test('new name clone more debug copy compact reload and unsupported commands wor
   assert(context.state.modelSelector.models[0].label.indexOf('V3') < 0, 'old V3 label should not be used');
   assert(context.state.modelSelector.models[1].label.indexOf('R1') < 0, 'old R1 label should not be used');
   assert(text.indexOf('not implemented') >= 0, 'missing unsupported command');
+});
+
+test('debug package writes redacted diagnostics under runs only', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  context.state.provider = 'openai-compatible';
+  context.state.model = 'mock-secret-test';
+  context.state.inputBuffer = 'should not be exported with sk-proj-secret1234567890';
+  context.state.recentKeys.push({ type: 'text', raw: 'x', ts: 123 });
+  context.state.lastRender = { at: '2026-06-25T00:00:00.000Z', columns: 80, rows: 24, frameLines: 24 };
+  context.state.boardStatus = { arch: 'loongarch64', node: 'v14.16.1' };
+  context.state.messages.push({
+    type: 'assistant',
+    text: 'safe answer with token=abc123 and sk-testsecret123456',
+  });
+  const beforeMessages = context.state.messages.length;
+
+  await handleCommand(context, '/debug package runs/test-debug-package');
+  assert(context.state.messages.length === beforeMessages + 1, 'debug package should append one concise status message');
+  const statusText = context.state.messages[context.state.messages.length - 1].text;
+  assert(statusText.indexOf('TUI debug package written') >= 0, 'debug package status message missing');
+  const packageDir = path.join(workspace, 'runs', 'test-debug-package');
+  const manifestPath = path.join(packageDir, 'manifest.json');
+  const statePath = path.join(packageDir, 'state.json');
+  const messagesPath = path.join(packageDir, 'messages.json');
+  assert(fs.existsSync(manifestPath), 'missing debug manifest');
+  assert(fs.existsSync(statePath), 'missing debug state');
+  assert(fs.existsSync(messagesPath), 'missing debug messages');
+  const allText = [
+    fs.readFileSync(manifestPath, 'utf8'),
+    fs.readFileSync(statePath, 'utf8'),
+    fs.readFileSync(messagesPath, 'utf8'),
+  ].join('\n');
+  assert(allText.indexOf('sk-testsecret123456') < 0, 'debug package leaked sk secret');
+  assert(allText.indexOf('sk-proj-secret1234567890') < 0, 'debug package leaked input secret');
+  assert(allText.indexOf('.env') < 0, 'debug package should redact env file mentions');
+  assert(allText.indexOf('safe answer') >= 0, 'debug package should include safe message summary');
+  assert(allText.indexOf('"frameLines": 24') >= 0, 'debug package should include render metrics');
+
+  await handleCommand(context, '/debug package ../outside');
+  const errorText = context.state.messages[context.state.messages.length - 1].text;
+  assert(errorText.indexOf('debug package failed') >= 0, 'debug package should reject path outside runs');
+  assert(!fs.existsSync(path.join(workspace, 'outside')), 'debug package wrote outside workspace runs');
+});
+
+test('debug package supports json prefix output and command discovery', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  await handleCommand(context, '/debug package runs/debug-one.json');
+  assert(fs.existsSync(path.join(workspace, 'runs', 'debug-one.manifest.json')), 'missing json-prefix manifest');
+  assert(fs.existsSync(path.join(workspace, 'runs', 'debug-one.state.json')), 'missing json-prefix state');
+
+  await handleCommand(context, '/debug');
+  await handleCommand(context, '/debug keys');
+  await handleCommand(context, '/help');
+  await handleCommand(context, '/commands');
+  const text = context.state.messages.map((message) => message.text).join('\n');
+  assert(text.indexOf('TUI debug snapshot written') >= 0, 'debug snapshot compatibility broke');
+  assert(text.indexOf('No recent key presses') >= 0 || text.indexOf('Recent key presses') >= 0, 'debug keys compatibility broke');
+  assert(text.indexOf('/debug [keys|package [out]]') >= 0, 'help missing debug package usage');
+  assert(context.state.activePanel.items.some((item) => item.value === '/debug' && item.usage.indexOf('package') >= 0), 'command panel missing debug package hint');
+});
+
+test('pty smoke payload includes debug package path', async () => {
+  const payload = payloadSummary();
+  assert(payload.indexOf('/debug package runs/tui-pty-debug-package') >= 0, 'pty smoke payload missing debug package path');
+});
+
+test('terminal matrix dry run reports environments and outputs', async () => {
+  const workspace = tempWorkspace();
+  const plan = terminalMatrixDryRunPlan({
+    ptyJson: path.join(workspace, 'runs', 'pty.json'),
+    outJson: path.join(workspace, 'runs', 'matrix.json'),
+    outMd: path.join(workspace, 'runs', 'matrix.md'),
+  });
+  assert(plan.dryRun === true, 'terminal matrix dry-run should mark dryRun');
+  assert(plan.rawPtyLogUsedForJudgement === false, 'terminal matrix should not use raw pty logs');
+  assert(plan.environments.some((item) => item.indexOf('Loong Pi local physical terminal') >= 0), 'dry-run missing physical terminal environment');
+  assert(plan.outJson.indexOf('matrix.json') >= 0 && plan.outMd.indexOf('matrix.md') >= 0, 'dry-run missing output paths');
+});
+
+test('terminal matrix records pass partial fail and pending states from structured pty json', async () => {
+  const workspace = tempWorkspace();
+  const runs = path.join(workspace, 'runs');
+  fs.mkdirSync(runs, { recursive: true });
+  const passPty = path.join(runs, 'pty-pass.json');
+  fs.writeFileSync(passPty, JSON.stringify({
+    passed: true,
+    jsonPath: passPty,
+    checks: {
+      sshExitZero: true,
+      watchdogNotTimedOut: true,
+      noResidualTuiProcess: true,
+      logHasSmokeMarker: true,
+    },
+  }), 'utf8');
+  const outJson = path.join(runs, 'matrix-pass.json');
+  const outMd = path.join(runs, 'matrix-pass.md');
+  const passMatrix = writeMatrixReport({ ptyJson: passPty, outJson, outMd });
+  const windows = passMatrix.rows.find((row) => row.id === 'windows-openssh-loong-pi-pty');
+  const physical = passMatrix.rows.find((row) => row.id === 'loong-pi-local-terminal');
+  const virtual = passMatrix.rows.find((row) => row.id === 'virtual-terminal-final-screen');
+  assert(windows.status === 'partial', 'passing pty should be partial until resize is manually verified');
+  assert(windows.capabilities.debugPackage === 'pass', 'passing pty should include debug package pass');
+  assert(windows.evidence.indexOf('pty-pass.json') >= 0, 'passing pty evidence path missing');
+  assert(physical.status === 'pending', 'physical terminal should remain pending');
+  assert(virtual.status === 'pass', 'virtual terminal harness should be recorded as pass');
+  const markdown = fs.readFileSync(outMd, 'utf8');
+  assert(markdown.indexOf('Raw pty log text repetition is not used') >= 0, 'markdown should state raw log is not a judgement source');
+  assert(markdown.indexOf('Loong Pi local physical terminal') >= 0, 'markdown missing pending physical terminal row');
+
+  const failPty = path.join(runs, 'pty-fail.json');
+  fs.writeFileSync(failPty, JSON.stringify({
+    passed: false,
+    timedOut: true,
+    jsonPath: failPty,
+    checks: {
+      sshExitZero: false,
+      watchdogNotTimedOut: false,
+      noResidualTuiProcess: false,
+      logHasSmokeMarker: false,
+    },
+    nextSteps: ['Review log'],
+  }), 'utf8');
+  const failMatrix = writeMatrixReport({
+    ptyJson: failPty,
+    outJson: path.join(runs, 'matrix-fail.json'),
+    outMd: path.join(runs, 'matrix-fail.md'),
+  });
+  const failed = failMatrix.rows.find((row) => row.id === 'windows-openssh-loong-pi-pty');
+  assert(failed.status === 'fail', 'failing pty should mark matrix row failed');
+  assert(failed.nextSteps.indexOf('Review log') >= 0, 'failing pty should preserve next steps');
 });
 
 test('model command can switch directly by id', async () => {
