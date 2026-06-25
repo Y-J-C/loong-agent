@@ -121,6 +121,60 @@ test('tool selected and global expanded state invalidate tool render output', ()
   assert(plain.indexOf('hidden detail') >= 0, 'global expanded detail missing');
 });
 
+test('message list render cache hits and invalidates on message changes', () => {
+  clearTuiRenderCaches();
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  for (let index = 0; index < 20; index += 1) {
+    state.messages.push({ id: `msg-${index}`, type: 'assistant_final', text: `answer ${index}` });
+  }
+  let plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('answer 19') >= 0, 'latest answer missing before cache hit');
+  let stats = renderCacheStats();
+  assert(stats.messageList.misses === 1, 'message list cache should miss first render');
+
+  plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  stats = renderCacheStats();
+  assert(stats.messageList.hits >= 1, 'message list cache should hit second render');
+
+  state.messages.push({ id: 'msg-new', type: 'assistant_final', text: 'new answer invalidates cache' });
+  plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  stats = renderCacheStats();
+  assert(plain.indexOf('new answer invalidates cache') >= 0, 'message list cache served stale messages');
+  assert(stats.messageList.misses >= 2, 'message list cache should miss after message append');
+});
+
+test('message list render cache invalidates selected expanded and ephemeral states', () => {
+  clearTuiRenderCaches();
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    resultSummary: 'exit=0 ok',
+    detail: { hiddenDetail: 'expanded detail from cache invalidation' },
+  });
+  let plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('expanded detail from cache invalidation') < 0, 'tool detail should start collapsed');
+  renderTui(state, { columns: 100, rows: 24 });
+  let stats = renderCacheStats();
+  assert(stats.messageList.hits >= 1, 'message list cache should hit before selected state change');
+
+  state.selectedMessageId = 'tool-one';
+  plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('Ctrl+O details') >= 0, 'selected tool hint missing after message list cache invalidation');
+  stats = renderCacheStats();
+  assert(stats.messageList.misses >= 2, 'message list cache should miss after selected tool change');
+
+  state.messages.push({ id: 'ephemeral-one', type: 'system', text: 'running only status', ephemeral: true });
+  state.mode = 'running';
+  plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('running only status') >= 0, 'running ephemeral message missing');
+  state.mode = 'idle';
+  plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('running only status') < 0, 'idle ephemeral message leaked from message list cache');
+});
+
 test('session tree filter and collapse changes update cached selector output', () => {
   clearTuiRenderCaches();
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });

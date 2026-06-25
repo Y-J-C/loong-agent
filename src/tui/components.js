@@ -42,6 +42,7 @@ const MAX_TOOL_DETAIL_LINES = 18;
 const markdownRenderCache = createRenderCache(300);
 const finalAnswerRenderCache = createRenderCache(300);
 const toolRenderCache = createRenderCache(300);
+const messageListRenderCache = createRenderCache(80);
 const selectorRenderCache = createRenderCache(120);
 const panelRenderCache = createRenderCache(120);
 
@@ -66,6 +67,7 @@ function clearTuiRenderCaches() {
   markdownRenderCache.clear();
   finalAnswerRenderCache.clear();
   toolRenderCache.clear();
+  messageListRenderCache.clear();
   selectorRenderCache.clear();
   panelRenderCache.clear();
 }
@@ -75,6 +77,7 @@ function renderCacheStats() {
     markdown: markdownRenderCache.stats(),
     finalAnswer: finalAnswerRenderCache.stats(),
     tool: toolRenderCache.stats(),
+    messageList: messageListRenderCache.stats(),
     selector: selectorRenderCache.stats(),
     panel: panelRenderCache.stats(),
   };
@@ -544,10 +547,57 @@ function createMessageComponent(message) {
   return { render: (width, context) => renderBlock(message.text || '', width, context.theme, 'system') };
 }
 
+function messageListMessageSnapshot(message, state) {
+  const selected = Boolean(message && message.id && state && state.selectedMessageId === message.id);
+  const expanded = Boolean((state && state.expandedTools) || (message && message.expanded) || selected);
+  return {
+    id: message && message.id,
+    type: message && message.type,
+    text: message && message.text,
+    displayKind: message && message.displayKind,
+    hidden: message && message.hidden,
+    ephemeral: message && message.ephemeral,
+    status: message && message.status,
+    meta: message && message.meta,
+    toolName: message && message.toolName,
+    done: message && message.done,
+    isError: message && message.isError,
+    errorType: message && message.errorType,
+    summary: message && message.summary,
+    resultSummary: message && message.resultSummary,
+    args: message && message.args,
+    durationMs: message && message.durationMs,
+    evidenceCount: message && message.evidenceCount,
+    warningCount: message && message.warningCount,
+    detail: expanded ? message && message.detail : undefined,
+  };
+}
+
+function messageListSnapshot(state) {
+  const source = state || {};
+  return {
+    mode: source.mode,
+    agentStatus: source.agentStatus,
+    headerHidden: Boolean(source.headerHidden),
+    selectedMessageId: source.selectedMessageId || '',
+    expandedTools: Boolean(source.expandedTools),
+    messages: (source.messages || [])
+      .filter((message) => isLiveMessageVisible(message, source))
+      .map((message) => messageListMessageSnapshot(message, source)),
+    pendingMessages: (source.pendingMessages || []).map((message) => messageListMessageSnapshot(message, source)),
+  };
+}
+
 class MessageListComponent {
   render(width, context) {
     const state = context.state;
     const theme = context.theme;
+    const cacheKey = listCacheKey(width, context, {
+      component: 'messageList',
+      rows: context && context.size ? context.size.rows : 0,
+      snapshot: messageListSnapshot(state),
+    });
+    return cachedLines(context, messageListRenderCache, cacheKey, () => {
     const body = [];
     body.push(...new HeaderComponent().render(width, context));
     let prevType = '';
@@ -564,6 +614,7 @@ class MessageListComponent {
       }
     }
     return body;
+    });
   }
 }
 

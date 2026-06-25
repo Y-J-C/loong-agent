@@ -17,6 +17,12 @@ const {
   dryRunPlan: terminalMatrixDryRunPlan,
   writeMatrixReport,
 } = require('./test-tui-terminal-matrix');
+const {
+  buildBaselineReport,
+  buildComparison,
+  dryRunPlan: performanceDryRunPlan,
+  writeBaselineReport,
+} = require('./test-tui-performance-baseline');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -505,6 +511,125 @@ test('terminal matrix records pass partial fail and pending states from structur
   const failed = failMatrix.rows.find((row) => row.id === 'windows-openssh-loong-pi-pty');
   assert(failed.status === 'fail', 'failing pty should mark matrix row failed');
   assert(failed.nextSteps.indexOf('Review log') >= 0, 'failing pty should preserve next steps');
+});
+
+test('performance baseline dry run reports scenarios and output paths', async () => {
+  const plan = performanceDryRunPlan({
+    iterations: 3,
+    disableCache: false,
+    compareJson: path.join('runs', 'previous.json'),
+    outJson: path.join('runs', 'baseline.json'),
+    outMd: path.join('runs', 'baseline.md'),
+  });
+  assert(plan.dryRun === true, 'performance baseline dry-run should mark dryRun');
+  assert(plan.thresholdsApplied === false, 'P3-3 should not apply hard thresholds');
+  assert(plan.budgetPolicy === 'warn_only', 'performance baseline should use warn-only budgets');
+  assert(plan.compareJson.indexOf('previous.json') >= 0, 'dry-run missing compare path');
+  assert(plan.scenarios.indexOf('long-conversation-300') >= 0, 'dry-run missing long conversation scenario');
+  assert(plan.scenarios.indexOf('viewer-search') >= 0, 'dry-run missing viewer search scenario');
+  assert(plan.outJson.indexOf('baseline.json') >= 0 && plan.outMd.indexOf('baseline.md') >= 0, 'dry-run missing output paths');
+});
+
+test('performance baseline writes schema markdown and rejects paths outside runs', async () => {
+  const workspace = tempWorkspace();
+  const runs = path.join(workspace, 'runs');
+  const outJson = path.join(runs, 'baseline.json');
+  const outMd = path.join(runs, 'baseline.md');
+  const previousCwd = process.cwd();
+  process.chdir(workspace);
+  try {
+    const report = writeBaselineReport({
+      iterations: 2,
+      disableCache: true,
+      compareJson: '',
+      outJson,
+      outMd,
+    });
+    assert(report.schema === 'loong-agent.tui-performance-baseline.v1', 'performance baseline schema mismatch');
+    assert(report.environment && report.environment.node, 'performance baseline missing environment');
+    assert(report.options.disableCache === true, 'performance baseline did not record disabled cache');
+    assert(report.summary && report.summary.thresholdsApplied === false, 'performance baseline should not apply thresholds');
+    assert(report.scenarios.some((item) => item.id === 'long-tool-detail-viewer' && item.viewerLineCount > 0), 'missing long tool detail viewer metrics');
+    assert(report.scenarios.every((item) => item.frameLines === 32), 'performance baseline should keep stable frame line counts');
+    const json = fs.readFileSync(outJson, 'utf8');
+    const markdown = fs.readFileSync(outMd, 'utf8');
+    assert(json.indexOf('loong-agent.tui-performance-baseline.v1') >= 0, 'baseline JSON missing schema');
+    assert(markdown.indexOf('Avg ms') >= 0 && markdown.indexOf('P95 ms') >= 0 && markdown.indexOf('Max ms') >= 0, 'baseline markdown missing timing columns');
+    assert(markdown.indexOf('Thresholds applied: false') >= 0, 'baseline markdown should state thresholds are not applied');
+    let rejected = false;
+    try {
+      writeBaselineReport({
+        iterations: 1,
+        disableCache: false,
+        outJson: path.join(workspace, 'outside.json'),
+        outMd,
+      });
+    } catch (error) {
+      rejected = String(error.message || error).indexOf('runs/') >= 0;
+    }
+    assert(rejected, 'performance baseline should reject output paths outside runs');
+  } finally {
+    process.chdir(previousCwd);
+  }
+});
+
+test('performance baseline compare mode records warn-only budget warnings', async () => {
+  const workspace = tempWorkspace();
+  const previousCwd = process.cwd();
+  process.chdir(workspace);
+  try {
+    fs.mkdirSync('runs', { recursive: true });
+    const previousPath = path.join('runs', 'previous-baseline.json');
+    const previous = {
+      schema: 'loong-agent.tui-performance-baseline.v1',
+      generatedAt: '2026-01-01T00:00:00.000Z',
+      scenarios: [
+        { id: 'idle-short-conversation', title: 'Idle / short conversation', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 },
+        { id: 'long-conversation-300', title: 'Long conversation near 300 messages', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 },
+        { id: 'long-assistant-markdown', title: 'Long assistant markdown', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 },
+        { id: 'long-tool-detail-viewer', title: 'Long tool detail viewer', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 },
+        { id: 'long-transcript-viewer', title: 'Long transcript viewer', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 },
+        { id: 'viewer-search', title: 'Viewer search state', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 },
+        { id: 'diff-redraw-reset', title: 'Diff renderer redraw and reset', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 },
+      ],
+    };
+    fs.writeFileSync(previousPath, JSON.stringify(previous), 'utf8');
+    const report = buildBaselineReport({
+      iterations: 1,
+      disableCache: false,
+      compareJson: previousPath,
+      outJson: path.join('runs', 'current.json'),
+      outMd: path.join('runs', 'current.md'),
+    });
+    assert(report.comparison && report.comparison.budgetPolicy === 'warn_only', 'compare mode should record warn-only policy');
+    assert(Array.isArray(report.budgetWarnings), 'compare mode should include budgetWarnings array');
+    assert(report.summary.budgetPolicy === 'warn_only', 'summary should preserve warn-only policy');
+    assert(report.summary.thresholdsApplied === false, 'compare mode should not apply hard thresholds');
+    assert(report.comparison.scenarios.some((item) => item.metrics.p95RenderMs.delta !== undefined), 'compare mode missing metric deltas');
+
+    const written = writeBaselineReport({
+      iterations: 1,
+      disableCache: false,
+      compareJson: previousPath,
+      outJson: path.join('runs', 'current.json'),
+      outMd: path.join('runs', 'current.md'),
+    });
+    const markdown = fs.readFileSync(path.join('runs', 'current.md'), 'utf8');
+    assert(written.summary.budgetPolicy === 'warn_only', 'written compare report lost budget policy');
+    assert(markdown.indexOf('## Comparison') >= 0, 'compare markdown missing comparison section');
+    assert(markdown.indexOf('Budget policy: warn_only') >= 0, 'compare markdown missing warn-only policy');
+
+    const comparison = buildComparison({
+      scenarios: [{ id: 'synthetic-slow', title: 'Synthetic slow', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 75, maxRenderMs: 150 }],
+    }, {
+      generatedAt: 'previous',
+      scenarios: [{ id: 'synthetic-slow', title: 'Synthetic slow', avgRenderMs: 1, p50RenderMs: 1, p95RenderMs: 1, maxRenderMs: 1 }],
+    });
+    assert(comparison.budgetPolicy === 'warn_only', 'budget warning comparison should remain warn-only');
+    assert(comparison.budgetWarnings.length >= 2, 'synthetic slow comparison should emit p95 and max warnings');
+  } finally {
+    process.chdir(previousCwd);
+  }
 });
 
 test('model command can switch directly by id', async () => {

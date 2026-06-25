@@ -942,6 +942,8 @@ scripts/test-tui-virtual-terminal.js
 - render cache。
 - resize 策略细化。
 - Kitty keyboard protocol 探测。
+- [x] P3-4：基于性能基线制定预算与优化取舍。
+- [x] P3-3：长会话与长输出性能基准。
 - [x] P3-2：终端兼容矩阵实测与记录。
 - [x] P3-1：TUI 可观测日志与按需故障包导出（原阶段 H）。
 - TUI 可观测日志与故障包导出属于 P3 诊断与可观测性增强，不是 P0 稳定性修复前置。
@@ -1226,6 +1228,96 @@ scripts/test-tui-virtual-terminal.js
 - 不处理 `dist`。
 - 不引入新 npm runtime 依赖。
 
+### P3-3：长会话与长输出性能基准
+
+状态：已完成。
+
+目标：
+
+- 将长会话、长工具输出、长 viewer 内容、viewer 搜索和频繁 redraw 场景转化为可复验的性能基准。
+- 记录当前 `renderTui()` 与 diff renderer 写入路径的耗时、frame 行数、消息数量、工具数量、viewer 行数和 cache 状态。
+- 先建立本地与板端 Node 14 环境下的 baseline，不在本阶段设置硬性性能阈值。
+- 为后续 P3-4 决定性能预算、render cache 优化或局部渲染策略提供依据。
+
+实施结果：
+
+- 新增 `scripts/test-tui-performance-baseline.js`。
+- 默认输出 `runs/tui-performance-baseline-latest.json` 与 `runs/tui-performance-baseline-latest.md`。
+- 支持 `--out-json`、`--out-md`、`--iterations`、`--dry-run`、`--disable-cache`、`--help`。
+- 输出路径限制在 workspace 的 `runs/` 下，防止越界写文件。
+- 固定基准场景包括 idle / short conversation、300 条消息附近长会话、长 assistant markdown、长 tool detail viewer、长 transcript viewer、viewer search 和 diff redraw / reset。
+- JSON 报告包含 schema、generatedAt、environment、options、scenarios、summary；Markdown 报告包含 avg / p50 / p95 / max 与 diff bytes 摘要。
+- 报告明确 `thresholdsApplied: false`，性能数值只作为 baseline，不作为 P3-3 失败条件。
+
+验收标准：
+
+- dry-run 只输出场景、参数和目标报告路径，不写文件。
+- 实际运行能生成 JSON / Markdown 基准报告。
+- 每个场景保持固定 frame 行数，不因为长内容破坏 fixed viewport。
+- `--disable-cache` 能记录 cache disabled，并不改变 TUI 可见行为。
+- 越界输出路径会被拒绝。
+- 本地、板端同组 TUI/runtime 测试通过，板端性能报告能生成。
+
+本阶段不做：
+
+- 不优化 `renderTui()`、diff renderer、focus、event adapter 或 session export。
+- 不设置硬性性能预算。
+- 不引入 synchronized output。
+- 不新增 npm runtime 依赖。
+- 不处理 `dist`。
+
+### P3-4：基于性能基线制定预算与优化取舍
+
+状态：已完成。
+
+目标：
+
+- 基于 P3-3 本地与板端性能基线，建立 warn-only 性能预算对比。
+- 优先处理板端最慢的 `long-conversation-300` 场景。
+- 做一轮低风险优化，不引入 synchronized output，不做全量 TUI 重构。
+- 保持预算告警不改变测试退出码，避免板端性能波动导致误失败。
+
+P3-3 基线结论：
+
+- 板端最慢场景为 `long-conversation-300`，p95 为 `288.905ms`。
+- 板端第二慢场景为 `long-transcript-viewer`，p95 为 `129.129ms`。
+- 主要成本来自长会话下每帧重复渲染完整 `MessageListComponent` body，而不是 diff 写入字节数。
+
+实施结果：
+
+- `scripts/test-tui-performance-baseline.js` 新增 `--compare-json <path>`。
+- 性能报告新增 `comparison`、`budgetWarnings` 和 `budgetPolicy: "warn_only"`。
+- 默认预算从旧 baseline 派生：`p95 warning = max(50ms, baseline p95 * 1.25)`，`max warning = max(100ms, baseline max * 1.25)`。
+- 命中预算 warning 时仅写入报告，不改变退出码。
+- `src/tui/components.js` 新增 message list 整体渲染缓存，减少长会话每帧重复遍历和拼接完整 body。
+- `clearTuiRenderCaches()` 已同步清理 message list cache，`renderCacheStats()` 已包含 `messageList` 统计。
+
+实测结果：
+
+- 本地 `long-conversation-300` p95：`2.957ms -> 1.888ms`。
+- 板端 `long-conversation-300` p95：`288.905ms -> 43.565ms`。
+- 本地 P3-4 报告：`runs/p3-4-performance-baseline.json`、`runs/p3-4-performance-baseline.md`。
+- 板端 P3-4 报告：`runs/p3-4-performance-baseline-board.json`、`runs/p3-4-performance-baseline-board.md`。
+- 本地与板端预算告警均按 warn-only 记录，不作为失败条件。
+
+验收标准：
+
+- compare 模式能输出每个场景的 avg / p50 / p95 / max 差异与百分比变化。
+- warning 命中时脚本仍以退出码 `0` 完成。
+- message list cache 在连续相同 render 中产生 hit。
+- message 变化、selected tool、expanded tools、ephemeral running / idle 变化会使缓存失效。
+- search highlight、viewer、panel、selector、status bar 单例测试继续通过。
+- 本地、板端同组 TUI/runtime 测试通过，板端 P3-4 性能报告能生成。
+
+本阶段不做：
+
+- 不引入 synchronized output。
+- 不实现 viewport-aware rendering。
+- 不改变 session 存储或 export 格式。
+- 不把性能预算升级为硬失败。
+- 不处理 `dist`。
+- 不新增 npm runtime 依赖。
+
 ## 十四、明确禁止事项
 
 禁止重新引入以下模式：
@@ -1244,15 +1336,15 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-P3-3：长会话与长输出性能基准
+P3-5：进一步性能取舍与 viewport-aware rendering 评估
 ```
 
 范围：
 
-1. 构造长会话、长工具输出、长 viewer 内容和频繁 redraw 场景。
-2. 记录 render 耗时、frame 行数、消息数量、viewer 行数和滚动状态。
-3. 明确板端 Node 14 环境下的可接受基线。
-4. 优先测量，不先做性能优化。
+1. 基于 P3-4 报告评估是否还需要继续优化。
+2. 如果继续优化，优先评估 viewport-aware rendering 或 message line count cache。
+3. 判断 warn-only 预算是否需要升级为本地硬阈值，板端仍建议先保留 warn-only。
+4. 继续用性能基线驱动优化，不做无证据重构。
 
 不做：
 
