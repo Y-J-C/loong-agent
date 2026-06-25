@@ -210,6 +210,23 @@ test('virtual terminal tool detail and transcript viewers keep one editor slot a
   assertSingleStatusBar(screen);
 });
 
+test('virtual terminal viewer search highlights current panel match', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.activePanel = {
+    type: 'transcript',
+    title: 'Transcript Viewer',
+    hint: 'Esc close',
+    scrollOffset: 0,
+    search: { query: 'disk', matches: [], index: 0, pendingJump: true, message: '' },
+    lines: ['user: memory status', 'assistant: disk usage is stable'],
+  };
+  const screen = finalScreen(state, { columns: 90, rows: 18 });
+  assert(screen.indexOf('Transcript Viewer') >= 0, 'viewer missing from final screen');
+  assert(screen.indexOf('assistant: disk usage is stable') >= 0, 'viewer search match should remain visible');
+  assert(screen.indexOf('match 1/1 "disk"') >= 0, 'viewer search status missing');
+  assertSingleStatusBar(screen);
+});
+
 test('virtual terminal editor slot is exclusive for panel and selector', () => {
   const panelState = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   panelState.inputBuffer = '/';

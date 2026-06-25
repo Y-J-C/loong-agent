@@ -1034,6 +1034,49 @@ test('renderer displays tool detail and transcript viewers as read-only panels',
   assert(plain.indexOf('assistant: disk answer') >= 0, 'transcript viewer missing assistant line');
 });
 
+test('renderer searches and highlights inside active viewers', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.activePanel = {
+    type: 'tool_detail',
+    title: 'Tool Detail Viewer',
+    hint: 'Esc close',
+    scrollOffset: 0,
+    search: {
+      query: 'evidence',
+      matches: [],
+      index: 0,
+      pendingJump: true,
+      message: '',
+    },
+    lines: Array.from({ length: 32 }, (_, index) => (
+      index === 26 ? 'evidence target line with /tmp/loong-agent/path' : `detail filler ${index}`
+    )),
+  };
+  let output = renderTui(state, { columns: 64, rows: 18 });
+  let plain = stripAnsi(output);
+  assert(state.activePanel.search.matches.length === 1, 'viewer search should find one match');
+  assert(state.activePanel.scrollOffset > 0, 'viewer search should jump within panel');
+  assert(plain.indexOf('evidence target line') >= 0, 'viewer search should reveal matched line');
+  assert(plain.indexOf('match 1/1 "evidence"') >= 0, 'viewer search should show match count');
+  assert(output.indexOf(ANSI.selectedBg) >= 0, 'viewer search match should be highlighted');
+  output.split('\n').forEach((line) => {
+    assert(visibleWidth(line) <= 64, `viewer search line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
+  });
+
+  state.activePanel = {
+    type: 'transcript',
+    title: 'Transcript Viewer',
+    hint: 'Esc close',
+    scrollOffset: 0,
+    search: { query: 'missing', matches: [], index: 0, pendingJump: true, message: '' },
+    lines: ['user: memory status', 'assistant: memory ok'],
+  };
+  output = renderTui(state, { columns: 64, rows: 18 });
+  plain = stripAnsi(output);
+  assert(state.activePanel.search.matches.length === 0, 'viewer search should allow zero matches');
+  assert(plain.indexOf('match 0/0 "missing"') >= 0, 'viewer search should show zero match count');
+});
+
 test('renderer uses editor slot for selector and hides autocomplete', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({ type: 'assistant', text: 'chat content above selector' });

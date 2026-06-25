@@ -174,6 +174,43 @@ test('find command updates search state without appending messages', async () =>
   assert(context.state.messages.length === beforeMessages, 'find clear should not append messages');
 });
 
+test('find command searches active viewer without polluting main history search', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  context.state.messages.push({ type: 'user', text: 'disk status' });
+  context.state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    args: { command: 'df -h' },
+    resultSummary: 'exit=0 ok',
+    detail: { evidence: [{ command: 'df -h' }, { command: 'lsblk' }], warnings: ['low space'] },
+  });
+  const beforeMessages = context.state.messages.length;
+  context.state.search.query = 'disk';
+
+  await handleCommand(context, '/details');
+  await handleCommand(context, '/find evidence');
+  assert(context.state.messages.length === beforeMessages, 'viewer find should not append messages');
+  assert(context.state.search.query === 'disk', 'viewer find should not change main history search');
+  assert(context.state.activePanel.search && context.state.activePanel.search.query === 'evidence', 'viewer find should set panel search query');
+  assert(context.state.activePanel.search.matches.length > 0, 'viewer find should find evidence in panel lines');
+
+  const firstIndex = context.state.activePanel.search.index;
+  await handleCommand(context, '/find --next');
+  assert(context.state.activePanel.search.pendingJump === false, 'viewer find next should resolve jump immediately');
+  assert(context.state.activePanel.search.index !== firstIndex || context.state.activePanel.search.matches.length === 1, 'viewer find next should advance when multiple matches exist');
+
+  await handleCommand(context, '/find --clear');
+  assert(context.state.activePanel.search.query === '', 'viewer find clear should clear panel query');
+  assert(context.state.search.query === 'disk', 'viewer find clear should not clear main history search');
+
+  context.state.activePanel = null;
+  await handleCommand(context, '/find disk');
+  assert(context.state.search.query === 'disk', 'find should return to main history search after viewer closes');
+});
+
 test('find command is available in shared help autocomplete and command panel', async () => {
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);

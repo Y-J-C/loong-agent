@@ -22,8 +22,18 @@ const { hasTheme, listThemes } = require('./theme');
 const { toggleGlobalToolDetails, toggleSelectedToolDetail } = require('./tool-focus');
 const { buildTreeSelector } = require('./session-tree');
 const { scrollToBottom, scrollToTop } = require('./scroll');
-const { clearSearch, ensureSearchState, moveSearch, setSearchQuery } = require('./search');
-const { createTranscriptPanel } = require('./viewer');
+const {
+  clearSearch,
+  clearViewerSearch,
+  ensureSearchState,
+  ensureViewerSearch,
+  moveSearch,
+  moveViewerSearch,
+  setSearchQuery,
+  setViewerSearchQuery,
+  updateViewerSearchMatches,
+} = require('./search');
+const { createTranscriptPanel, isViewerPanel } = require('./viewer');
 const { KEYBINDINGS, shortcutHint } = require('./keybindings');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
 
@@ -390,7 +400,49 @@ function openHotkeysPanel(state) {
   state.activePanel = panel;
 }
 
+function activeViewerPanel(state) {
+  return state && isViewerPanel(state.activePanel) ? state.activePanel : null;
+}
+
+function handleViewerFindCommand(state, panel, args) {
+  const parts = args || [];
+  const first = parts[0] || '';
+  if (!first) {
+    const search = ensureViewerSearch(panel);
+    search.message = search.query ? search.message : 'find: /find <keyword>';
+    state.status = search.message;
+    return;
+  }
+  if (first === '--clear') {
+    clearViewerSearch(panel);
+    state.status = 'find cleared';
+    return;
+  }
+  if (first === '--next') {
+    updateViewerSearchMatches(panel, panel.visibleRows || 5);
+    const search = moveViewerSearch(panel, 1);
+    updateViewerSearchMatches(panel, panel.visibleRows || 5);
+    state.status = search.message || 'find: /find <keyword>';
+    return;
+  }
+  if (first === '--prev') {
+    updateViewerSearchMatches(panel, panel.visibleRows || 5);
+    const search = moveViewerSearch(panel, -1);
+    updateViewerSearchMatches(panel, panel.visibleRows || 5);
+    state.status = search.message || 'find: /find <keyword>';
+    return;
+  }
+  const search = setViewerSearchQuery(panel, parts.join(' '));
+  updateViewerSearchMatches(panel, panel.visibleRows || 5);
+  state.status = search.message;
+}
+
 function handleFindCommand(state, args) {
+  const viewerPanel = activeViewerPanel(state);
+  if (viewerPanel) {
+    handleViewerFindCommand(state, viewerPanel, args);
+    return;
+  }
   const parts = args || [];
   const first = parts[0] || '';
   if (!first) {

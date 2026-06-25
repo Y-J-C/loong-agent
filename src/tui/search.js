@@ -20,9 +20,20 @@ function ensureSearchState(state) {
   return state.search;
 }
 
+function ensureViewerSearch(panel) {
+  if (!panel.search) panel.search = createSearchState();
+  if (!Array.isArray(panel.search.matches)) panel.search.matches = [];
+  return panel.search;
+}
+
 function clearSearch(state) {
   state.search = createSearchState();
   return state.search;
+}
+
+function clearViewerSearch(panel) {
+  panel.search = createSearchState();
+  return panel.search;
 }
 
 function searchLabel(search) {
@@ -35,6 +46,16 @@ function searchLabel(search) {
 
 function setSearchQuery(state, query) {
   const search = ensureSearchState(state);
+  search.query = String(query || '').trim();
+  search.matches = [];
+  search.index = 0;
+  search.pendingJump = Boolean(search.query);
+  search.message = search.query ? `match 0/0 "${search.query}"` : 'find: /find <keyword>';
+  return search;
+}
+
+function setViewerSearchQuery(panel, query) {
+  const search = ensureViewerSearch(panel);
   search.query = String(query || '').trim();
   search.matches = [];
   search.index = 0;
@@ -59,6 +80,22 @@ function moveSearch(state, delta) {
   return search;
 }
 
+function moveViewerSearch(panel, delta) {
+  const search = ensureViewerSearch(panel);
+  if (!search.query) {
+    search.message = 'find: /find <keyword>';
+    search.pendingJump = false;
+    return search;
+  }
+  const matches = search.matches || [];
+  if (matches.length > 0) {
+    search.index = (((search.index || 0) + delta) % matches.length + matches.length) % matches.length;
+  }
+  search.pendingJump = true;
+  search.message = searchLabel(search);
+  return search;
+}
+
 function findMatches(lines, query) {
   const needle = String(query || '').toLowerCase();
   if (!needle) return [];
@@ -69,14 +106,13 @@ function findMatches(lines, query) {
   return matches;
 }
 
-function updateSearchMatches(state, bodyLines, visibleRows) {
-  const search = ensureSearchState(state);
+function updateSearchObject(search, lines) {
   if (!search.query) {
     search.matches = [];
     search.index = 0;
     return { currentLine: -1, matches: [] };
   }
-  const matches = findMatches(bodyLines, search.query);
+  const matches = findMatches(lines, search.query);
   search.matches = matches;
   if (!matches.length) {
     search.index = 0;
@@ -87,7 +123,13 @@ function updateSearchMatches(state, bodyLines, visibleRows) {
   search.index = (((search.index || 0) % matches.length) + matches.length) % matches.length;
   const currentLine = matches[search.index].line;
   search.message = searchLabel(search);
+  return { currentLine, matches };
+}
 
+function updateSearchMatches(state, bodyLines, visibleRows) {
+  const search = ensureSearchState(state);
+  const result = updateSearchObject(search, bodyLines);
+  const currentLine = result.currentLine;
   if (search.pendingJump) {
     const rows = Math.max(1, Number(visibleRows) || 1);
     const center = Math.floor(rows / 2);
@@ -98,7 +140,25 @@ function updateSearchMatches(state, bodyLines, visibleRows) {
     state.viewingHistory = state.scrollOffset > 0;
     search.pendingJump = false;
   }
-  return { currentLine, matches };
+  return result;
+}
+
+function updateViewerSearchMatches(panel, visibleRows) {
+  const search = ensureViewerSearch(panel);
+  const lines = panel.lines || [];
+  const result = updateSearchObject(search, lines);
+  const currentLine = result.currentLine;
+  if (search.pendingJump) {
+    if (currentLine >= 0) {
+      const rows = Math.max(1, Number(visibleRows) || 1);
+      const center = Math.floor(rows / 2);
+      const desiredStart = Math.max(0, currentLine - center);
+      const maxOffset = Math.max(0, lines.length - rows);
+      panel.scrollOffset = Math.max(0, Math.min(maxOffset, desiredStart));
+    }
+    search.pendingJump = false;
+  }
+  return result;
 }
 
 function applySearchHighlight(lines, currentLine, width, theme) {
@@ -111,11 +171,16 @@ function applySearchHighlight(lines, currentLine, width, theme) {
 
 module.exports = {
   applySearchHighlight,
+  clearViewerSearch,
   clearSearch,
   createSearchState,
   ensureSearchState,
+  ensureViewerSearch,
   moveSearch,
+  moveViewerSearch,
   searchLabel,
   setSearchQuery,
+  setViewerSearchQuery,
   updateSearchMatches,
+  updateViewerSearchMatches,
 };

@@ -931,6 +931,7 @@ scripts/test-tui-virtual-terminal.js
 - [x] P2-1：`/hotkeys` 快捷键帮助面板。
 - [x] P2-2：`/find` 历史搜索与定位体验。
 - [x] P2-3：transcript viewer 与完整工具详情查看。
+- [x] P2-4：viewer 内搜索与长内容定位增强。
 - [ ] virtual terminal test harness 持续增强。
 
 ### P3：性能与终端兼容
@@ -1048,6 +1049,41 @@ scripts/test-tui-virtual-terminal.js
 - 不处理 `dist`。
 - 不引入新 npm runtime 依赖。
 
+### P2-4：Viewer 内搜索与长内容定位增强
+
+状态：已完成。
+
+目标：
+
+- `/find` 在 viewer 打开时优先搜索当前 viewer 内容。
+- viewer 搜索状态只保存在 `activePanel.search`，不写入 `state.messages`，不污染主历史搜索状态。
+- `/find --next`、`/find --prev`、`/find --clear` 在 viewer 内循环、跳转和清空。
+- viewer 关闭后 `/find` 恢复搜索主消息历史。
+- 不新增 `/viewer-find`、`/next`、`/prev` 等额外命令。
+
+实施结果：
+
+- `src/tui/search.js` 已扩展为可搜索任意 line array，主历史搜索和 viewer 搜索复用同一套匹配、高亮和状态文案逻辑。
+- `src/tui/commands.js` 已按 `activePanel.type` 分流 `/find`：`tool_detail` / `transcript` viewer 打开时只更新 `activePanel.search`。
+- `src/tui/components.js` 的 viewer 渲染已支持当前命中行高亮、`match i/n "keyword"` 提示和跳转到可见区域。
+- viewer 使用 top-based `scrollOffset`，主历史仍使用 bottom-based `scrollOffset`，两者互不混淆。
+- `scripts/test-tui-pty-smoke.js` 默认 payload 已加入 transcript viewer 内 `/find` 路径和详情 viewer 路径。
+
+验收结果：
+
+- 本地通过：`test-tui-commands`、`test-tui-renderer`、`test-tui-virtual-terminal`、`test-tui-interactions`、`test-tui-keybindings`、`test-runtime`。
+- pty smoke dry-run 已显示 payload 包含 viewer 内 `/find` 路径。
+- 板端同步与同组验证按本阶段验收执行。
+
+本阶段不做：
+
+- 不实现 evidence / warning / tool result 的结构化快捷跳转。
+- 不做跨 session transcript 搜索。
+- 不改 session 存储。
+- 不改 export 格式。
+- 不处理 `dist`。
+- 不引入新 npm runtime 依赖。
+
 ## 十四、明确禁止事项
 
 禁止重新引入以下模式：
@@ -1066,14 +1102,14 @@ scripts/test-tui-virtual-terminal.js
 建议执行下一个小阶段：
 
 ```text
-P2-4：viewer 内搜索/跳转或长内容阅读增强
+P2-5：viewer 阅读细节 polish 或 virtual terminal test harness 持续增强
 ```
 
 范围：
 
-1. 评估是否将 `/find` 扩展到 viewer 内。
-2. 支持 viewer 内跳转到下一条 evidence、warning 或 tool result。
-3. 增强长内容阅读提示，例如当前位置、总行数和快捷键提示。
+1. 增强 viewer 长内容阅读提示，例如当前位置、总行数和快捷键提示。
+2. 评估是否需要 evidence / warning / result 的结构化跳转。
+3. 持续增强 virtual terminal test harness，覆盖更多 panel/viewer 切换组合。
 4. 继续保持 viewer 为 TUI 视图状态，不改变 session 存储。
 
 不做：

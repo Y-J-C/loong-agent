@@ -19,6 +19,7 @@ const { CURSOR_MARKER } = require('./cursor');
 const { syncTreeSelection } = require('./session-tree');
 const { shortcutHint } = require('./keybindings');
 const { isViewerPanel } = require('./viewer');
+const { applySearchHighlight, searchLabel, updateViewerSearchMatches } = require('./search');
 const {
   createRenderCache,
   listCacheKey,
@@ -685,12 +686,17 @@ class PanelComponent {
         paint(theme, 'header', fitLine(panel.title || 'Viewer', width)),
         paint(theme, 'dim', fitLine(panel.hint || 'Up/Down scroll - Esc close', width)),
       ];
-      const content = (panel.lines || []).map((line) => fitLine(line, width));
       const bodyRows = Math.max(1, maxRows - lines.length - 2);
+      panel.visibleRows = bodyRows;
+      const searchResult = updateViewerSearchMatches(panel, bodyRows);
+      let content = (panel.lines || []).map((line) => fitLine(line, width));
+      content = applySearchHighlight(content, searchResult.currentLine, width, theme);
       const maxOffset = Math.max(0, content.length - bodyRows);
       panel.scrollOffset = Math.max(0, Math.min(maxOffset, Number(panel.scrollOffset) || 0));
-      panel.visibleRows = bodyRows;
-      lines.push(paint(theme, 'muted', fitLine(`lines ${listPosition(panel.scrollOffset, Math.min(content.length, panel.scrollOffset + bodyRows), content.length)}`, width)));
+      const positionText = `lines ${listPosition(panel.scrollOffset, Math.min(content.length, panel.scrollOffset + bodyRows), content.length)}`;
+      const matchText = searchLabel(panel.search);
+      const metaText = [matchText, positionText].filter(Boolean).join('  ');
+      lines.push(paint(theme, 'muted', fitLine(metaText, width)));
       content.slice(panel.scrollOffset, panel.scrollOffset + bodyRows).forEach((line) => {
         lines.push(fitLine(line, width));
       });

@@ -19,7 +19,7 @@ const DEFAULTS = {
 const ESC = '\x1b';
 const CTRL_O = '\x0f';
 const CTRL_L = '\x0c';
-const PAYLOAD = `/help\r/find help\r/find --next\r/find --clear\r/transcript\r${ESC}/details\r${ESC}${CTRL_O}${CTRL_O}/hotkeys\r${ESC}/commands\r${ESC}/sessions\r${ESC}${CTRL_L}/exit\r`;
+const PAYLOAD = `/help\r/find help\r/find --next\r/find --clear\r/transcript\r/find help\r/find --next\r/find --clear\r${ESC}/details\r/find tool\r${ESC}${CTRL_O}${CTRL_O}/hotkeys\r${ESC}/commands\r${ESC}/sessions\r${ESC}${CTRL_L}/exit\r`;
 
 function usage() {
   return [
@@ -120,7 +120,30 @@ function displayCommand(command, args) {
 }
 
 function payloadSummary() {
-  return ['/help', '/find help', '/find --next', '/find --clear', '/transcript', 'Esc', '/details', 'Esc', 'Ctrl+O', 'Ctrl+O', '/hotkeys', 'Esc', '/commands', 'Esc', '/sessions', 'Esc', 'Ctrl+L', '/exit'];
+  return [
+    '/help',
+    '/find help',
+    '/find --next',
+    '/find --clear',
+    '/transcript',
+    '/find help',
+    '/find --next',
+    '/find --clear',
+    'Esc',
+    '/details',
+    '/find tool',
+    'Esc',
+    'Ctrl+O',
+    'Ctrl+O',
+    '/hotkeys',
+    'Esc',
+    '/commands',
+    'Esc',
+    '/sessions',
+    'Esc',
+    'Ctrl+L',
+    '/exit',
+  ];
 }
 
 function ensureParent(filePath) {
