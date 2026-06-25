@@ -17,6 +17,7 @@ function createLoongEnvCheckToolDefinition() {
       evidence: 'read-only diagnostic commands',
     },
     parameters: {},
+    repeatPolicy: 'answerable_once',
     promptSnippet: 'Use loong_env_check to inspect the board environment with read-only commands.',
     promptGuidelines: 'Prefer this before diagnosing Node, npm, compiler, filesystem, or network constraints.',
     validate: (input) => requireObject(input || {}),

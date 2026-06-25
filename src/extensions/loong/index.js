@@ -400,6 +400,15 @@ function hasObservationFrom(state, toolNames) {
   return ((state && state.observations) || []).some((item) => item && names[item.tool]);
 }
 
+function hasProjectFileObservation(state) {
+  return ((state && state.observations) || []).some((item) => {
+    if (!item || item.tool !== 'read') return false;
+    const inputPath = item.input && item.input.path ? String(item.input.path) : '';
+    return /(^|[\\/])(package\.json|README\.md)$/i.test(inputPath) ||
+      /^(package\.json|README\.md)$/i.test(inputPath);
+  });
+}
+
 function hasCommandEvidenceObservation(state) {
   return ((state && state.observations) || []).some((item) => {
     if (!item || item.tool !== 'bash') return false;
@@ -424,6 +433,19 @@ function isBoardEnvironmentQuestion(text) {
   const value = String(text || '');
   return /node|npm|gcc|g\+\+|python|python3|git|curl|wget|环境|运行时|工具链|软件|系统环境/i.test(value) &&
     /版本|version|情况|状态|可用|available|installed/i.test(value);
+}
+
+function isProjectReadinessQuestion(text) {
+  const value = String(text || '');
+  const projectIntent = /项目|仓库|代码|工程|能不能.*跑|能否.*跑|运行|跑起来|测试|构建|开发任务|影响|依赖|适合|project|repo|run|build|test|dependency|impact/i.test(value);
+  const boardRuntimeSignal = /龙芯|Loong|LoongArch|开发板|板端|board|node|npm|g\+\+|gcc|toolchain|工具链/i.test(value);
+  return projectIntent && boardRuntimeSignal;
+}
+
+function isProjectFileReadinessQuestion(text) {
+  const value = String(text || '');
+  return isProjectReadinessQuestion(value) &&
+    /项目|仓库|代码|工程|package|README|能不能.*跑|能否.*跑|运行|跑起来|project|repo|can.*run/i.test(value);
 }
 
 function isCurrentMemoryQuestion(text) {
@@ -484,7 +506,7 @@ function finalAnswerEvidenceGuard(context) {
       message: 'The user asked for current board hardware state. Collect current command evidence first.',
     };
   }
-  if (!isBoardEnvironmentQuestion(prompt)) return null;
+  if (!isBoardEnvironmentQuestion(prompt) && !isProjectReadinessQuestion(prompt)) return null;
   const requestContext = classifyRequestContext(prompt);
   if (requestContext.intent === 'historical') {
     if (hasKbTopicObservation(state, 'environment_report') || hasObservationFrom(state, ['session_summary'])) return null;
@@ -494,12 +516,23 @@ function finalAnswerEvidenceGuard(context) {
       message: 'The user asked a historical board environment/toolchain question. Use historical KB or session evidence before answering.',
     };
   }
-  if (requestContext.intent === 'current') {
+  if (requestContext.intent === 'current' || isProjectReadinessQuestion(prompt)) {
+    if (
+      hasObservationFrom(state, ['loong_env_check']) &&
+      isProjectFileReadinessQuestion(prompt) &&
+      !hasProjectFileObservation(state)
+    ) {
+      return {
+        reason: 'missing_project_file_evidence',
+        action: { tool: 'read', input: { path: 'package.json', maxBytes: 12000 }, reason: 'Required project manifest evidence before judging whether the project can run on the board.' },
+        message: 'The user asked whether the current project can run on the Loong board. Inspect package.json after loong_env_check, then answer from both runtime/toolchain and project manifest evidence. If package.json is missing or incomplete, mark project-specific checks as pending confirmation.',
+      };
+    }
     if (hasObservationFrom(state, ['loong_env_check'])) return null;
     return {
       reason: 'missing_current_environment_evidence',
       action: { tool: 'loong_env_check', input: {}, reason: 'Required current board environment evidence before answering.' },
-      message: 'The user asked a current board environment/toolchain question. Call loong_env_check first, then answer using its evidence.',
+      message: 'The user asked a board runtime, toolchain, project readiness, or npm impact question. Call loong_env_check first, then answer using its evidence. Explain confirmed facts, impact, risks, and next read-only checks.',
     };
   }
   return null;
@@ -510,6 +543,8 @@ function loongPromptGuidelines() {
     '- Loong extension: use board_profile before board-specific advice, loong_env_check before current board environment diagnosis, and loong_storage_check before current disk/storage/partition/mount/space diagnosis.',
     '- For current board state such as 当前/现在/current/now, collect current tool evidence before answering.',
     '- For historical board state such as 当时/上次/history/session, prefer kb_topic/kb_search/session_summary and label any current re-check separately.',
+    '- For project readiness, npm unavailable impact, dependency/build/test suitability, or "can this project run on the Loong board" questions, call loong_env_check first and answer from confirmed runtime/toolchain evidence.',
+    '- For "can this project/repo run on the Loong board" questions, inspect package.json or README after loong_env_check before making a project-specific conclusion.',
     '- For current I2C/sensor/peripheral questions, collect current I2C evidence first; use command_reference before recommending diagnostic commands.',
     '- Long-running sensor/logger/server tasks must use bash background=true and process_status/process_wait/process_logs/process_stop.',
     '- BMP280 logger scripts for test runs must support --interval, --samples, --output, --bus, --addr; default bus=1 addr=0x76 and validate chip id 0x58.',

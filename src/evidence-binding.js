@@ -15,11 +15,13 @@ function uniqueClaims(claims) {
 }
 
 function normalizeCapacity(value, unit) {
-  const normalizedUnit = String(unit || '')
+  const numeric = String(value || '').toLowerCase().replace(/\.0+$/, '');
+  const unitToken = String(unit || '')
     .toLowerCase()
-    .replace(/ib$/, 'i')
-    .replace(/b$/, '');
-  return `${String(value || '').toLowerCase()}${normalizedUnit}`;
+    .replace(/ib$/, '')
+    .replace(/b$/, '')
+    .replace(/i$/, '');
+  return `${numeric}${unitToken}`;
 }
 
 function normalizeToken(value) {
@@ -178,13 +180,22 @@ function observationSupportsClaim(observation, claim) {
 
 function buildEvidenceCorpus(state, requestContext) {
   const context = requestContext || classifyRequestContext((state && state.userPrompt) || '');
+  const prompt = String((context && context.prompt) || (state && state.userPrompt) || '');
+  const effectiveContext = /刚才|本轮|上面|前面/.test(prompt) && context.isHistorical
+    ? Object.assign({}, context, {
+        intent: 'mixed',
+        isCurrent: true,
+        currentSubjects: (context.subjects || []).filter((subject) => !/^session\.|^knowledge\./.test(subject)),
+        freshness: Array.from(new Set([].concat(context.freshness || [], ['current']))),
+      })
+    : context;
   const observationMessages = typedObservationMessagesFromState(state);
-  const selected = selectContextMessages(observationMessages, context, {
-    observationsPerSubject: 3,
+  const selected = selectContextMessages(observationMessages, effectiveContext, {
+    observationsPerSubject: 24,
     conversationMessages: 0,
   }).filter((message) => message && message.role === 'observation');
   return {
-    requestContext: context,
+    requestContext: effectiveContext,
     observations: selected,
     sources: selected.map((observation) => ({
       id: observation.id || '',
@@ -196,6 +207,15 @@ function buildEvidenceCorpus(state, requestContext) {
     })),
     text: selected.map(rawForObservation).join('\n\n'),
   };
+}
+
+function isHardClaim(claim) {
+  return {
+    i2c_address: true,
+    pid: true,
+    sensor_measurement: true,
+    labeled_count: true,
+  }[claim && claim.type] === true;
 }
 
 function expectedSubjects(requestContext) {
@@ -275,23 +295,29 @@ function formatBindingFallback(binding, corpus, requestContext) {
 
 function validateFinalAnswerBinding(state, prompt, answerText) {
   const requestContext = classifyRequestContext(prompt || '');
+  requestContext.prompt = String(prompt || '');
   const claims = extractClaims(answerText);
   if (!claims.length) return null;
   const corpus = buildEvidenceCorpus(state, requestContext);
   const binding = bindClaims(claims, corpus);
-  if (!binding.unsupported.length && !binding.missingEvidence) return null;
+  const hardUnsupported = (binding.unsupported || []).filter(isHardClaim);
+  const hardClaims = (claims || []).filter(isHardClaim);
+  if (!hardUnsupported.length && !(binding.missingEvidence && hardClaims.length)) return null;
+  const effectiveBinding = Object.assign({}, binding, {
+    unsupported: hardUnsupported,
+  });
   return {
     reason: binding.missingEvidence ? 'answer_claim_missing_relevant_evidence' : 'answer_claim_not_in_relevant_evidence',
     claims,
-    binding,
+    binding: effectiveBinding,
     requestContext,
     corpus,
     message: [
       'The final answer included claim(s) that are not present in the selected typed observations.',
-      binding.unsupported.length ? `Unsupported claim(s): ${binding.unsupported.map((item) => `${item.type}=${item.value}`).join(', ')}` : '',
+      hardUnsupported.length ? `Unsupported claim(s): ${hardUnsupported.map((item) => `${item.type}=${item.value}`).join(', ')}` : '',
       'Rewrite the answer using only values that appear in the selected observation raw or parsed evidence.',
     ].filter(Boolean).join('\n'),
-    fallbackSummary: formatBindingFallback(binding, corpus, requestContext),
+    fallbackSummary: formatBindingFallback(effectiveBinding, corpus, requestContext),
   };
 }
 

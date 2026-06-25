@@ -390,7 +390,7 @@ test('evidence binding extracts only strong verifiable claims', () => {
     '1. first item 2. second item and two suggestions.',
   ].join('\n'));
   const keys = claims.map((item) => `${item.type}:${item.normalized}`);
-  assert(keys.indexOf('memory_or_disk_quantity:1.8gi') >= 0, 'capacity claim missing');
+  assert(keys.indexOf('memory_or_disk_quantity:1.8g') >= 0, 'capacity claim missing');
   assert(keys.indexOf('version:14.16.1') >= 0, 'version claim missing');
   assert(keys.indexOf('i2c_address:0x76') >= 0, 'i2c address claim missing');
   assert(claims.some((item) => item.type === 'path' && item.value.indexOf('/home/loongson') >= 0), 'path claim missing');
@@ -415,12 +415,16 @@ test('evidence binding rejects unsupported capacity version address pid path and
   let binding = bindClaims(extractClaims('total memory is 1.8GiB'), {
     observations: [observation('system.memory', 'Mem: 1.4Gi 615Mi 220Mi', { mem: { total: '1.4Gi' } })],
   });
-  assert(binding.unsupported.some((item) => item.normalized === '1.8gi'), 'unsupported memory value was accepted');
+  assert(binding.unsupported.some((item) => item.normalized === '1.8g'), 'unsupported memory value was accepted');
 
   binding = bindClaims(extractClaims('root disk is 20G'), {
     observations: [observation('system.disk', '/dev/root 14G 4G 10G 29% /', {})],
   });
   assert(binding.unsupported.some((item) => item.normalized === '20g'), 'unsupported disk value was accepted');
+  binding = bindClaims(extractClaims('root disk is 5.0GiB and device is 14.9 GiB'), {
+    observations: [observation('system.disk', '/dev/sda3 5G part /\nsda 14.9G disk', {})],
+  });
+  assert(!binding.unsupported.length, 'equivalent disk display units were rejected');
 
   binding = bindClaims(extractClaims('node is v18.19.0'), {
     observations: [observation('system.runtime', 'v14.16.1', { nodeVersion: 'v14.16.1' })],
@@ -473,7 +477,25 @@ test('evidence binding supports claims present in selected observations only', (
   assert(!historicalValueGuard, 'historical supported address was rejected');
 });
 
-test('evidence binding fallback cites selected evidence instead of unsupported answer values', () => {
+test('evidence binding fallback cites selected evidence instead of unsupported hard values', () => {
+  const state = createAgentState({ tools: [] });
+  state.userPrompt = '当前 I2C 扫描结果';
+  state.messages.push({
+    role: 'observation',
+    subject: 'hardware.i2c',
+    freshness: 'current',
+    source: 'bash',
+    raw: 'i2cdetect output: 0x76',
+    parsed: { addresses: [{ address: '0x76' }] },
+  });
+  const guard = validateFinalAnswerBinding(state, '当前 I2C 扫描结果', '当前扫描地址是 0x77');
+  assert(guard, 'unsupported I2C answer was not guarded');
+  assert(guard.fallbackSummary.indexOf('0x76') >= 0, 'fallback missing selected evidence');
+  assert(guard.fallbackSummary.indexOf('0x77') < 0, 'fallback should not reuse unsupported model value');
+  assert(guard.fallbackSummary.indexOf('i2cdetect output') >= 0, 'fallback missing raw evidence');
+});
+
+test('evidence binding does not fallback on approximate capacity display claims', () => {
   const state = createAgentState({ tools: [] });
   state.userPrompt = 'current memory status';
   state.messages.push({
@@ -484,11 +506,52 @@ test('evidence binding fallback cites selected evidence instead of unsupported a
     raw: 'Mem: 1.4Gi 615Mi 220Mi',
     parsed: { mem: { total: '1.4Gi', available: '220Mi' } },
   });
-  const guard = validateFinalAnswerBinding(state, 'current memory status', 'total memory is 1.8GiB');
-  assert(guard, 'unsupported memory answer was not guarded');
-  assert(guard.fallbackSummary.indexOf('1.4Gi') >= 0, 'fallback missing selected evidence');
-  assert(guard.fallbackSummary.indexOf('1.8GiB') < 0, 'fallback should not reuse unsupported model value');
-  assert(guard.fallbackSummary.indexOf('Mem: 1.4Gi') >= 0, 'fallback missing raw evidence');
+  const guard = validateFinalAnswerBinding(state, 'current memory status', 'total memory is about 1.8GiB');
+  assert(!guard, 'capacity display differences should not trigger evidence fallback');
+});
+
+test('evidence binding does not reject soft percent or path guidance claims', () => {
+  const state = createAgentState({ tools: [] });
+  state.userPrompt = '当前设备硬盘情况';
+  state.messages.push({
+    role: 'observation',
+    subject: 'system.disk',
+    freshness: 'current',
+    raw: [
+      'Filesystem Type Size Used Avail Use% Mounted on',
+      '/dev/sda3 xfs 5.0G 3.4G 1.7G 68% /',
+      '/dev/sda5 xfs 8.1G 3.3G 4.9G 41% /data',
+    ].join('\n'),
+    parsed: {},
+  });
+  const guard = validateFinalAnswerBinding(
+    state,
+    '当前设备硬盘情况',
+    '根分区使用率较高，可以下一步只读查看 /home 和 /data 的目录占用比例。'
+  );
+  assert(!guard, 'soft percent/path guidance should not trigger hard evidence fallback');
+});
+
+test('evidence binding treats just-asked follow-up as current session evidence', () => {
+  const state = createAgentState({ tools: [] });
+  state.userPrompt = '刚才硬盘剩余空间不多，我下一步应该怎么只读排查？';
+  state.messages.push({
+    role: 'observation',
+    subject: 'system.disk',
+    freshness: 'current',
+    raw: [
+      'Filesystem Type Size Used Avail Use% Mounted on',
+      '/dev/sda3 xfs 5.0G 3.4G 1.7G 68% /',
+      '/dev/sda5 xfs 8.1G 3.3G 4.9G 41% /data',
+    ].join('\n'),
+    parsed: {},
+  });
+  const guard = validateFinalAnswerBinding(
+    state,
+    '刚才硬盘剩余空间不多，我下一步应该怎么只读排查？',
+    '根据刚才证据，/dev/sda3 根分区 5.0G，已用 3.4G，可用 1.7G，下一步只读排查 /data。'
+  );
+  assert(!guard, 'follow-up should bind to current session disk observation');
 });
 
 test('recordToolResult derives system.memory observation from free -h', () => {
@@ -711,6 +774,7 @@ test('Loong extension registers board tools by default and can be disabled', () 
   assert(enabled.tools.loong_env_check, 'default loong extension missing loong_env_check');
   assert(enabled.tools.loong_storage_check, 'default loong extension missing loong_storage_check');
   assert(enabled.tools.command_reference, 'default loong extension missing command_reference');
+  assert(enabled.tools.loong_env_check.repeatPolicy === 'answerable_once', 'loong_env_check should guard repeated identical calls');
   const disabled = createExtensionRuntime({ config: { extensions: [] } });
   assert(!disabled.tools.board_profile, 'disabled extensions should not expose board_profile');
   assert(!disabled.tools.loong_env_check, 'disabled extensions should not expose loong_env_check');
@@ -1142,7 +1206,7 @@ test('environment version answers require tool evidence before final answer', as
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('当时 Node 版本是多少？');
   const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_historical_environment_evidence');
-  const consistencyRetry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_claim_not_in_relevant_evidence');
+  const consistencyRetry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_version_not_in_tool_evidence');
   const toolStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
   assert(retry, 'missing evidence guard retry');
   assert(consistencyRetry, 'missing answer consistency retry');
@@ -1215,6 +1279,121 @@ test('current node version still requires loong_env_check instead of historical 
   const kbTopic = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'kb_topic');
   assert(loongEnv, 'current node question did not require loong_env_check');
   assert(!kbTopic, 'current node question should not use historical kb_topic as the required evidence');
+});
+
+test('project readiness question requires current loong_env_check', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-project-readiness-env-check',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '这个项目可以直接在龙芯派上跑。',
+          status: 'ok',
+        });
+      }
+      if (calls === 2) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'loong_env_check',
+          input: {},
+          reason: 'repeat env check',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '已基于 loong_env_check 和 package.json 证据判断项目运行条件：Node 环境需要确认，npm/g++ 限制会影响依赖安装或 native 构建，下一步只读检查 scripts 与测试命令。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-project-readiness-env-check', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('帮我检查当前项目能不能在龙芯派上跑');
+  const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_environment_evidence');
+  const loongEnv = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'loong_env_check');
+  const readPackage = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'read' && event.args && event.args.path === 'package.json');
+  assert(guardTurn, 'project readiness guard did not request environment evidence');
+  assert(loongEnv, 'project readiness question did not call loong_env_check');
+  assert(readPackage, 'project readiness question did not read package.json before answering');
+  assert(/npm|g\+\+|Node|loong_env_check|package\.json/.test(result.summary), 'project readiness answer did not mention runtime/toolchain and project evidence');
+});
+
+test('project readiness repeat env fallback uses project evidence instead of allowlist text', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-project-readiness-repeat-env-fallback',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '这个项目可以直接在龙芯派上跑。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'tool',
+        tool: 'loong_env_check',
+        input: {},
+        reason: 'repeat env check',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-project-readiness-repeat-env-fallback', PROJECT_ROOT), {
+    maxLoops: 6,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('帮我检查当前项目能不能在龙芯派上跑');
+  const readPackage = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'read' && event.args && event.args.path === 'package.json');
+  const toolErrors = events.filter((event) => event.type === 'tool_execution_end' && event.isError);
+  assert(readPackage, 'repeat env flow did not read package.json before fallback');
+  assert(!toolErrors.length, 'repeat env project fallback should not emit a tool error');
+  assert(result.completionSource === 'repeat_guard_fallback', 'repeat env project fallback source mismatch');
+  assert(result.summary.indexOf('项目清单') >= 0, 'repeat env fallback did not cite project evidence');
+  assert(result.summary.indexOf('允许的只读命令') < 0, 'loong_env fallback was misclassified as command_reference allowlist');
+});
+
+test('npm impact question requires current loong_env_check', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-npm-impact-env-check',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: 'npm 不可用会影响前端项目。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '已基于 loong_env_check 证据说明 npm 不可用的影响：不能直接 npm install，依赖安装、脚本执行和 native dependency 构建需要待确认；建议先只读查看 package.json 和现有 node_modules 状态。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-npm-impact-env-check', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('为什么 npm 不可用会影响哪些开发任务');
+  const guardTurn = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_environment_evidence');
+  const loongEnv = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'loong_env_check');
+  assert(guardTurn, 'npm impact guard did not request environment evidence');
+  assert(loongEnv, 'npm impact question did not call loong_env_check');
+  assert(/npm install|依赖|native|package\.json/.test(result.summary), 'npm impact answer did not explain development impact');
 });
 
 test('current memory question requires current free evidence', async () => {

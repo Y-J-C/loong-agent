@@ -245,7 +245,7 @@ function csvObservationSummary(observations) {
 
 function summarizeToolResultForAnswer(toolName, result, resultSummary) {
   if (!result || typeof result !== 'object') return resultSummary || '';
-  if (Array.isArray(result.commands)) {
+  if (toolName === 'command_reference' && Array.isArray(result.commands)) {
     const commands = result.commands.map((item) => item.command).filter(Boolean);
     return [
       `当前允许的只读命令共有 ${commands.length} 个，来源为 COMMAND_POLICY_METADATA。`,
@@ -256,7 +256,67 @@ function summarizeToolResultForAnswer(toolName, result, resultSummary) {
   return result.summary || resultSummary || JSON.stringify(result, null, 2);
 }
 
-function createRepeatGuardFallback(action, entry) {
+function isProjectReadinessPrompt(text) {
+  const value = String(text || '');
+  return /项目|仓库|代码|工程|package|README|能不能.*跑|能否.*跑|运行|跑起来|project|repo|can.*run/i.test(value) &&
+    /龙芯|Loong|LoongArch|开发板|板端|board|node|npm|g\+\+|gcc|工具链/i.test(value);
+}
+
+function latestReadObservation(state, pattern) {
+  const items = (state && state.observations) || [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (!item || item.tool !== 'read') continue;
+    const inputPath = String((item.input && item.input.path) || '');
+    const result = item.result && item.result.data ? item.result.data : item.result || {};
+    const resultPath = String(result.path || result.resolvedPath || '');
+    if (pattern.test(inputPath) || pattern.test(resultPath)) return item;
+  }
+  return null;
+}
+
+function packageSummaryFromObservation(observation) {
+  if (!observation) return '';
+  const result = observation.result && observation.result.data ? observation.result.data : observation.result || {};
+  const content = String(result.content || '');
+  try {
+    const pkg = JSON.parse(content);
+    const scripts = Object.keys(pkg.scripts || {});
+    const deps = Object.keys(pkg.dependencies || {});
+    const devDeps = Object.keys(pkg.devDependencies || {});
+    return [
+      `项目清单：package.json 已读取${pkg.name ? `，name=${pkg.name}` : ''}。`,
+      scripts.length ? `scripts=${scripts.slice(0, 8).join(', ')}` : 'scripts=待确认/未声明',
+      `dependencies=${deps.length}, devDependencies=${devDeps.length}`,
+    ].join('\n');
+  } catch (error) {
+    return '项目清单：package.json 已读取，但 JSON 解析待确认。';
+  }
+}
+
+function createProjectReadinessRepeatFallback(action, entry, context) {
+  const state = context && context.state;
+  const prompt = (context && (context.currentUserPrompt || (state && state.userPrompt))) || '';
+  if (action.tool !== 'loong_env_check' || !isProjectReadinessPrompt(prompt)) return '';
+  const packageObservation = latestReadObservation(state, /(^|[\\/])package\.json$/i);
+  if (!packageObservation) return '';
+  const envSummary = summarizeToolResultForAnswer(
+    entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.tool : action.tool,
+    entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.result : null,
+    entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.resultSummary : ''
+  );
+  return [
+    '检测到模型重复调用 loong_env_check，已停止重复检测，并根据已有环境证据与项目清单收口。',
+    envSummary ? `运行环境：${envSummary}` : '',
+    packageSummaryFromObservation(packageObservation),
+    '结论：当前项目需要同时看 Node 运行时、npm/g++ 工具链和 package.json。已确认环境证据可用于判断板端运行边界；npm 不可用会影响依赖安装、npm scripts、构建和测试任务。',
+    '下一步只读验证：继续检查 package.json scripts、README 启动方式、是否已有 node_modules、以及是否能用 node 直接运行无构建入口；不要自动执行 npm install、系统升级或依赖安装。',
+  ].filter(Boolean).join('\n');
+}
+
+function createRepeatGuardFallback(action, entry, context) {
+  const projectFallback = createProjectReadinessRepeatFallback(action, entry, context);
+  if (projectFallback) return projectFallback;
   const summary = summarizeToolResultForAnswer(
     entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.tool : action.tool,
     entry && entry.lastSuccessfulResult ? entry.lastSuccessfulResult.result : null,
@@ -562,6 +622,32 @@ function memoryQuantities(text) {
   return quantities;
 }
 
+function memoryQuantityItems(text) {
+  const quantities = [];
+  const pattern = /(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB|TiB|KB|MB|GB|TB|Ki|Mi|Gi|Ti|K|M|G|T)\b/gi;
+  let match;
+  while ((match = pattern.exec(String(text || ''))) !== null) {
+    const normalized = normalizeMemoryQuantity(match[1], match[2]);
+    if (quantities.some((item) => item.normalized === normalized)) continue;
+    const unit = String(match[2] || '').toLowerCase().replace(/ib$/, 'i').replace(/b$/, '');
+    const power = { k: 1, ki: 1, m: 2, mi: 2, g: 3, gi: 3, t: 4, ti: 4 }[unit] || 0;
+    quantities.push({
+      normalized,
+      bytes: Number(match[1]) * Math.pow(1024, power),
+    });
+  }
+  return quantities;
+}
+
+function memoryQuantitySupported(answerItem, supportedItems) {
+  return supportedItems.some((item) => {
+    if (item.normalized === answerItem.normalized) return true;
+    const larger = Math.max(Math.abs(item.bytes), Math.abs(answerItem.bytes));
+    if (!larger) return false;
+    return Math.abs(item.bytes - answerItem.bytes) / larger <= 0.05;
+  });
+}
+
 function memoryObservationFallbackSummary(observation) {
   const parsed = (observation && observation.parsed) || {};
   const mem = parsed.mem || {};
@@ -607,24 +693,25 @@ function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
     }
     return bindingGuard;
   }
-  if (false && isCurrentMemoryQuestion(prompt)) {
+  if (isCurrentMemoryQuestion(prompt)) {
     const memoryObservation = latestObservationBySubject(state, 'system.memory');
     if (memoryObservation) {
-      const supported = memoryQuantities(memoryObservation.raw);
-      const answer = memoryQuantities(answerSummary);
-      const unsupported = answer.filter((item) => supported.indexOf(item) < 0);
+      const supported = memoryQuantityItems(memoryObservation.raw);
+      const answer = memoryQuantityItems(answerSummary);
+      const unsupported = answer.filter((item) => !memoryQuantitySupported(item, supported));
       if (!answer.length || unsupported.length) {
         return {
           reason: 'answer_memory_value_not_in_current_evidence',
           fallbackSummary: memoryObservationFallbackSummary(memoryObservation),
           message: unsupported.length
-            ? `The answer included memory value(s) not present in current free -h output: ${unsupported.join(', ')}`
+            ? `The answer included memory value(s) not present in current free -h output: ${unsupported.map((item) => item.normalized).join(', ')}`
             : 'The answer did not include any memory value from the current free -h output.',
         };
       }
     }
   }
   if (!isBoardEnvironmentQuestion(prompt)) return null;
+  const strictVersionPrompt = /版本|version|多少|几/.test(prompt);
   const answerVersions = extractSemanticVersions(answerSummary);
   const historical = temporalIntentForPrompt(prompt) === 'historical';
   const facts = historical ? historicalEnvironmentFactsFromState(state) : null;
@@ -632,7 +719,7 @@ function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
   if (historical && facts) {
     const factStatus = factStatusForItem(facts, requestedItem);
     const factVersion = factVersionForItem(facts, requestedItem);
-    if (answerVersions.length) {
+    if (strictVersionPrompt && answerVersions.length) {
       if (factVersion) {
         const unsupported = answerVersions.filter((version) => version !== factVersion);
         if (unsupported.length) {
@@ -671,6 +758,7 @@ function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
     }
     return null;
   }
+  if (!strictVersionPrompt) return null;
   if (!answerVersions.length) return null;
   const observationVersions = extractRelevantVersions(JSON.stringify((state && state.observations) || []), prompt);
   if (!observationVersions.length) return null;
@@ -743,6 +831,12 @@ function evaluateRepeatPolicy(context, action) {
     return { mode: 'block', entry, fingerprint, tool };
   }
   return { mode: 'allow', entry, fingerprint, tool };
+}
+
+function equivalentAction(left, right) {
+  if (!left || !right) return false;
+  if (left.tool !== right.tool) return false;
+  return toolFingerprint(left) === toolFingerprint(right);
 }
 
 function safeProviderCapabilities(config) {
@@ -1369,8 +1463,30 @@ async function runAgentLoop(options) {
 
     const action = response.action;
     const repeatDecision = evaluateRepeatPolicy(turnContext, action);
+    if (repeatDecision.mode !== 'allow') {
+      const evidenceGuard = answerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
+      if (evidenceGuard && evidenceGuard.action && !equivalentAction(evidenceGuard.action, action)) {
+        const guardAction = evidenceGuard.action;
+        const toolExecution = await executeToolCall(turnContext, guardAction, null);
+        const result = toolExecution.result;
+        const isError = toolExecution.isError;
+        await prepareForNextTurn(turnContext, guardAction, result, isError);
+        await emitTurnEnd(turnContext, {
+          isError,
+          status: isError && toolExecution.errorType === 'policy_blocked' ? 'policy_blocked' : isError ? 'tool_error' : 'ok',
+          reason: evidenceGuard.reason || toolExecution.errorType,
+          toolName: guardAction.tool,
+        });
+        pendingMessages = pendingMessages.concat(getSteeringMessages());
+        pendingMessages.push({
+          content: `${evidenceGuard.message}\nThe model tried to repeat ${action.tool}; continue with the required evidence from ${guardAction.tool} instead, then answer from collected evidence.`,
+          internal: true,
+        });
+        continue;
+      }
+    }
     if (repeatDecision.mode === 'fallback') {
-      const summary = createRepeatGuardFallback(action, repeatDecision.entry);
+      const summary = createRepeatGuardFallback(action, repeatDecision.entry, turnContext);
       recordToolResult(state, action, {
         ok: true,
         repeatGuard: true,
