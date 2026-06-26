@@ -1362,6 +1362,121 @@ test('project readiness repeat env fallback uses project evidence instead of all
   assert(result.summary.indexOf('允许的只读命令') < 0, 'loong_env fallback was misclassified as command_reference allowlist');
 });
 
+test('html artifact request requires actual write evidence before final answer', async () => {
+  const workspace = tempWorkspace();
+  const csvPath = path.join(workspace, 'runs', 'bmp280_data.csv');
+  fs.mkdirSync(path.dirname(csvPath), { recursive: true });
+  fs.writeFileSync(csvPath, 'timestamp,temperature_C,pressure_hPa\n2026-06-19 00:00:00,29.0,1006.9\n', 'utf8');
+  const outPath = 'runs/bmp280_data_chart.html';
+  let calls = 0;
+  registerProvider({
+    name: 'test-html-artifact-write-required',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: `已生成网页，保存到 ${outPath}。`,
+          status: 'ok',
+        });
+      }
+      if (calls === 2) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'write',
+          input: {
+            path: outPath,
+            content: '<!doctype html><html><body><h1>BMP280</h1><script>const rows=[];</script></body></html>',
+          },
+          reason: 'create html chart',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: `已生成网页文件：${outPath}`,
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-html-artifact-write-required', workspace), {
+    maxLoops: 5,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt(`请把 ${path.join('runs', 'bmp280_data.csv')} 生成一个网页展示`);
+  const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_artifact_write_evidence');
+  const writeStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'write');
+  assert(retry, 'artifact request did not retry missing write evidence');
+  assert(writeStart, 'artifact request did not call write after false final answer');
+  assert(fs.existsSync(path.join(workspace, outPath)), 'html artifact was not written');
+  assert(result.summary.indexOf(outPath) >= 0, 'final answer missing artifact path');
+});
+
+test('csv html artifact request prefers csv_html_report tool', async () => {
+  const workspace = tempWorkspace();
+  const csvPath = path.join(workspace, 'runs', 'bmp280_data.csv');
+  fs.mkdirSync(path.dirname(csvPath), { recursive: true });
+  fs.writeFileSync(csvPath, [
+    'timestamp,temperature_C,pressure_hPa',
+    '2026-06-19 00:00:00,29.0,1006.9',
+    '2026-06-19 00:00:10,29.1,1006.8',
+    '2026-06-19 00:00:20,29.2,1006.7',
+    '',
+  ].join('\n'), 'utf8');
+  const outPath = 'runs/bmp280_data_chart.html';
+  let calls = 0;
+  registerProvider({
+    name: 'test-csv-html-report-required',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: `已生成网页，保存到 ${outPath}。`,
+          status: 'ok',
+        });
+      }
+      if (calls === 2) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'csv_html_report',
+          input: {
+            csvPath: path.join('runs', 'bmp280_data.csv'),
+            outputPath: outPath,
+            title: 'BMP280 数据展示',
+          },
+          reason: 'generate html report from csv',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: `已生成网页文件：${outPath}`,
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-csv-html-report-required', workspace), {
+    maxLoops: 5,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('请把 runs/bmp280_data.csv 做成网页展示');
+  const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_artifact_write_evidence');
+  const reportTool = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'csv_html_report');
+  const reportEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'csv_html_report');
+  const outputFile = path.join(workspace, outPath);
+  assert(retry, 'csv html request did not retry missing file creation evidence');
+  assert(reportTool, 'csv html request did not call csv_html_report');
+  assert(reportEnd && /totalCsvRows=3/.test(reportEnd.result.summary || ''), 'csv html report summary missing total csv rows');
+  assert(fs.existsSync(outputFile), 'csv html report was not written');
+  const html = fs.readFileSync(outputFile, 'utf8');
+  assert(html.indexOf('BMP280 数据展示') >= 0, 'csv html report missing title');
+  assert(html.indexOf('temperature_C') >= 0, 'csv html report missing numeric field');
+  assert(result.summary.indexOf(outPath) >= 0, 'final answer missing csv html output path');
+});
+
 test('npm impact question requires current loong_env_check', async () => {
   let calls = 0;
   registerProvider({

@@ -26,6 +26,74 @@ function errorMessage(error) {
   return error && error.message ? error.message : String(error);
 }
 
+function textOf(value) {
+  return String(value || '');
+}
+
+function isArtifactCreationRequest(prompt) {
+  const text = textOf(prompt);
+  const wantsCreate = /生成|创建|保存|导出|写入|做成|制作|create|generate|save|export|write/i.test(text);
+  const wantsArtifact = /网页|html|HTML|页面|可视化|图表|chart|dashboard/i.test(text);
+  return wantsCreate && wantsArtifact;
+}
+
+function artifactPathFromPrompt(prompt) {
+  const text = textOf(prompt);
+  const explicitHtml = /(["'“”]?)([^"'“”\s]+\.html?)\1/i.exec(text);
+  if (explicitHtml) return explicitHtml[2];
+  const csv = /(["'“”]?)([^"'“”\s]+\.csv)\1/i.exec(text);
+  if (csv) return csv[2].replace(/\.csv$/i, '_chart.html');
+  return 'runs/loong-agent-artifact.html';
+}
+
+function observationResultData(observation) {
+  if (!observation || !observation.result) return {};
+  return observation.result.data && typeof observation.result.data === 'object'
+    ? observation.result.data
+    : observation.result;
+}
+
+function hasArtifactWriteEvidence(state, prompt) {
+  const expected = artifactPathFromPrompt(prompt).replace(/\\/g, '/').toLowerCase();
+  const observations = (state && state.observations) || [];
+  return observations.some((observation) => {
+    if (!observation) return false;
+    if (observation.tool === 'write' || observation.tool === 'edit' || observation.tool === 'csv_html_report') {
+      const data = observationResultData(observation);
+      const paths = [
+        observation.input && observation.input.path,
+        observation.input && observation.input.outputPath,
+        data.path,
+        data.resolvedPath,
+      ].filter(Boolean).map((item) => String(item).replace(/\\/g, '/').toLowerCase());
+      return paths.some((item) => /\.html?$/.test(item) || item === expected || item.endsWith(`/${expected}`));
+    }
+    if (observation.tool === 'bash') {
+      const data = observationResultData(observation);
+      const command = textOf(data.command || (observation.input && observation.input.command));
+      return /\.html?\b/i.test(command) && /(>|tee|cat\s+>|python|node|printf)/i.test(command);
+    }
+    return false;
+  });
+}
+
+function artifactCreationGuard(state, prompt) {
+  if (!isArtifactCreationRequest(prompt)) return null;
+  if (hasArtifactWriteEvidence(state, prompt)) return null;
+  const outPath = artifactPathFromPrompt(prompt);
+  return {
+    reason: 'missing_artifact_write_evidence',
+    outputPath: outPath,
+    message: [
+      'The user asked you to create or save a web/HTML artifact, but no write/edit/bash file creation evidence exists yet.',
+      `If the source is CSV, prefer csv_html_report and create the HTML file at: ${outPath}`,
+      `Otherwise call the write tool now and create the HTML file at: ${outPath}`,
+      'If source data is too large, create a self-contained HTML page that samples or streams bounded data safely.',
+      'Do not answer that the page was generated until the write tool succeeds.',
+    ].join('\n'),
+  };
+}
+
 function createLoopError(message, code) {
   const error = new Error(message);
   error.code = code || 'agent_loop_error';
@@ -1340,6 +1408,49 @@ async function runAgentLoop(options) {
 
     if (response.kind === 'final_answer') {
       invalidJsonCount = 0;
+      const artifactGuard = artifactCreationGuard(state, currentUserPrompt || state.userPrompt);
+      if (artifactGuard) {
+        state.artifactWriteRetryCount = state.artifactWriteRetryCount || 0;
+        if (state.artifactWriteRetryCount < 2) {
+          state.artifactWriteRetryCount += 1;
+          await emitTurnEnd(turnContext, {
+            isError: false,
+            status: 'retry',
+            reason: artifactGuard.reason,
+          });
+          pendingMessages.push({
+            content: artifactGuard.message,
+            internal: true,
+          });
+          continue;
+        }
+        await emitTurnEnd(turnContext, {
+          isError: false,
+          status: 'ok',
+          reason: artifactGuard.reason,
+        });
+        const summary = [
+          '尚未生成网页文件：未观察到 write/edit 或等价写文件工具证据。',
+          `建议输出路径：${artifactGuard.outputPath}`,
+          '请重新执行生成请求，或明确允许我写入该 HTML 文件。',
+        ].join('\n');
+        finishRun(state, summary);
+        await emit({
+          type: 'agent_end',
+          summary,
+          observations: state.observations,
+          status: 'ok',
+          turns: state.turn,
+          durationMs: elapsedMs(runStartedAt),
+          usageSummary: summarizeModelUsage(state),
+          completionSource: 'artifact_guard_fallback',
+        });
+        return {
+          summary,
+          observations: state.observations,
+          completionSource: 'artifact_guard_fallback',
+        };
+      }
       const evidenceGuard = answerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
       if (evidenceGuard) {
         state.answerEvidenceRetryCount = (state.answerEvidenceRetryCount || 0) + 1;

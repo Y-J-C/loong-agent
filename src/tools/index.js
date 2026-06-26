@@ -13,6 +13,9 @@ const {
   createBoardProfileTool,
   createBoardProfileToolDefinition,
 } = require('./board-profile');
+const {
+  createCsvHtmlReportToolDefinition,
+} = require('./csv-html-report');
 const { createFinishTool, createFinishToolDefinition } = require('./finish');
 const {
   createListDirectoryTool,
@@ -70,6 +73,7 @@ function createCoreToolDefinitions() {
     createProcessStopToolDefinition(),
     createReadToolDefinition(),
     createWriteToolDefinition(),
+    createCsvHtmlReportToolDefinition(),
     createEditToolDefinition(),
     createLsToolDefinition(),
     createGrepToolDefinition(),
@@ -126,6 +130,7 @@ module.exports = {
   createDefaultTools,
   createBashTool,
   createBashToolDefinition,
+  createCsvHtmlReportToolDefinition,
   createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,

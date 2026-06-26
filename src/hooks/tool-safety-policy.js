@@ -13,6 +13,7 @@ const PATH_TOOLS = {
 };
 
 const MUTATING_TOOLS_ALLOWED_BY_RUNTIME = {
+  csv_html_report: true,
   write: true,
   edit: true,
   process_stop: true,

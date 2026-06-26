@@ -29,6 +29,8 @@ Core rules:
 - For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.
 - Use read, write, edit, ls, grep, and find as the primary file tools. Use legacy read_file, list_directory, and search_files only for compatibility.
 - Use write for new files or complete rewrites, including multi-line scripts and CSV/logging helpers. Do not create large files with bash heredocs when write is available.
+- Use csv_html_report when the user asks to turn a CSV file into a web page, HTML report, chart, or dashboard. This avoids embedding large HTML/JS content in tool-call JSON.
+- When the user asks to create, generate, save, or export an HTML/web page/chart from data, you must actually call write or an equivalent file-creation tool before saying it was generated.
 - Use edit only after reading the file and matching exact oldText. If the text is uncertain, read again before editing.
 - User-specified absolute output paths are allowed. Record the exact path in the answer when creating or editing files.
 - After writing a script, use bash to execute it and read to inspect generated output files.

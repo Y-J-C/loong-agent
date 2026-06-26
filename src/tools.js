@@ -346,6 +346,10 @@ async function callTool(config, tool, input) {
   if (tool === 'process_wait') return processWait(config || {}, input || {});
   if (tool === 'read') return readPath(config, input || {});
   if (tool === 'write') return writePath(config, input || {});
+  if (tool === 'csv_html_report') {
+    return require('./tools/csv-html-report')
+      .csvHtmlReport(config || {}, input || {});
+  }
   if (tool === 'edit') return editPath(config, input || {});
   if (tool === 'ls') return listPath(config, input || {});
   if (tool === 'grep') return grepPath(config, input || {});
