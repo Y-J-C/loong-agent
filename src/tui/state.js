@@ -66,6 +66,7 @@ function createTuiState(config) {
     settingsMenu: null,
     modelSelector: null,
     commandPanel: null,
+    pendingToolApproval: null,
     // 输入增强
     pasteCount: 0,
     pasteActive: false,

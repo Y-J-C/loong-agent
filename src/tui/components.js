@@ -28,6 +28,7 @@ const {
 } = require('./render-cache');
 const {
   handleAutocompleteKey,
+  handleApprovalKey,
   handleInputKey,
   handlePanelKey,
   handleSelectorKey,
@@ -723,6 +724,41 @@ class AutocompleteComponent {
   }
 }
 
+class ApprovalComponent {
+  handleKey(key, context) {
+    return handleApprovalKey(context.state, key);
+  }
+
+  invalidate() {}
+
+  render(width, context) {
+    const state = context.state;
+    const theme = context.theme;
+    const pending = state.pendingToolApproval || {};
+    if (!pending) return [];
+    const approval = pending.approval || {};
+    const maxRows = slotMaxRows(context);
+    const lines = [
+      divider(theme, width, false),
+      paint(theme, 'header', fitLine('Tool approval required', width)),
+      paint(theme, 'dim', fitLine('[y] allow once  [n] deny  [Esc] deny', width)),
+      paint(theme, 'muted', fitLine(`tool: ${approval.tool || 'unknown'}`, width)),
+      paint(theme, 'muted', fitLine(`risk: ${approval.riskLevel || 'unknown'}`, width)),
+    ];
+    const operation = approval.operation || '';
+    if (operation) {
+      lines.push(...renderBlock(`operation: ${operation}`, width, theme, 'accent', { maxLines: 3 }));
+    }
+    const reason = approval.reason || 'This operation may change files, processes, network, or board state.';
+    lines.push(...renderBlock(reason, width, theme, 'dim', { maxLines: 3 }));
+    if (approval.warnings && approval.warnings.length) {
+      lines.push(...renderBlock(`warnings: ${approval.warnings.join('; ')}`, width, theme, 'error', { maxLines: 2 }));
+    }
+    lines.push(divider(theme, width, false));
+    return lines.slice(0, maxRows);
+  }
+}
+
 class PanelComponent {
   handleKey(key, context) {
     return handlePanelKey(context.state, key, context.actions || {});
@@ -960,6 +996,7 @@ class SessionSelectorComponent {
 
 class EditorSlotComponent {
   activeComponent(state) {
+    if (state && state.pendingToolApproval) return new ApprovalComponent();
     if (state && state.selector) return new SessionSelectorComponent();
     if (state && (state.activePanel || state.settingsMenu || state.modelSelector)) {
       return new PanelComponent();
@@ -985,7 +1022,7 @@ class EditorSlotComponent {
   }
 
   isOccupied(state) {
-    return Boolean(state.selector || state.activePanel || state.settingsMenu || state.modelSelector);
+    return Boolean(state.pendingToolApproval || state.selector || state.activePanel || state.settingsMenu || state.modelSelector);
   }
 }
 
@@ -998,6 +1035,7 @@ class StatusBarComponent {
 module.exports = {
   AutocompleteComponent,
   AssistantMessageComponent,
+  ApprovalComponent,
   EditorSlotComponent,
   FinalAnswerComponent,
   HeaderComponent,

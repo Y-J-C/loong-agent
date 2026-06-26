@@ -77,6 +77,33 @@ function activePanel(state) {
   return state.activePanel || state.settingsMenu || state.modelSelector || state.commandPanel || null;
 }
 
+function resolvePendingApproval(state, approved) {
+  const pending = state && state.pendingToolApproval ? state.pendingToolApproval : null;
+  if (!pending) return false;
+  state.pendingToolApproval = null;
+  state.mode = 'running';
+  if (typeof pending.resolve === 'function') {
+    pending.resolve({ approved: Boolean(approved) });
+  }
+  addMessage(state, {
+    type: approved ? 'system' : 'error',
+    text: approved ? 'Tool request approved for this run.' : 'Tool request denied.',
+    ephemeral: true,
+  });
+  return true;
+}
+
+function handleApprovalKey(state, key) {
+  if (!state || !state.pendingToolApproval) return false;
+  if (key && key.type === 'text') {
+    const ch = String(key.text || '').toLowerCase();
+    if (ch === 'y') return resolvePendingApproval(state, true);
+    if (ch === 'n') return resolvePendingApproval(state, false);
+  }
+  if (key && key.type === 'escape') return resolvePendingApproval(state, false);
+  return true;
+}
+
 function filteredPanelItems(state) {
   const panel = activePanel(state);
   if (!panel) return [];
@@ -482,6 +509,7 @@ module.exports = {
   filteredPanelItems,
   filteredSelectorItems,
   handleAutocompleteKey,
+  handleApprovalKey,
   handleFocusedKey,
   handleInputKey,
   handlePanelKey,

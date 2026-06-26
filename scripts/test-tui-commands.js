@@ -7,7 +7,7 @@ const path = require('path');
 const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
 const { handleCommand } = require('../src/tui/commands');
-const { handlePanelKey } = require('../src/tui/interactions');
+const { handleApprovalKey, handlePanelKey } = require('../src/tui/interactions');
 const { createTuiState } = require('../src/tui/state');
 const { listSlashCommands } = require('../src/tui/slash-commands');
 const { shortcutHint } = require('../src/tui/keybindings');
@@ -676,7 +676,7 @@ test('selected target reports clear error when no session is selected', async ()
   assert(text.indexOf('No selected session') >= 0, 'missing selected target error');
 });
 
-test('bang command executes general shell commands', async () => {
+test('bang command allows read-only shell and blocks general shell without approval handler', async () => {
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);
   const session = createJsonlSession(config(workspace), { command: 'tui-test' });
@@ -685,11 +685,53 @@ test('bang command executes general shell commands', async () => {
   await handleCommand(context, '!! node -e "process.exit(1)" || node -v');
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf('! node src/index.js --help') >= 0, 'allowed command result was not displayed');
-  assert(text.indexOf('!! node -e "process.exit(1)" || node -v') >= 0, 'compound command result was not displayed');
+  assert(text.indexOf('bash approval required') >= 0, 'compound command should require approval without handler');
   assert(text.indexOf('exitCode:') >= 0, 'allowed command did not record exit code');
-  assert(text.indexOf('controlled bash policy') < 0 && text.indexOf('dangerous_command') < 0, 'bang command still reports policy blocking');
   const stored = readSessionFromPath(session.filePath);
   const bashEvents = stored.events.filter((event) => event.type === 'bash_execution');
-  assert(bashEvents.length === 2, 'bang command did not persist bash_execution events');
-  assert(bashEvents[1].excludeFromContext === true, '!! bash execution should be excluded from context');
+  assert(bashEvents.length === 1, 'unapproved bang command should not persist bash_execution event');
+  assert(bashEvents[0].excludeFromContext === false, '! bash execution should be included in context');
+});
+
+test('approval key handling resolves allow and deny decisions', async () => {
+  const state = createTuiState({});
+  let result = null;
+  state.mode = 'approval';
+  state.pendingToolApproval = {
+    approval: { tool: 'bash', operation: 'command=node -v', riskLevel: 'shell_general' },
+    resolve: (value) => { result = value; },
+  };
+  await handleApprovalKey(state, { type: 'text', text: 'y' });
+  assert(result && result.approved === true, 'y should approve pending tool request');
+  assert(state.pendingToolApproval === null, 'approval should be cleared after allow');
+
+  state.mode = 'approval';
+  state.pendingToolApproval = {
+    approval: { tool: 'bash', operation: 'command=npm install', riskLevel: 'shell_general' },
+    resolve: (value) => { result = value; },
+  };
+  await handleApprovalKey(state, { type: 'escape' });
+  assert(result && result.approved === false, 'escape should deny pending tool request');
+  assert(state.pendingToolApproval === null, 'approval should be cleared after deny');
+});
+
+test('bang command executes general shell only after approval handler allows it', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  const session = createJsonlSession(config(workspace), { command: 'tui-test' });
+  context.state.currentSession = { id: session.id, path: session.filePath };
+  const approvals = [];
+  context.requestToolApproval = async (approval) => {
+    approvals.push(approval);
+    return { approved: true };
+  };
+
+  await handleCommand(context, '!! node -e "console.log(123)"');
+  const text = context.state.messages.map((message) => message.text).join('\n');
+  assert(approvals.length === 1 && approvals[0].tool === 'bash', 'bang command should request approval');
+  assert(text.indexOf('123') >= 0, 'approved bang command output missing');
+  const stored = readSessionFromPath(session.filePath);
+  const bashEvents = stored.events.filter((event) => event.type === 'bash_execution');
+  assert(bashEvents.length === 1, 'approved bang command should persist bash_execution event');
+  assert(bashEvents[0].excludeFromContext === true, '!! bash execution should be excluded from context');
 });

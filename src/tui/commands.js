@@ -7,6 +7,7 @@ const { loadConfig } = require('../config');
 const { createSessionManager } = require('../session-manager');
 const { openJsonlSession, renderSessionAudit, renderSessionTrace, writeSessionExport } = require('../session');
 const { createDefaultToolRegistry } = require('../tool-registry');
+const { classifyToolApproval } = require('../tool-approval-policy');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
 const { addMessage, clearMessages } = require('./state');
 const {
@@ -569,6 +570,13 @@ function selectedSessionRequired(state) {
   addMessage(state, { type: 'error', text: 'No selected session. 未选择会话。先运行 /sessions 或 /tree 选择会话, 再使用 selected。' });
 }
 
+function createContextAgentSession(context, nextConfig, options) {
+  if (context && typeof context.createAgentSession === 'function') {
+    return context.createAgentSession(nextConfig, options || {});
+  }
+  return createAgentSession(nextConfig, options || {});
+}
+
 function settingChoice(list, current, dir) {
   const idx = list.indexOf(current);
   const safe = idx >= 0 ? idx : 0;
@@ -690,7 +698,7 @@ function applyModelChoice(context, model) {
   context.state.provider = nextConfig.provider || context.state.provider;
   context.state.cwd = nextConfig.workspace || context.state.cwd;
   if (context.reloadConfig) context.reloadConfig(nextConfig);
-  if (context.replaceAgentSession) context.replaceAgentSession(createAgentSession(nextConfig, { command: 'tui' }));
+  if (context.replaceAgentSession) context.replaceAgentSession(createContextAgentSession(context, nextConfig, { command: 'tui' }));
   if (context.refreshBoardStatus) context.refreshBoardStatus(nextConfig);
   return nextConfig;
 }
@@ -838,7 +846,7 @@ async function runSlashCommandLegacy(context, text) {
   }
 
   if (name === '/new') {
-    const session = createAgentSession(config, { command: 'tui' });
+    const session = createContextAgentSession(context, config, { command: 'tui' });
     context.replaceAgentSession(session);
     addMessage(state, { type: 'system', text: '新 TUI 会话已启动 / New TUI session started.' });
     return;
@@ -1176,7 +1184,7 @@ async function runSlashCommandLegacy(context, text) {
       return;
     }
     const child = manager.createChildSession(parent, { command: 'resume' });
-    const session = createAgentSession(config, {
+    const session = createContextAgentSession(context, config, {
       command: 'resume',
       session: child,
       parentSession: parent.path,
@@ -1296,7 +1304,46 @@ async function runBangCommand(context, text) {
     return;
   }
   try {
-    const result = await createDefaultToolRegistry().execute(context.config, 'bash', { command });
+    const registry = createDefaultToolRegistry();
+    const action = { tool: 'bash', input: { command } };
+    const tool = registry.get('bash');
+    const decision = classifyToolApproval(context.config || {}, action, tool);
+    if (decision && decision.status === 'deny') {
+      addMessage(context.state, {
+        type: 'error',
+        text: section('bash blocked / bash command', [
+          `${excludeFromContext ? '!!' : '!'} ${command}`,
+          `policy: ${decision.policy}`,
+          decision.reason || 'Command blocked by policy.',
+        ].filter(Boolean)),
+      });
+      return;
+    }
+    if (decision && decision.status === 'ask') {
+      if (typeof context.requestToolApproval !== 'function') {
+        addMessage(context.state, {
+          type: 'error',
+          text: section('bash approval required / bash command', [
+            `${excludeFromContext ? '!!' : '!'} ${command}`,
+            `risk: ${decision.riskLevel}`,
+            decision.reason || 'Command requires approval.',
+          ].filter(Boolean)),
+        });
+        return;
+      }
+      const approvalResult = await context.requestToolApproval(decision.approval);
+      if (!approvalResult || !approvalResult.approved) {
+        addMessage(context.state, {
+          type: 'error',
+          text: section('bash denied / bash command', [
+            `${excludeFromContext ? '!!' : '!'} ${command}`,
+            decision.reason || 'Command denied.',
+          ].filter(Boolean)),
+        });
+        return;
+      }
+    }
+    const result = await registry.execute(context.config, 'bash', { command });
     const data = result && result.data ? result.data : result;
     const output = data.output || [data.stdout, data.stderr].filter(Boolean).join('\n');
     const writer = currentSessionWriter(context.state);

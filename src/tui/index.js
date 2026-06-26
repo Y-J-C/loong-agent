@@ -31,7 +31,26 @@ async function runTui(config, options) {
   const state = createTuiState(config);
   const diffRenderer = createDiffRenderer();
   let activeConfig = config;
-  let agentSession = createAgentSession(config, { command: 'tui' });
+  function requestToolApproval(approval) {
+    return new Promise((resolve) => {
+      state.pendingToolApproval = {
+        approval: approval || {},
+        resolve,
+      };
+      state.mode = 'approval';
+      state.status = 'approval';
+      render();
+    });
+  }
+
+  function createTuiAgentSession(nextConfig) {
+    return createAgentSession(nextConfig, {
+      command: 'tui',
+      requestToolApproval,
+    });
+  }
+
+  let agentSession = createTuiAgentSession(config);
   let unsubscribe = null;
   let stopped = false;
 
@@ -103,6 +122,8 @@ async function runTui(config, options) {
         config: activeConfig,
         state,
         replaceAgentSession,
+        createAgentSession: createTuiAgentSession,
+        requestToolApproval,
         startPrompt,
         reloadConfig: (nextConfig) => {
           activeConfig = nextConfig;
@@ -213,6 +234,8 @@ async function runTui(config, options) {
       }
       await handleCommand({
         config: activeConfig, state, replaceAgentSession, startPrompt,
+        createAgentSession: createTuiAgentSession,
+        requestToolApproval,
         reloadConfig: () => {}, refreshBoardStatus,
       }, `/resume ${id} ${prompt}`);
       state.mode = 'idle';
@@ -224,6 +247,8 @@ async function runTui(config, options) {
       state.selector = null;
       await handleCommand({
         config: activeConfig, state, replaceAgentSession, startPrompt,
+        createAgentSession: createTuiAgentSession,
+        requestToolApproval,
         reloadConfig: () => {}, refreshBoardStatus,
       }, `/session ${id}`);
       return;
@@ -279,7 +304,7 @@ async function runTui(config, options) {
       contextBudgetChars: state.contextBudget || activeConfig.contextBudgetChars,
     });
     if (state.mode !== 'running') {
-      replaceAgentSession(createAgentSession(activeConfig, { command: 'tui' }));
+      replaceAgentSession(createTuiAgentSession(activeConfig));
     }
     refreshBoardStatus(activeConfig);
   }
@@ -300,7 +325,7 @@ async function runTui(config, options) {
     state.provider = activeConfig.provider || state.provider;
     state.cwd = activeConfig.workspace || state.cwd;
     if (state.mode !== 'running') {
-      replaceAgentSession(createAgentSession(activeConfig, { command: 'tui' }));
+      replaceAgentSession(createTuiAgentSession(activeConfig));
     }
     refreshBoardStatus(activeConfig);
   }
@@ -321,7 +346,13 @@ async function runTui(config, options) {
     if (state.recentKeys.length > 30) state.recentKeys = state.recentKeys.slice(-30);
 
     if (matchesAction('global', 'abortOrExit', key)) {
-      if (state.mode === 'running') {
+      if (state.pendingToolApproval && typeof state.pendingToolApproval.resolve === 'function') {
+        const pending = state.pendingToolApproval;
+        state.pendingToolApproval = null;
+        state.mode = 'running';
+        pending.resolve({ approved: false });
+        render();
+      } else if (state.mode === 'running') {
         abortRunning();
         render();
       } else if (state.inputBuffer) {
@@ -363,6 +394,8 @@ async function runTui(config, options) {
           config: activeConfig,
           state,
           replaceAgentSession,
+          createAgentSession: createTuiAgentSession,
+          requestToolApproval,
           startPrompt,
           reloadConfig: () => {},
           refreshBoardStatus,

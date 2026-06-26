@@ -27,6 +27,7 @@ const { getShellConfig, killProcessTree, sanitizeBinaryOutput } = require('../sr
 const { createSessionManager } = require('../src/session-manager');
 const { renderSessionTrace } = require('../src/session');
 const { COMMAND_POLICY_METADATA, COMMAND_POLICY_COMMANDS, evaluateCommand } = require('../src/command-policy');
+const { classifyToolApproval } = require('../src/tool-approval-policy');
 const {
   createDefaultToolRegistry,
   createDefaultTools,
@@ -1402,7 +1403,7 @@ test('html artifact request requires actual write evidence before final answer',
   const agent = createAgent(Object.assign(config('test-html-artifact-write-required', workspace), {
     maxLoops: 5,
     streaming: false,
-  }), { session: null });
+  }), { session: null, requestToolApproval: async () => ({ approved: true }) });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt(`请把 ${path.join('runs', 'bmp280_data.csv')} 生成一个网页展示`);
   const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_artifact_write_evidence');
@@ -1460,7 +1461,7 @@ test('csv html artifact request prefers csv_html_report tool', async () => {
   const agent = createAgent(Object.assign(config('test-csv-html-report-required', workspace), {
     maxLoops: 5,
     streaming: false,
-  }), { session: null });
+  }), { session: null, requestToolApproval: async () => ({ approved: true }) });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('请把 runs/bmp280_data.csv 做成网页展示');
   const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_artifact_write_evidence');
@@ -1689,7 +1690,7 @@ test('current I2C hardware question requires bash evidence before final answer',
   const agent = createAgent(Object.assign(config('test-current-i2c-evidence-guard', PROJECT_ROOT), {
     maxLoops: 4,
     streaming: false,
-  }), { session: null });
+  }), { session: null, requestToolApproval: async () => ({ approved: true }) });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('查看当前开发板连接的I2C情况');
   const bashStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash');
@@ -1749,6 +1750,7 @@ test('current I2C answer must bind addresses to current observations', async () 
     streaming: false,
   }), {
     registry: createFakeBashRegistry({ [evidenceCommand]: i2cOutput }),
+    requestToolApproval: async () => ({ approved: true }),
   });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('current I2C situation');
@@ -2480,7 +2482,7 @@ test('bash emits execution updates and bashExecution facts', async () => {
         return JSON.stringify({
           type: 'tool',
           tool: 'bash',
-          input: { command: 'node -e "console.log(\\\"update-one\\\"); setTimeout(function(){ console.log(\\\"update-two\\\"); }, 150)"' },
+          input: { command: 'node -e "console.log(\\\"update-one\\\"); setTimeout(function(){ console.log(\\\"update-two\\\"); }, 500)"' },
           reason: 'update test',
         });
       }
@@ -2492,7 +2494,10 @@ test('bash emits execution updates and bashExecution facts', async () => {
     },
   });
   const events = [];
-  const agent = createAgent(Object.assign(config('test-bash-updates-execution-fact'), { streaming: false }), { session: null });
+  const agent = createAgent(Object.assign(config('test-bash-updates-execution-fact'), { streaming: false }), {
+    session: null,
+    requestToolApproval: async () => ({ approved: true }),
+  });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('run bash');
   assert(result.summary === 'done', 'bash update run did not finish');
@@ -2588,7 +2593,7 @@ test('long task workflow blocks bash sleep and redirects to process_wait', async
   });
   const events = [];
   const cfg = Object.assign(config('test-long-task-blocks-sleep'), { streaming: false, maxLoops: 3 });
-  const agent = createAgentSession(cfg, { session: null });
+  const agent = createAgentSession(cfg, { session: null, requestToolApproval: async () => ({ approved: true }) });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('每隔10秒采集传感器数据并保存CSV，测试运行');
   const blocked = events.find((event) => event.type === 'tool_execution_end' && event.errorType === 'long_task_workflow');
@@ -2635,7 +2640,7 @@ test('long task workflow blocks bash cat log and redirects to process_logs', asy
   });
   const events = [];
   const cfg = Object.assign(config('test-long-task-blocks-cat-log', workspace), { streaming: false, maxLoops: 4 });
-  const agent = createAgentSession(cfg, { session: null });
+  const agent = createAgentSession(cfg, { session: null, requestToolApproval: async () => ({ approved: true }) });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('启动后台logger采集传感器CSV');
   const started = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'bash' && event.result && event.result.background);
@@ -2685,7 +2690,10 @@ test('long task workflow blocks finite flags on unsupported legacy sensor script
   });
   const events = [];
   const cfg = Object.assign(config('test-long-task-blocks-unsupported-finite-script', workspace), { streaming: false, maxLoops: 3 });
-  const agent = createAgentSession(cfg, { session: null });
+    const agent = createAgentSession(cfg, {
+      session: null,
+      requestToolApproval: async () => ({ approved: true }),
+    });
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('BMP280 传感器测试运行，保存 CSV');
   const blocked = events.find((event) => event.type === 'tool_execution_end' && event.errorType === 'long_task_workflow');
@@ -2694,7 +2702,25 @@ test('long task workflow blocks finite flags on unsupported legacy sensor script
   assert(/does not support --samples/.test(blocked.result.error || ''), 'unsupported script block reason missing');
 });
 
-test('agent session default safety does not block general bash command content', async () => {
+test('tool approval policy allows read-only tools asks for mutating tools and denies sensitive paths', () => {
+  const workspace = tempWorkspace();
+  const cfg = config('test-tool-approval-policy', workspace);
+  const readDecision = classifyToolApproval(cfg, { tool: 'read', input: { path: 'README.md' } }, { safety: { readOnly: true } });
+  const writeDecision = classifyToolApproval(cfg, { tool: 'write', input: { path: 'generated.txt', content: 'x' } }, { safety: { readOnly: false } });
+  const externalWriteDecision = classifyToolApproval(cfg, { tool: 'write', input: { path: path.join(os.tmpdir(), 'outside.txt'), content: 'x' } }, { safety: { readOnly: false } });
+  const envDecision = classifyToolApproval(cfg, { tool: 'read', input: { path: '.env' } }, { safety: { readOnly: true } });
+  const bashReadOnlyDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'free -h' } }, { safety: { readOnly: false } });
+  const bashGeneralDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'node -e "console.log(1)"' } }, { safety: { readOnly: false } });
+
+  assert(readDecision.status === 'allow', 'read should be allowed');
+  assert(writeDecision.status === 'ask' && writeDecision.riskLevel === 'workspace_write', 'workspace write should ask');
+  assert(externalWriteDecision.status === 'ask' && externalWriteDecision.riskLevel === 'external_path', 'external write should ask');
+  assert(envDecision.status === 'deny' && envDecision.riskLevel === 'sensitive_path', 'sensitive path should be denied');
+  assert(bashReadOnlyDecision.status === 'allow' && bashReadOnlyDecision.riskLevel === 'shell_readonly', 'allowlisted bash should be allowed');
+  assert(bashGeneralDecision.status === 'ask' && bashGeneralDecision.riskLevel === 'shell_general', 'general bash should ask');
+});
+
+test('agent session default safety requires approval for general bash command content', async () => {
   let calls = 0;
   registerProvider({
     name: 'test-default-safety-general-bash',
@@ -2722,9 +2748,9 @@ test('agent session default safety does not block general bash command content',
   const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'bash');
 
   assert(result.summary === 'bash completed', 'agent did not continue after bash command');
-  assert(toolEnd && toolEnd.errorType !== 'policy_blocked', 'general bash command was policy blocked');
-  assert(toolEnd.result && toolEnd.result.blocked !== true, 'general bash result should not be blocked');
-  assert(Array.isArray(toolEnd.result.evidence), 'bash result missing envelope evidence');
+  assert(toolEnd && toolEnd.errorType === 'policy_blocked', 'general bash should be policy blocked without handler');
+  assert(toolEnd.result && toolEnd.result.blocked === true, 'general bash result should be blocked');
+  assert(toolEnd.result && toolEnd.result.policy === 'tool_approval_required', 'approval-required policy missing');
 });
 
 test('Pi-style file tools write read edit list grep and find external paths', async () => {
@@ -2809,7 +2835,7 @@ test('Pi-style edit fails without partially writing when oldText is ambiguous', 
   assert(fs.readFileSync(file, 'utf8') === 'same\nsame\n', 'ambiguous edit should not write partial content');
 });
 
-test('agent session default safety allows Pi-style write tool', async () => {
+test('agent session default safety requires approval for Pi-style write tool without handler', async () => {
   const workspace = tempWorkspace();
   const target = path.join(workspace, 'generated.txt');
   let calls = 0;
@@ -2839,8 +2865,91 @@ test('agent session default safety allows Pi-style write tool', async () => {
   const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'write');
 
   assert(result.summary === 'write completed', 'agent did not continue after write');
-  assert(toolEnd && toolEnd.errorType !== 'policy_blocked', 'write was policy blocked');
-  assert(fs.readFileSync(target, 'utf8') === 'created by write tool\n', 'write tool did not create file');
+  assert(toolEnd && toolEnd.errorType === 'policy_blocked', 'write should be policy blocked without handler');
+  assert(!fs.existsSync(target), 'write should not create file without approval');
+});
+
+test('agent session executes mutating tool after approval and records approval events', async () => {
+  const workspace = tempWorkspace();
+  const target = path.join(workspace, 'approved.txt');
+  let calls = 0;
+  registerProvider({
+    name: 'test-approval-allows-write',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          tool: 'write',
+          input: { path: target, content: 'approved write\n' },
+          reason: 'create file',
+        });
+      }
+      return JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'approved' },
+        reason: 'done',
+      });
+    },
+  });
+
+  const approvals = [];
+  const events = [];
+  const session = createAgentSession(config('test-approval-allows-write', workspace), {
+    session: null,
+    requestToolApproval: async (approval) => {
+      approvals.push(approval);
+      return { approved: true };
+    },
+  });
+  session.subscribe((event) => events.push(event));
+  const result = await session.prompt('create approved file');
+  const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'write');
+
+  assert(result.summary === 'approved', 'agent did not finish after approved write');
+  assert(approvals.length === 1 && approvals[0].tool === 'write', 'write approval was not requested');
+  assert(events.some((event) => event.type === 'tool_approval_requested'), 'missing approval requested event');
+  assert(events.some((event) => event.type === 'tool_approval_decided' && event.approved === true), 'missing approval decided event');
+  assert(toolEnd && toolEnd.isError === false, 'approved write should execute');
+  assert(fs.readFileSync(target, 'utf8') === 'approved write\n', 'approved write did not create file');
+});
+
+test('agent session skips mutating tool after user denies approval', async () => {
+  const workspace = tempWorkspace();
+  const target = path.join(workspace, 'denied.txt');
+  let calls = 0;
+  registerProvider({
+    name: 'test-approval-denies-write',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          tool: 'write',
+          input: { path: target, content: 'denied write\n' },
+          reason: 'create file',
+        });
+      }
+      return JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'denied then recovered' },
+        reason: 'done',
+      });
+    },
+  });
+
+  const events = [];
+  const session = createAgentSession(config('test-approval-denies-write', workspace), {
+    session: null,
+    requestToolApproval: async () => ({ approved: false }),
+  });
+  session.subscribe((event) => events.push(event));
+  const result = await session.prompt('create denied file');
+  const toolEnd = events.find((event) => event.type === 'tool_execution_end' && event.toolName === 'write');
+
+  assert(result.summary === 'denied then recovered', 'agent did not recover after denied approval');
+  assert(toolEnd && toolEnd.errorType === 'policy_blocked', 'denied write should be reported as policy blocked');
+  assert(toolEnd.result && toolEnd.result.policy === 'tool_approval_denied', 'denied write policy missing');
+  assert(events.some((event) => event.type === 'tool_approval_decided' && event.approved === false), 'missing denied approval event');
+  assert(!fs.existsSync(target), 'denied write should not create file');
 });
 
 test('agent session default safety blocks sensitive file reads', async () => {
@@ -3060,7 +3169,7 @@ test('bash repeat guard blocks identical diagnostic command on second call', asy
         return JSON.stringify({
           type: 'tool',
           tool: 'bash',
-          input: { command: 'echo repeat-diagnostic' },
+          input: { command: 'free -h' },
           reason: 'repeat diagnostic',
         });
       }
@@ -3073,7 +3182,7 @@ test('bash repeat guard blocks identical diagnostic command on second call', asy
   });
 
   const events = [];
-  const registry = createFakeBashRegistry({ 'echo repeat-diagnostic': 'repeat-diagnostic\n' });
+  const registry = createFakeBashRegistry({ 'free -h': 'Mem: 1.0Gi 500Mi 500Mi\n' });
   const cfg = config('test-bash-repeat-diagnostic', tempWorkspace());
   cfg.maxLoops = 5;
   const agent = createAgent(cfg, { registry, session: null });

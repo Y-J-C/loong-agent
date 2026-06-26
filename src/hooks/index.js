@@ -75,7 +75,7 @@ function createDefaultPrepareNextTurn(extraHook, extensionRuntime) {
 }
 
 function createBeforeToolCallChain(extraHook, extensionRuntime) {
-  const hooks = [toolSafetyPolicyHook, extensionBeforeToolCallHook(extensionRuntime)].filter(Boolean);
+  const hooks = [longTaskBeforeToolCallHook, toolSafetyPolicyHook, extensionBeforeToolCallHook(extensionRuntime)].filter(Boolean);
   if (extraHook) hooks.push(extraHook);
   return async (context) => {
     for (const hook of hooks) {

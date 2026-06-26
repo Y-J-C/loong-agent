@@ -1283,6 +1283,7 @@ async function runAgentLoop(options) {
   const getFollowUpMessages = options.getFollowUpMessages || (() => []);
   const prepareNextTurn = options.prepareNextTurn;
   const beforeToolCall = options.beforeToolCall;
+  const requestToolApproval = options.requestToolApproval;
   const afterToolCall = options.afterToolCall;
   const answerEvidenceGuard = options.finalAnswerEvidenceGuard || (() => null);
   let pendingMessages = userPrompt ? [{ content: userPrompt, internal: false }] : [];
@@ -1326,6 +1327,7 @@ async function runAgentLoop(options) {
       config,
       afterToolCall,
       beforeToolCall,
+      requestToolApproval,
       currentUserPrompt,
       emit,
       loop,

@@ -141,7 +141,6 @@ async function longTaskBeforeToolCallHook(context) {
   const action = context && context.action;
   if (!action || action.tool !== 'bash') return null;
   const command = action.input && action.input.command;
-  if (!hasLongTaskContext(context.state, context.currentUserPrompt)) return null;
   const unsupportedScript = unsupportedFiniteScriptCommand(context, command);
   if (unsupportedScript) {
     return blockedResult(
@@ -168,6 +167,7 @@ async function longTaskBeforeToolCallHook(context) {
       { logFile: fact.logFile || '', lines: 80 }
     );
   }
+  if (!hasLongTaskContext(context.state, context.currentUserPrompt)) return null;
   return null;
 }
 

@@ -121,6 +121,8 @@ async function runBeforeToolCall(context, action, tool, toolCallId) {
       config: context.config,
       currentUserPrompt: context.currentUserPrompt || (context.state && context.state.userPrompt) || '',
       loop: context.loop,
+      emit: context.emit,
+      requestToolApproval: context.requestToolApproval,
       state: context.state,
       tool,
       toolCallId,

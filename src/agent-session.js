@@ -32,6 +32,7 @@ function createAgentSession(config, options) {
     registry,
     session: null,
     beforeToolCall,
+    requestToolApproval: options.requestToolApproval,
     afterToolCall,
     extensionRuntime,
     finalAnswerEvidenceGuard: extensionRuntime.finalAnswerEvidenceGuard,

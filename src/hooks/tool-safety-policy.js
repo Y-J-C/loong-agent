@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { classifyToolApproval } = require('../tool-approval-policy');
 
 const PATH_TOOLS = {
   kb_search: null,
@@ -12,21 +13,15 @@ const PATH_TOOLS = {
   search_files: 'relative_path',
 };
 
-const MUTATING_TOOLS_ALLOWED_BY_RUNTIME = {
-  csv_html_report: true,
-  write: true,
-  edit: true,
-  process_stop: true,
-};
-
 const SENSITIVE_PATH_PATTERN = /(^|[\\/])\.env($|[\\/])|api[_-]?key|token|secret|authorization|credential/i;
 
-function block(action, policy, reason) {
+function block(action, policy, reason, approval) {
   const blocked = {
     error: reason,
     blocked: true,
     policy,
     tool: action && action.tool ? action.tool : 'unknown',
+    approval: approval || undefined,
   };
   return {
     blocked: true,
@@ -70,15 +65,54 @@ async function toolSafetyPolicyHook(context) {
   const action = context && context.action ? context.action : {};
   const config = context && context.config ? context.config : {};
   const tool = context && context.tool ? context.tool : null;
-  if (
-    tool &&
-    tool.safety &&
-    tool.safety.readOnly === false &&
-    !MUTATING_TOOLS_ALLOWED_BY_RUNTIME[action.tool || '']
-  ) {
-    return block(action, 'readonly_required', `Tool is not read-only: ${action.tool || 'unknown'}`);
+
+  const pathDecision = inspectPathTool(config, action);
+  if (pathDecision) return pathDecision;
+
+  const decision = classifyToolApproval(config, action, tool);
+  if (!decision || decision.status === 'allow') return null;
+  if (decision.status === 'deny') {
+    return block(action, decision.policy || 'tool_policy_denied', decision.reason || 'Tool call denied.', decision.approval);
   }
-  return inspectPathTool(config, action);
+  if (decision.status === 'ask') {
+    const approval = decision.approval || {};
+    if (typeof context.requestToolApproval !== 'function') {
+      return block(action, 'tool_approval_required', decision.reason || 'Tool call requires approval.', approval);
+    }
+    if (typeof context.emit === 'function') {
+      await context.emit({
+        type: 'tool_approval_requested',
+        loop: context.loop,
+        turn: context.turn,
+        toolCallId: context.toolCallId || '',
+        toolName: action.tool || 'unknown',
+        approval,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    let approved = false;
+    try {
+      const approvalResult = await context.requestToolApproval(approval);
+      approved = Boolean(approvalResult && approvalResult.approved);
+    } catch (error) {
+      approved = false;
+    }
+    if (typeof context.emit === 'function') {
+      await context.emit({
+        type: 'tool_approval_decided',
+        loop: context.loop,
+        turn: context.turn,
+        toolCallId: context.toolCallId || '',
+        toolName: action.tool || 'unknown',
+        approval,
+        approved,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (approved) return null;
+    return block(action, 'tool_approval_denied', decision.reason || 'Tool call was denied by user.', approval);
+  }
+  return null;
 }
 
 module.exports = {

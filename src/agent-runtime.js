@@ -70,6 +70,7 @@ function createAgent(config, options) {
       getSteeringMessages: () => steeringQueue.drain(),
       getFollowUpMessages: () => followUpQueue.drain(),
       beforeToolCall: options.beforeToolCall || createBeforeToolCallChain(null, extensionRuntime),
+      requestToolApproval: options.requestToolApproval,
       afterToolCall: options.afterToolCall || createAfterToolCallChain(null, extensionRuntime),
       prepareNextTurn: options.prepareNextTurn || createDefaultPrepareNextTurn(null, extensionRuntime),
       finalAnswerEvidenceGuard: options.finalAnswerEvidenceGuard || extensionRuntime.finalAnswerEvidenceGuard,

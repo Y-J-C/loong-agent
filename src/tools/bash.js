@@ -100,7 +100,7 @@ function createBashToolDefinition() {
     label: 'Bash',
     description: 'Execute a shell command. Supports foreground commands and managed background processes.',
     category: 'safety-sensitive',
-    safety: { readOnly: true, sensitive: true, requiresWorkspace: false },
+    safety: { readOnly: false, sensitive: true, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'command' },
     repeatPolicy: 'answerable_once',
     resultSchema: {
