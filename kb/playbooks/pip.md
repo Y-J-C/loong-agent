@@ -42,5 +42,5 @@
 
 - `kb/environment_report.md`
 - `kb/software_stack.md`
-- `kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_pip_status_20260610.txt`
-- `kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt`
+- `kb/evidence_map.md`
+- `kb/evidence_map.md`

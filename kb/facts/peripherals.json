@@ -5,10 +5,18 @@
     "status": "measured",
     "confidence": "medium",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["Pin mapping, voltage, permissions, and functional usability are not confirmed."]
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
+    "unknowns": [
+      "Pin mapping, voltage, permissions, and functional usability are not confirmed."
+    ]
   },
   {
     "id": "peripherals.i2c.nodes",
@@ -16,10 +24,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["Bus scan and external wiring were not performed."]
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
+    "unknowns": [
+      "Bus scan and external wiring were not performed."
+    ]
   },
   {
     "id": "peripherals.spi.nodes",
@@ -27,10 +43,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["SPI device functionality and safe wiring are not confirmed."]
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
+    "unknowns": [
+      "SPI device functionality and safe wiring are not confirmed."
+    ]
   },
   {
     "id": "peripherals.uart.nodes",
@@ -38,10 +62,18 @@
     "status": "measured",
     "confidence": "medium",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["Pinout, voltage level, and use of each port are not confirmed."]
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
+    "unknowns": [
+      "Pinout, voltage level, and use of each port are not confirmed."
+    ]
   },
   {
     "id": "peripherals.display.drm",
@@ -49,10 +81,21 @@
     "status": "measured",
     "confidence": "medium",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile", "troubleshooting"],
-    "sourcePaths": ["kb/board_profile.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["Actual display output path and monitor state are not confirmed."]
+    "sourceTopics": [
+      "board_profile",
+      "troubleshooting"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "Actual display output path and monitor state are not confirmed."
+    ]
   },
   {
     "id": "peripherals.audio.status",
@@ -60,10 +103,21 @@
     "status": "measured",
     "confidence": "medium",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["troubleshooting", "unknowns"],
-    "sourcePaths": ["kb/troubleshooting.md", "kb/unknowns.md", "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["Audio codec hardware, device tree, and driver root cause are not confirmed."]
+    "sourceTopics": [
+      "troubleshooting",
+      "unknowns"
+    ],
+    "sourcePaths": [
+      "kb/troubleshooting.md",
+      "kb/unknowns.md"
+    ],
+    "rawEvidence": [
+      "kb/troubleshooting.md",
+      "kb/unknowns.md"
+    ],
+    "unknowns": [
+      "Audio codec hardware, device tree, and driver root cause are not confirmed."
+    ]
   },
   {
     "id": "peripherals.rtc.nodes",
@@ -71,9 +125,17 @@
     "status": "measured",
     "confidence": "medium",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["unknowns"],
-    "sourcePaths": ["kb/unknowns.md", "kb/loongson-2k1000-board-kb-preview/peripheral_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["RTC time correctness and alarm behavior are not confirmed."]
+    "sourceTopics": [
+      "unknowns"
+    ],
+    "sourcePaths": [
+      "kb/unknowns.md"
+    ],
+    "rawEvidence": [
+      "kb/unknowns.md"
+    ],
+    "unknowns": [
+      "RTC time correctness and alarm behavior are not confirmed."
+    ]
   }
 ]

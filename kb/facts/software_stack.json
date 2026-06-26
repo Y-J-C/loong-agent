@@ -5,10 +5,21 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "compatibility_matrix"],
-    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["Exact gcc runtime version is 待确认 in the curated historical facts."]
+    "sourceTopics": [
+      "software_stack",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "Exact gcc runtime version is 待确认 in the curated historical facts."
+    ]
   },
   {
     "id": "software.gpp.status",
@@ -16,10 +27,21 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "compatibility_matrix"],
-    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["Safe install cost for g++ is pending."]
+    "sourceTopics": [
+      "software_stack",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "Safe install cost for g++ is pending."
+    ]
   },
   {
     "id": "software.node.status",
@@ -27,9 +49,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "environment_report"],
-    "sourcePaths": ["kb/software_stack.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "sourceTopics": [
+      "software_stack",
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -38,10 +69,21 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "compatibility_matrix"],
-    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["npm install safety, dependency size, and disk impact are not confirmed."]
+    "sourceTopics": [
+      "software_stack",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "npm install safety, dependency size, and disk impact are not confirmed."
+    ]
   },
   {
     "id": "software.pip.status",
@@ -49,10 +91,21 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "environment_report"],
-    "sourcePaths": ["kb/software_stack.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_pip_status_20260610.txt", "kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["Long-term Python 3.7 and user-local pip 24.0 compatibility remains pending."]
+    "sourceTopics": [
+      "software_stack",
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/environment_report.md"
+    ],
+    "unknowns": [
+      "Long-term Python 3.7 and user-local pip 24.0 compatibility remains pending."
+    ]
   },
   {
     "id": "software.transfer.scp",
@@ -60,9 +113,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack"],
-    "sourcePaths": ["kb/software_stack.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "sourceTopics": [
+      "software_stack"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md"
+    ],
     "unknowns": []
   },
   {
@@ -71,10 +130,21 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "compatibility_matrix"],
-    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["Safe installation is pending review."]
+    "sourceTopics": [
+      "software_stack",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "Safe installation is pending review."
+    ]
   },
   {
     "id": "software.container.docker_podman",
@@ -82,10 +152,21 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "compatibility_matrix"],
-    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["Alternate source availability, kernel support, storage, and permission requirements are not confirmed."]
+    "sourceTopics": [
+      "software_stack",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "Alternate source availability, kernel support, storage, and permission requirements are not confirmed."
+    ]
   },
   {
     "id": "software.gui_multimedia.dev_stack",
@@ -93,9 +174,20 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["software_stack", "compatibility_matrix"],
-    "sourcePaths": ["kb/software_stack.md", "kb/compatibility_matrix.md", "kb/loongson-2k1000-board-kb-preview/package_management.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["Qt wrapper traces must not be treated as complete Qt development availability."]
+    "sourceTopics": [
+      "software_stack",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "Qt wrapper traces must not be treated as complete Qt development availability."
+    ]
   }
 ]

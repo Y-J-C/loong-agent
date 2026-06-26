@@ -165,47 +165,8 @@ test('P5 kb_search attaches historical environment facts to environment matches'
   assert(match.facts.historicalEnvironment.nodeVersion === 'v14.16.1', 'kb_search facts missing node version');
 });
 
-test('preview package checksums match copied files', () => {
-  assert(fs.existsSync(PREVIEW_ROOT), 'missing copied preview package');
-  const checksumFile = path.join(PREVIEW_ROOT, 'checksums.md');
-  assert(fs.existsSync(checksumFile), 'missing preview checksums.md');
-  const text = fs.readFileSync(checksumFile, 'utf8');
-  const rows = [];
-  text.split(/\r?\n/).forEach((line) => {
-    const match = /^\|\s*`(.+?)`\s*\|\s*`([0-9a-fA-F]{64})`\s*\|/.exec(line);
-    if (match) rows.push({ relativePath: match[1], hash: match[2].toLowerCase() });
-  });
-  assert(rows.length >= 30, 'preview checksum table did not parse enough rows');
-  rows.forEach((row) => {
-    assert(row.relativePath.indexOf('..') < 0, `checksum path must not escape package: ${row.relativePath}`);
-    const filePath = path.resolve(PREVIEW_ROOT, row.relativePath.replace(/\//g, path.sep));
-    assert(filePath === PREVIEW_ROOT || filePath.indexOf(PREVIEW_ROOT + path.sep) === 0, `checksum path escapes package: ${row.relativePath}`);
-    assert(fs.existsSync(filePath), `checksum file is missing: ${row.relativePath}`);
-    assert(sha256(filePath) === row.hash, `checksum mismatch: ${row.relativePath}`);
-  });
-});
-
-test('preview package raw references resolve to existing files or directories', () => {
-  assert(fs.existsSync(PREVIEW_ROOT), 'missing copied preview package');
-  const markdownFiles = walkFiles(PREVIEW_ROOT, (filePath) => /\.md$/i.test(filePath));
-  const refs = [];
-  markdownFiles.forEach((filePath) => {
-    const text = fs.readFileSync(filePath, 'utf8');
-    extractRawRefs(text).forEach((ref) => {
-      refs.push({
-        from: path.relative(PREVIEW_ROOT, filePath),
-        ref,
-      });
-    });
-  });
-  assert(refs.length > 0, 'expected raw references in preview package');
-  refs.forEach((item) => {
-    assert(item.ref.indexOf('raw/raw_') < 0, `old raw path reference found in ${item.from}: ${item.ref}`);
-    assert(item.ref.indexOf('..') < 0, `raw reference must not escape package in ${item.from}: ${item.ref}`);
-    const resolved = path.resolve(PREVIEW_ROOT, item.ref.replace(/\//g, path.sep));
-    assert(resolved === PREVIEW_ROOT || resolved.indexOf(PREVIEW_ROOT + path.sep) === 0, `raw reference escapes package in ${item.from}: ${item.ref}`);
-    assert(fs.existsSync(resolved), `raw reference is missing in ${item.from}: ${item.ref}`);
-  });
+test('preview package is removed from the compact knowledge layout', () => {
+  assert(!fs.existsSync(PREVIEW_ROOT), 'preview package should not be required in compact knowledge layout');
 });
 
 test('knowledge README exposes P0 and P1 maintenance entrypoints', () => {
@@ -296,7 +257,7 @@ test('P6 includes phase5 RPC failure knowledge with source boundary', () => {
   assert(localFailure.unknowns.some((item) => /sandbox/.test(String(item))), 'local RPC fact must preserve sandbox unknown');
   [localFailure, boardPass].forEach((fact) => {
     assert(fact.sourcePaths.indexOf('kb/playbooks/rpc-spawn-eperm.md') >= 0, `RPC fact missing playbook source: ${fact.id}`);
-    assert(fact.rawEvidence.some((item) => item.indexOf('kb/raw/phase5/') === 0), `RPC fact missing phase5 raw evidence: ${fact.id}`);
+    assert(fact.rawEvidence.indexOf('kb/playbooks/rpc-spawn-eperm.md') >= 0, `RPC fact missing compact evidence path: ${fact.id}`);
   });
 });
 
@@ -321,23 +282,22 @@ test('P6 fact verification uses current normative ids', () => {
   );
 });
 
-test('P6 evidence map links conclusions to topics, preview docs, raw evidence, and confidence', () => {
+
+test('P6 evidence map links conclusions to topics, current evidence docs, and confidence', () => {
   const text = readWorkspaceFile(path.join('kb', 'evidence_map.md'));
   [
-    '| 结论 | Topic | Preview 文档 | Raw 证据 | confidence |',
+    '| 结论 | Topic | 当前证据文档 | confidence |',
     'Node.js v14.16.1',
     'npm / npx are missing',
     'eth1',
     '/boot/efi',
     'Alternate GPT',
-    'raw/stage3/raw_stage3_evidence_combined.txt',
     'spawn EPERM',
-    'phase5-board-test-rpc.out',
+    'kb/playbooks/rpc-spawn-eperm.md',
   ].forEach((needle) => {
     assert(text.indexOf(needle) >= 0, `evidence map missing: ${needle}`);
   });
 });
-
 test('P1 troubleshooting guide covers known fourth-stage gaps', () => {
   const filePath = path.join(ROOT, 'kb', 'troubleshooting.md');
   assert(fs.existsSync(filePath), 'missing troubleshooting guide');
@@ -402,32 +362,31 @@ test('P6 RPC playbook is indexed and searchable with evidence paths', () => {
   assert(match.evidence && match.evidence.path === 'kb/playbooks/rpc-spawn-eperm.md', 'RPC search match missing evidence path');
 });
 
-test('P6 phase5 raw evidence files are indexed but excluded unless evidence is requested', () => {
+
+test('P6 phase5 raw evidence files are removed from the compact knowledge index', () => {
   const entries = readKnowledgeIndex(config());
-  assert(entries.some((item) => item.id === 'raw.phase5.board_test_rpc' && item.kind === 'raw'), 'missing phase5 board raw index entry');
-  assert(entries.some((item) => item.id === 'raw.phase5.local_test_rpc_error' && item.kind === 'raw'), 'missing phase5 local raw index entry');
+  assert(!entries.some((item) => item.id === 'raw.phase5.board_test_rpc' || item.id === 'raw.phase5.local_test_rpc_error'), 'phase5 raw index entries should be removed');
   const defaultResults = searchKnowledge(config(), 'phase5-board-test-rpc.out', { limit: 10 });
-  assert(defaultResults.every((item) => item.kind !== 'raw'), 'phase5 raw evidence should be excluded by default');
+  assert(defaultResults.every((item) => item.kind !== 'raw'), 'phase5 raw evidence should be absent by default');
   const rawResults = searchKnowledge(config(), 'phase5-board-test-rpc.out evidence', { limit: 10 });
-  assert(rawResults.some((item) => item.id === 'raw.phase5.board_test_rpc'), 'phase5 board raw evidence should be searchable when evidence is requested');
+  assert(rawResults.every((item) => item.kind !== 'raw'), 'phase5 raw evidence should remain absent when evidence is requested');
 });
 
-test('P6 maintenance guide preserves evidence, unknowns, preview archive, and board read-only rules', () => {
+test('P6 maintenance guide preserves evidence, unknowns, compact layout, and board read-only rules', () => {
   const text = readWorkspaceFile(path.join('kb', 'maintenance_guide.md'));
   [
     'sourcePaths',
     'rawEvidence',
     'unknowns',
-    'preview package',
+    'compact knowledge layout',
     '.env',
     'API key',
     'read-only observation target',
-    '不默认执行',
+    '默认不执行',
   ].forEach((needle) => {
     assert(text.indexOf(needle) >= 0, `maintenance guide missing: ${needle}`);
   });
 });
-
 test('P1 command reference documents risk levels and command authority', () => {
   const text = readWorkspaceFile(path.join('kb', 'command_reference.md'));
   [
@@ -466,12 +425,13 @@ test('P1 scripts README documents planned read-only scripts and required risk fi
   });
 });
 
-test('P1 stage status separates preview history from repository adaptation', () => {
+
+test('P1 stage status describes compact layout and repository adaptation', () => {
   const filePath = path.join(ROOT, 'kb', 'stage_status.md');
   assert(fs.existsSync(filePath), 'missing kb stage status');
   const text = readWorkspaceFile(path.join('kb', 'stage_status.md'));
   [
-    'preview v0.1 原始状态',
+    'compact knowledge layout 当前状态',
     '仓库适配状态',
     'P1 闭环状态',
     '仍未完成',
@@ -482,12 +442,11 @@ test('P1 stage status separates preview history from repository adaptation', () 
     assert(text.indexOf(needle) >= 0, `stage status missing: ${needle}`);
   });
 });
-
 test('P2 knowledge index lists existing workspace-local knowledge files', () => {
   const indexPath = path.join(ROOT, 'kb', 'index.json');
   assert(fs.existsSync(indexPath), 'missing kb index');
   const entries = readKnowledgeIndex(config());
-  assert(entries.length >= 30, 'knowledge index should include topics, docs, and raw evidence');
+  assert(entries.length >= 30, 'knowledge index should include topics, maintenance docs, facts, and playbooks');
   const counts = entries.reduce((acc, entry) => {
     acc[entry.kind] = (acc[entry.kind] || 0) + 1;
     return acc;
@@ -495,8 +454,8 @@ test('P2 knowledge index lists existing workspace-local knowledge files', () => 
   assert(counts.topic >= 8, 'knowledge index missing topic entries');
   assert(counts.fact >= 6, 'knowledge index missing structured fact entries');
   assert(counts.playbook >= 10, 'knowledge index missing playbook entries');
-  assert(counts.preview_doc >= 10, 'knowledge index missing preview Markdown entries');
-  assert(counts.raw >= 5, 'knowledge index missing raw entries');
+  assert(!counts.preview_doc, 'knowledge index should not include removed preview Markdown entries');
+  assert(!counts.raw, 'knowledge index should not include removed raw entries');
   entries.forEach((entry) => {
     assert(entry.id, 'index entry missing id');
     assert(entry.path && entry.path.indexOf('..') < 0, `index path must not escape workspace: ${entry.id}`);
@@ -504,7 +463,6 @@ test('P2 knowledge index lists existing workspace-local knowledge files', () => 
     assert(fs.existsSync(entry.filePath), `index entry path is missing: ${entry.id}`);
   });
 });
-
 test('P6 facts are indexed but excluded from default search', () => {
   const entries = readKnowledgeIndex(config());
   const facts = entries.filter((entry) => entry.kind === 'fact');
@@ -517,12 +475,13 @@ test('P6 facts are indexed but excluded from default search', () => {
   assert(results.every((item) => item.kind !== 'fact'), 'facts should not appear in default kb_search results');
 });
 
-test('P2 kb_search returns topic and preview document matches by default', () => {
+
+test('P2 kb_search returns topic and playbook matches by default', () => {
   const results = searchKnowledge(config(), 'eth1 DMA', { limit: 10 });
   assert(results.some((item) => item.kind === 'topic'), 'expected topic search result');
   assert(
-    results.some((item) => item.kind === 'preview_doc' && /network_profile|environment_report/.test(item.path)),
-    'expected preview network or environment document result'
+    results.some((item) => item.kind === 'playbook' && /eth1/.test(item.path)),
+    'expected eth1 playbook result'
   );
   results.forEach((item) => {
     assert(item.evidence && item.evidence.source, `missing evidence source: ${item.topic}`);
@@ -532,20 +491,19 @@ test('P2 kb_search returns topic and preview document matches by default', () =>
   });
 });
 
-test('P2 raw evidence is excluded by default unless requested', () => {
+test('P2 raw evidence remains absent after compacting the knowledge layout', () => {
   const defaultResults = searchKnowledge(config(), 'stage2 readonly collection', { limit: 10 });
-  assert(defaultResults.every((item) => item.kind !== 'raw'), 'raw result should not be included by default');
+  assert(defaultResults.every((item) => item.kind !== 'raw'), 'raw result should not be present by default');
 
   const rawQueryResults = searchKnowledge(config(), 'dmesg eth1 证据', { limit: 10 });
-  assert(rawQueryResults.some((item) => item.kind === 'raw'), 'raw result should be included for evidence query');
+  assert(rawQueryResults.every((item) => item.kind !== 'raw'), 'raw result should remain absent for evidence query');
 
   const forcedRawResults = searchKnowledge(config(), 'stage2 readonly collection', { limit: 10, includeRaw: true });
-  assert(forcedRawResults.some((item) => item.kind === 'raw'), 'raw result should be included when includeRaw=true');
+  assert(forcedRawResults.every((item) => item.kind !== 'raw'), 'raw result should remain absent when includeRaw=true');
 
   const forcedNoRawResults = searchKnowledge(config(), 'dmesg eth1 证据', { limit: 10, includeRaw: false });
-  assert(forcedNoRawResults.every((item) => item.kind !== 'raw'), 'raw result should be excluded when includeRaw=false');
+  assert(forcedNoRawResults.every((item) => item.kind !== 'raw'), 'raw result should remain absent when includeRaw=false');
 });
-
 test('P3 knowledgeContextHook injects troubleshooting search matches for eth1 questions', () => {
   const state = {
     turn: 2,
@@ -562,16 +520,17 @@ test('P3 knowledgeContextHook injects troubleshooting search matches for eth1 qu
   });
   assert(result.contextAdditions.some((item) => item.source === 'knowledge_search'), 'missing knowledge search context');
   assert(
-    result.knowledgeEvidence.some((item) => /maintenance\.troubleshooting|preview\.network_profile|playbook\.eth1/.test(item.topic || '')),
-    'missing troubleshooting, playbook, or network evidence'
+    result.knowledgeEvidence.some((item) => /maintenance\.troubleshooting|preview\.network_profile|maintenance\.troubleshooting|playbook\.eth1/.test(item.topic || '')),
+    'missing troubleshooting or eth1 playbook evidence'
   );
   assert(
-    result.data.searchMatches.some((item) => /maintenance\.troubleshooting|preview\.network_profile|playbook\.eth1/.test(item.topic || '')),
-    'missing troubleshooting, playbook, or network search match'
+    result.data.searchMatches.some((item) => /maintenance\.troubleshooting|preview\.network_profile|maintenance\.troubleshooting|playbook\.eth1/.test(item.topic || '')),
+    'missing troubleshooting or eth1 playbook search match'
   );
 });
 
-test('P3 knowledgeContextHook includes raw evidence for evidence queries', () => {
+
+test('P3 knowledgeContextHook keeps raw evidence absent for evidence queries in compact layout', () => {
   const state = {
     turn: 2,
     observations: [],
@@ -585,10 +544,9 @@ test('P3 knowledgeContextHook includes raw evidence for evidence queries', () =>
     action: { tool: 'kb_search', input: { query: '看 dmesg eth1 证据' } },
     result: { summary: 'search requested' },
   });
-  assert(result.knowledgeEvidence.some((item) => item.sourceType === 'raw'), 'missing raw evidence');
-  assert(result.data.searchMatches.some((item) => item.kind === 'raw'), 'missing raw search match');
+  assert(result.knowledgeEvidence.every((item) => item.sourceType !== 'raw'), 'raw evidence should be absent');
+  assert(result.data.searchMatches.every((item) => item.kind !== 'raw'), 'raw search match should be absent');
 });
-
 test('P4 knowledgeContextHook detects historical intent', () => {
   const state = {
     turn: 2,
@@ -672,7 +630,8 @@ testAsync('kb_search returns local markdown matches with evidence', async () => 
   assert(result.evidence.length > 0, 'missing search evidence');
 });
 
-testAsync('kb_search supports includeRaw for raw evidence lookup', async () => {
+
+testAsync('kb_search keeps includeRaw compatible when compact layout has no raw entries', async () => {
   const registry = createDefaultToolRegistry();
   const result = await registry.execute(config(), 'kb_search', {
     query: 'stage2 readonly collection',
@@ -680,9 +639,8 @@ testAsync('kb_search supports includeRaw for raw evidence lookup', async () => {
     includeRaw: true,
   });
   assert(result.ok === true, 'kb_search includeRaw failed');
-  assert(result.matches.some((item) => item.kind === 'raw'), 'missing raw evidence match');
+  assert(result.matches.every((item) => item.kind !== 'raw'), 'raw evidence match should be absent');
 });
-
 testAsync('risk_lookup returns risk and unknowns topics', async () => {
   const registry = createDefaultToolRegistry();
   const result = await registry.execute(config(), 'risk_lookup', { query: 'package install risk' });

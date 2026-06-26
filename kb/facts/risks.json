@@ -5,9 +5,20 @@
     "status": "sourced",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["risk_list", "command_reference"],
-    "sourcePaths": ["kb/risk_list.md", "kb/command_reference.md", "kb/README.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "sourceTopics": [
+      "risk_list",
+      "command_reference"
+    ],
+    "sourcePaths": [
+      "kb/risk_list.md",
+      "kb/command_reference.md",
+      "kb/README.md"
+    ],
+    "rawEvidence": [
+      "kb/risk_list.md",
+      "kb/command_reference.md",
+      "kb/README.md"
+    ],
     "unknowns": []
   },
   {
@@ -16,10 +27,24 @@
     "status": "sourced",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["risk_list", "software_stack", "compatibility_matrix"],
-    "sourcePaths": ["kb/risk_list.md", "kb/software_stack.md", "kb/compatibility_matrix.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
-    "unknowns": ["Safe package install set, dependency size, and disk impact are pending."]
+    "sourceTopics": [
+      "risk_list",
+      "software_stack",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/risk_list.md",
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/risk_list.md",
+      "kb/software_stack.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "Safe package install set, dependency size, and disk impact are pending."
+    ]
   },
   {
     "id": "risk.storage_repair",
@@ -27,10 +52,21 @@
     "status": "sourced",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["risk_list", "troubleshooting"],
-    "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_dmesg_20260609.txt"],
-    "unknowns": ["Recovery image and backup procedure are not confirmed."]
+    "sourceTopics": [
+      "risk_list",
+      "troubleshooting"
+    ],
+    "sourcePaths": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "Recovery image and backup procedure are not confirmed."
+    ]
   },
   {
     "id": "risk.network_config",
@@ -38,10 +74,21 @@
     "status": "sourced",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["risk_list", "troubleshooting"],
-    "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["eth1 root cause remains unresolved."]
+    "sourceTopics": [
+      "risk_list",
+      "troubleshooting"
+    ],
+    "sourcePaths": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "eth1 root cause remains unresolved."
+    ]
   },
   {
     "id": "risk.peripheral_electrical",
@@ -49,10 +96,24 @@
     "status": "sourced",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["risk_list", "troubleshooting", "unknowns"],
-    "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/unknowns.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["Official pinout, voltage, and wiring constraints remain pending."]
+    "sourceTopics": [
+      "risk_list",
+      "troubleshooting",
+      "unknowns"
+    ],
+    "sourcePaths": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md",
+      "kb/unknowns.md"
+    ],
+    "rawEvidence": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md",
+      "kb/unknowns.md"
+    ],
+    "unknowns": [
+      "Official pinout, voltage, and wiring constraints remain pending."
+    ]
   },
   {
     "id": "risk.rpc.local_spawn_eperm",
@@ -60,10 +121,28 @@
     "status": "observed",
     "confidence": "high",
     "last_updated": "2026-06-21",
-    "sourceTopics": ["troubleshooting", "source_index", "unknowns"],
-    "sourcePaths": ["kb/playbooks/rpc-spawn-eperm.md", "kb/evidence_map.md", "kb/source_index.md", "kb/unknowns.md"],
-    "rawEvidence": ["kb/raw/phase5/phase5-local-test-rpc.err", "kb/raw/phase5/phase5-diagnosis-summary.md"],
-    "unknowns": ["Whether the local Codex sandbox spawn restriction can be relaxed is pending confirmation."]
+    "sourceTopics": [
+      "troubleshooting",
+      "source_index",
+      "unknowns"
+    ],
+    "sourcePaths": [
+      "kb/playbooks/rpc-spawn-eperm.md",
+      "kb/evidence_map.md",
+      "kb/source_index.md",
+      "kb/unknowns.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/playbooks/rpc-spawn-eperm.md",
+      "kb/evidence_map.md",
+      "kb/source_index.md",
+      "kb/unknowns.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "Whether the local Codex sandbox spawn restriction can be relaxed is pending confirmation."
+    ]
   },
   {
     "id": "risk.rpc.board_passes_after_cleanup_fix",
@@ -71,9 +150,24 @@
     "status": "verified_on_board",
     "confidence": "high",
     "last_updated": "2026-06-21",
-    "sourceTopics": ["troubleshooting", "source_index"],
-    "sourcePaths": ["kb/playbooks/rpc-spawn-eperm.md", "kb/evidence_map.md", "kb/source_index.md"],
-    "rawEvidence": ["kb/raw/phase5/phase5-board-test-rpc.out", "kb/raw/phase5/phase5-diagnosis-summary.md"],
-    "unknowns": ["If the user asks about current board status after environment changes, rerun node scripts/test-rpc.js on the board."]
+    "sourceTopics": [
+      "troubleshooting",
+      "source_index"
+    ],
+    "sourcePaths": [
+      "kb/playbooks/rpc-spawn-eperm.md",
+      "kb/evidence_map.md",
+      "kb/source_index.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/playbooks/rpc-spawn-eperm.md",
+      "kb/evidence_map.md",
+      "kb/source_index.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "If the user asks about current board status after environment changes, rerun node scripts/test-rpc.js on the board."
+    ]
   }
 ]

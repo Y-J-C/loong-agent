@@ -5,9 +5,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile", "environment_report"],
-    "sourcePaths": ["kb/board_profile.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/board_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "sourceTopics": [
+      "board_profile",
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md",
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md",
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -16,10 +25,21 @@
     "status": "unknown",
     "confidence": "low",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile", "unknowns"],
-    "sourcePaths": ["kb/board_profile.md", "kb/unknowns.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
-    "unknowns": ["Accurate commercial board name remains pending confirmation."]
+    "sourceTopics": [
+      "board_profile",
+      "unknowns"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md",
+      "kb/unknowns.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md",
+      "kb/unknowns.md"
+    ],
+    "unknowns": [
+      "Accurate commercial board name remains pending confirmation."
+    ]
   },
   {
     "id": "environment.os.release",
@@ -27,9 +47,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report"],
-    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/environment_report.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "sourceTopics": [
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -38,9 +64,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile", "environment_report"],
-    "sourcePaths": ["kb/board_profile.md", "kb/environment_report.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+    "sourceTopics": [
+      "board_profile",
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md",
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md",
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -49,9 +84,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile", "environment_report"],
-    "sourcePaths": ["kb/board_profile.md", "kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "board_profile",
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md",
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md",
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -60,9 +104,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
     "unknowns": []
   },
   {
@@ -71,9 +121,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/hardware_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
     "unknowns": []
   },
   {
@@ -82,9 +138,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report", "software_stack"],
-    "sourcePaths": ["kb/environment_report.md", "kb/software_stack.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "sourceTopics": [
+      "environment_report",
+      "software_stack"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md",
+      "kb/software_stack.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md",
+      "kb/software_stack.md"
+    ],
     "unknowns": []
   },
   {
@@ -93,9 +158,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report", "software_stack"],
-    "sourcePaths": ["kb/environment_report.md", "kb/software_stack.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt"],
+    "sourceTopics": [
+      "environment_report",
+      "software_stack"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md",
+      "kb/software_stack.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md",
+      "kb/software_stack.md"
+    ],
     "unknowns": []
   },
   {
@@ -104,9 +178,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report", "board_profile"],
-    "sourcePaths": ["kb/environment_report.md", "kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "environment_report",
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md",
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md",
+      "kb/board_profile.md"
+    ],
     "unknowns": []
   }
 ]

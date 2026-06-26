@@ -40,5 +40,5 @@
 
 - `kb/unknowns.md`
 - `kb/troubleshooting.md`
-- `kb/loongson-2k1000-board-kb-preview/peripheral_profile.md`
-- `kb/loongson-2k1000-board-kb-preview/hardware_profile.md`
+- `kb/evidence_map.md`
+- `kb/evidence_map.md`

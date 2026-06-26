@@ -2,7 +2,7 @@
 
 status: sourced
 last_updated: 2026-06-15
-sources: kb/playbooks/README.md; kb/playbooks/*.md; kb/evidence_map.md; kb/loongson-2k1000-board-kb-preview/
+sources: kb/playbooks/README.md; kb/troubleshooting.md; kb/evidence_map.md; kb/maintenance_guide.md
 confidence: medium
 
 ## Content

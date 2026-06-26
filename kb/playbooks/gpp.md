@@ -44,5 +44,5 @@ C 工具链基本可用，但 C++ 本地构建入口不完整，因为 `g++` / `
 
 - `kb/software_stack.md`
 - `kb/compatibility_matrix.md`
-- `kb/loongson-2k1000-board-kb-preview/package_management.md`
-- `kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt`
+- `kb/evidence_map.md`
+- `kb/evidence_map.md`

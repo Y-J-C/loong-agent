@@ -43,5 +43,5 @@ Docker / Podman 不可作为当前板端默认开发或部署路径。
 
 - `kb/software_stack.md`
 - `kb/compatibility_matrix.md`
-- `kb/loongson-2k1000-board-kb-preview/package_management.md`
-- `kb/loongson-2k1000-board-kb-preview/raw/stage3/raw_stage3_evidence_combined.txt`
+- `kb/evidence_map.md`
+- `kb/evidence_map.md`

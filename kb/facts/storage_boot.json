@@ -5,9 +5,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report", "board_profile"],
-    "sourcePaths": ["kb/environment_report.md", "kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "environment_report",
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md",
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md",
+      "kb/board_profile.md"
+    ],
     "unknowns": []
   },
   {
@@ -16,9 +25,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
     "unknowns": []
   },
   {
@@ -27,9 +42,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["board_profile"],
-    "sourcePaths": ["kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/board_profile.md"
+    ],
     "unknowns": []
   },
   {
@@ -38,10 +59,24 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report", "risk_list", "troubleshooting"],
-    "sourcePaths": ["kb/environment_report.md", "kb/risk_list.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_dmesg_20260609.txt", "kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["Whether the warning affects boot stability is not confirmed."]
+    "sourceTopics": [
+      "environment_report",
+      "risk_list",
+      "troubleshooting"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md",
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md",
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "Whether the warning affects boot stability is not confirmed."
+    ]
   },
   {
     "id": "storage.gpt.warning",
@@ -49,9 +84,20 @@
     "status": "measured",
     "confidence": "medium",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["risk_list", "troubleshooting"],
-    "sourcePaths": ["kb/risk_list.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_dmesg_20260609.txt"],
-    "unknowns": ["Practical impact and official repair path are not confirmed."]
+    "sourceTopics": [
+      "risk_list",
+      "troubleshooting"
+    ],
+    "sourcePaths": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/risk_list.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "Practical impact and official repair path are not confirmed."
+    ]
   }
 ]

@@ -2,12 +2,12 @@
 
 status: measured
 last_updated: 2026-06-14
-sources: kb/loongson-2k1000-board-kb-preview/risk_list.md; kb/loongson-2k1000-board-kb-preview/README.md; raw evidence in preview package
+sources: kb/risk_list.md; kb/troubleshooting.md; kb/source_index.md
 confidence: high
 
 ## Content
 
-The preview knowledge package is safe for read-only lookup and planning. It must not be used as an instruction to repair or modify the board.
+The compact knowledge layout is safe for read-only lookup and planning. It must not be used as an instruction to repair or modify the board.
 
 High-priority risks:
 

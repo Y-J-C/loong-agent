@@ -2,7 +2,7 @@
 
 status: unknown
 last_updated: 2026-06-14
-sources: kb/loongson-2k1000-board-kb-preview/unknowns.md; kb/loongson-2k1000-board-kb-preview/stage_status.md
+sources: kb/unknowns.md; kb/source_index.md; kb/stage_status.md
 confidence: low
 
 ## Content

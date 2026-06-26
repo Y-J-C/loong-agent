@@ -26,7 +26,7 @@ Every fact entry must include:
   "last_updated": "2026-06-14",
   "sourceTopics": ["environment_report", "software_stack"],
   "sourcePaths": ["kb/environment_report.md", "kb/software_stack.md"],
-  "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_env_report_20260609.txt"],
+  "rawEvidence": ["kb/environment_report.md", "kb/software_stack.md"],
   "unknowns": []
 }
 ```

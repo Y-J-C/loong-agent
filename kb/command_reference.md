@@ -2,7 +2,7 @@
 
 status: sourced
 last_updated: 2026-06-14
-sources: src/command-policy.js READONLY_COMMAND_METADATA; kb/loongson-2k1000-board-kb-preview/README.md; kb/loongson-2k1000-board-kb-preview/scripts/README.md
+sources: src/command-policy.js READONLY_COMMAND_METADATA; kb/command_reference.md; kb/scripts/README.md
 confidence: high
 
 ## Content
@@ -90,7 +90,7 @@ I2C/SPI scans or wiring tests outside the recommended diagnostics
 service state modification
 ```
 
-Preview package command boundary:
+Compact knowledge layout command boundary:
 
 - Allowed for document package testing: `less`, `grep`, `find`, and reading raw evidence files.
 - Allowed for local knowledge verification: checksum checks, path existence checks, file listing, and read-only keyword search.

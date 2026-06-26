@@ -2,7 +2,7 @@
 
 status: measured
 last_updated: 2026-06-14
-sources: kb/loongson-2k1000-board-kb-preview/software_stack.md; kb/loongson-2k1000-board-kb-preview/package_management.md; kb/loongson-2k1000-board-kb-preview/development_environment.md
+sources: kb/software_stack.md; kb/compatibility_matrix.md; kb/source_index.md
 confidence: high
 
 ## Content

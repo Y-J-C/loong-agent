@@ -43,5 +43,5 @@
 
 - `kb/environment_report.md`
 - `kb/troubleshooting.md`
-- `kb/loongson-2k1000-board-kb-preview/network_profile.md`
-- `kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt`
+- `kb/evidence_map.md`
+- `kb/evidence_map.md`

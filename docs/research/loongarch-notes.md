@@ -1,4 +1,4 @@
-# LoongArch Notes
+﻿# LoongArch 说明
 
 ## 当前目标板基线
 
@@ -34,7 +34,7 @@ SSH access from Windows: C:\Windows\System32\OpenSSH\ssh.exe -i C:\Users\22826\.
 ## 开发判断
 
 - 当前已知基线适合运行轻量 CLI agent，也具备继续尝试原始 Pi Agent 适配的基础。
-- git 已安装，网络到 DeepSeek、npmmirror、Gitee 都已连通，说明远程模型和包下载不是第一阻塞点。
+- git 已安装，网络到 DeepSeek、npmmirror、Gitee 均已连通，说明远程模型和包下载不是第一阻塞点。
 - npm 和 g++ 是当前最直接缺口。系统源有候选包，但 2026-06-05 直接执行 `sudo apt install npm g++` 失败：`npm` 依赖的 `node-gyp` 未能安装，`g++` 依赖的 `g++-8` 未能安装。
 - `g++-8` 的直接根因是 gcc 8 包版本不一致：已安装 `gcc-8-base` / `gcc-8` 为 `8.3.0-6.lne.vec.35`，但源中的 `g++-8` 需要严格匹配 `8.3.0-6.lnd.vec.44`，同时需要 `libstdc++-8-dev=8.3.0-6.lnd.vec.44`。
 - 强制安装 `g++-8=8.3.0-6.lnd.vec.44` 后继续失败，说明问题已经扩展到底层运行库和工具链依赖：`libc6`、`binutils`、`cpp-8`、`libgcc-8-dev`、`libgcc1`、`libstdc++6`、`libc6-dev`、`zlib1g` 等都可能需要随 `lnd` 版本线切换。
@@ -42,7 +42,7 @@ SSH access from Windows: C:\Windows\System32\OpenSSH\ssh.exe -i C:\Users\22826\.
 - `sudo apt full-upgrade -s` 的模拟结果风险过高：会升级 453 个包、新装 16 个包、卸载 10 个包，卸载列表包含 `loonggpu-compiler`、`loonggpu-compiler-dev`、`mate-desktop-environment`、`task-desktop`、`task-mate-desktop` 等。当前不建议通过 full-upgrade 解决 npm/g++。
 - APT 没有 held packages，但存在 `lne` 已安装包与 `lnd` 源候选包混用。许多 `lne` 包被 APT 视为当前候选或更高版本，导致安装 `lnd` 依赖链时需要跨版本线切换。
 - 下一步应保持系统稳定，寻找匹配当前 `lne` 系统的 g++/npm 包或离线方案；同时继续推进现有 Node 14 可运行的 `loong-agent`。
-- Node.js 版本仍停留在 v14.16.1，是否足够运行原始 Pi Agent 需要用原始项目的 package/engine 要求确认。
+- Node.js 版本仍停留在 v14.16.1，是否足够运行原始 Pi Agent，需要用原始项目的 package/engine 要求确认。
 - 是否适合在板端直接构建大型 TypeScript monorepo，需要在安装 npm/g++ 后用真实 install/build 日志判断。
 - 大型 npm install 应优先放到 `/data`，避免根分区 1.9 GiB 可用空间不足。
 - 不适合本机运行大模型服务。

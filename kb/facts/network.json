@@ -5,9 +5,18 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report", "board_profile"],
-    "sourcePaths": ["kb/environment_report.md", "kb/board_profile.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "environment_report",
+      "board_profile"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md",
+      "kb/board_profile.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md",
+      "kb/board_profile.md"
+    ],
     "unknowns": []
   },
   {
@@ -16,9 +25,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report"],
-    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -27,9 +42,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report"],
-    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -38,9 +59,15 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report"],
-    "sourcePaths": ["kb/environment_report.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
+    "sourceTopics": [
+      "environment_report"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md"
+    ],
     "unknowns": []
   },
   {
@@ -49,9 +76,20 @@
     "status": "measured",
     "confidence": "high",
     "last_updated": "2026-06-14",
-    "sourceTopics": ["environment_report", "troubleshooting"],
-    "sourcePaths": ["kb/environment_report.md", "kb/troubleshooting.md", "kb/loongson-2k1000-board-kb-preview/network_profile.md"],
-    "rawEvidence": ["kb/loongson-2k1000-board-kb-preview/raw/stage2/raw_stage2_readonly_collection_20260610.txt"],
-    "unknowns": ["eth1 root cause remains unresolved."]
+    "sourceTopics": [
+      "environment_report",
+      "troubleshooting"
+    ],
+    "sourcePaths": [
+      "kb/environment_report.md",
+      "kb/troubleshooting.md"
+    ],
+    "rawEvidence": [
+      "kb/environment_report.md",
+      "kb/troubleshooting.md"
+    ],
+    "unknowns": [
+      "eth1 root cause remains unresolved."
+    ]
   }
 ]

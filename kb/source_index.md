@@ -1,49 +1,44 @@
+
 # Source Index
 
 status: sourced
-last_updated: 2026-06-14
-sources: kb/loongson-2k1000-board-kb-preview/source_index.md; kb/loongson-2k1000-board-kb-preview/checksums.md; raw evidence in preview package
+last_updated: 2026-06-26
+sources: kb/source_index.md; kb/evidence_map.md; kb/maintenance_guide.md
 confidence: high
 
 ## Content
 
-Primary local source is the copied preview package:
+当前知识库采用 compact knowledge layout：只索引仓库内仍存在的 topic、维护文档、structured facts、playbook 和脚本说明。旧的 preview 与 phase5 raw 目录已不再作为活动来源路径。
 
-- `kb/loongson-2k1000-board-kb-preview/README.md`
-- `kb/loongson-2k1000-board-kb-preview/docs_index.md`
-- `kb/loongson-2k1000-board-kb-preview/stage_status.md`
-- `kb/loongson-2k1000-board-kb-preview/checksums.md`
-- `kb/loongson-2k1000-board-kb-preview/raw/README.md`
+Agent topic sources:
 
-Core adapted topic sources:
+- Board identity and summary: `kb/board_profile.md`, `kb/environment_report.md`.
+- Storage and boot: `kb/risk_list.md`, `kb/troubleshooting.md`, `kb/playbooks/boot-efi.md`, `kb/playbooks/gpt-warning.md`.
+- Network: `kb/environment_report.md`, `kb/playbooks/eth1.md`.
+- Peripheral profile: `kb/board_profile.md`, `kb/troubleshooting.md`, `kb/playbooks/audio.md`, `kb/playbooks/display.md`, `kb/playbooks/gpio-i2c-spi-uart.md`.
+- Software and package state: `kb/software_stack.md`, `kb/compatibility_matrix.md`, `kb/playbooks/npm.md`, `kb/playbooks/gpp.md`, `kb/playbooks/pip.md`, `kb/playbooks/containers.md`.
+- Risk and uncertainty: `kb/risk_list.md`, `kb/unknowns.md`, `kb/maintenance_guide.md`.
 
-- Board identity and summary: `board_profile.md`, `environment_report.md`, `hardware_profile.md`, `system_profile.md`.
-- Storage and boot: `storage_boot_profile.md`.
-- Network: `network_profile.md`.
-- Peripheral profile: `peripheral_profile.md`.
-- Software and package state: `software_stack.md`, `package_management.md`, `development_environment.md`, `compatibility_matrix.md`.
-- Risk and uncertainty: `risk_list.md`, `unknowns.md`.
+Structured sources:
 
-Raw evidence is staged by phase:
-
-- `raw/stage1/`: environment, dmesg, apt policy, pip status, network/software/peripheral notes, systemd failed details.
-- `raw/stage2/`: hardware, system, storage, network, and peripheral read-only collection.
-- `raw/stage3/`: software stack and package-management evidence.
-- `kb/raw/phase5/`: RPC failure diagnosis evidence copied from the phase 5 validation artifacts.
+- `kb/facts/environment.json`
+- `kb/facts/software_stack.json`
+- `kb/facts/network.json`
+- `kb/facts/storage_boot.json`
+- `kb/facts/peripherals.json`
+- `kb/facts/risks.json`
 
 Phase 5 RPC diagnosis sources:
 
-- `kb/raw/phase5/phase5-local-test-rpc.err`: local Codex sandbox `spawn EPERM` failure sample.
-- `kb/raw/phase5/phase5-board-test-rpc.out`: board-side `node scripts/test-rpc.js` output with six PASS cases.
-- `kb/raw/phase5/phase5-diagnosis-summary.md`: summarized failure pattern, fix record, board result, and pending local sandbox question.
-- `kb/playbooks/rpc-spawn-eperm.md`: reusable playbook for distinguishing local sandbox failure from board RPC status.
-
-External links listed in the preview `source_index.md` are auxiliary context only. The strongest evidence for the current board is the local raw command output and staged Markdown summaries.
+- `kb/playbooks/rpc-spawn-eperm.md`: reusable playbook for distinguishing local Codex sandbox failure from board RPC status.
+- `scripts/test-rpc.js`: RPC validation script referenced by the playbook.
+- `scripts/test-runtime.js`: runtime smoke test used for board-side validation.
 
 Integrity:
 
-- The copied preview package includes SHA256 checksums in `checksums.md`.
-- The current adapted topic files summarize the package; they are not a replacement for raw evidence when exact proof is needed.
+- `kb/index.json` must list only existing workspace-local paths.
+- Facts `sourcePaths` and `rawEvidence` must resolve to files that still exist in this repository.
+- Removed preview/raw paths must not be used as active evidence paths.
 
 ## Unknowns
 

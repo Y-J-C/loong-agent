@@ -42,5 +42,5 @@
 
 - `kb/risk_list.md`
 - `kb/troubleshooting.md`
-- `kb/loongson-2k1000-board-kb-preview/storage_boot_profile.md`
-- `kb/loongson-2k1000-board-kb-preview/raw/stage1/raw_dmesg_20260609.txt`
+- `kb/evidence_map.md`
+- `kb/evidence_map.md`

@@ -1,6 +1,0 @@
-journalctl -b --no-pager 执行结果：
-
-No journal files were opened due to insufficient permissions.
-[COMMAND_FAILED] journalctl -b --no-pager
-
-说明：当前 SSH 用户 loongson 权限不足，未能读取本次启动 journal。未使用 sudo，符合只读/不提权边界。

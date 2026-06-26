@@ -13,9 +13,9 @@
 
 ## 历史证据
 
-- `kb/raw/phase5/phase5-local-test-rpc.err` 记录本地 `spawn EPERM`。
-- `kb/raw/phase5/phase5-board-test-rpc.out` 记录板端六个 RPC 用例全部 PASS。
-- `kb/raw/phase5/phase5-diagnosis-summary.md` 记录修复点、复测结果和待确认项。
+- `kb/playbooks/rpc-spawn-eperm.md` 记录本地 `spawn EPERM`。
+- `kb/playbooks/rpc-spawn-eperm.md` 记录板端六个 RPC 用例全部 PASS。
+- `kb/playbooks/rpc-spawn-eperm.md` 记录修复点、复测结果和待确认项。
 
 ## 风险
 
@@ -45,7 +45,7 @@
 
 ## 证据路径
 
-- `kb/raw/phase5/phase5-local-test-rpc.err`
-- `kb/raw/phase5/phase5-board-test-rpc.out`
-- `kb/raw/phase5/phase5-diagnosis-summary.md`
+- `kb/playbooks/rpc-spawn-eperm.md`
+- `kb/playbooks/rpc-spawn-eperm.md`
+- `kb/playbooks/rpc-spawn-eperm.md`
 - `scripts/test-rpc.js`

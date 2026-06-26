@@ -12,13 +12,13 @@ A KB document used by maintainers rather than as the primary runtime answer sour
 
 A machine-readable JSON fact under `kb/facts/`. Each fact must carry source paths, raw evidence paths, status, confidence, and unknowns.
 
-## Preview doc
+## Archived source
 
-A historical curated document inside `kb/loongson-2k1000-board-kb-preview/`. Preview docs are archival sources and should not be modified during P6.
+A historical source category that is no longer part of the active compact knowledge layout. Do not use archived paths as active source paths.
 
 ## Raw evidence
 
-Original command output or logs, usually under `kb/loongson-2k1000-board-kb-preview/raw/`. Raw `.txt` files are excluded from default full-text search and are used for evidence review.
+Original command output or logs, usually under `kb/evidence_map.md`. Raw `.txt` files are excluded from default full-text search and are used for evidence review.
 
 ## Baseline
 

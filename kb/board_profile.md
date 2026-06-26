@@ -2,7 +2,7 @@
 
 status: measured
 last_updated: 2026-06-14
-sources: kb/loongson-2k1000-board-kb-preview/board_profile.md; raw/stage1 and raw/stage2 evidence in preview package
+sources: kb/board_profile.md; kb/environment_report.md; kb/source_index.md
 confidence: medium
 
 ## Content

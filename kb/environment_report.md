@@ -2,12 +2,12 @@
 
 status: measured
 last_updated: 2026-06-14
-sources: kb/loongson-2k1000-board-kb-preview/environment_report.md; kb/loongson-2k1000-board-kb-preview/raw/stage1/
+sources: kb/environment_report.md; kb/board_profile.md; kb/source_index.md
 confidence: high
 
 ## Content
 
-The preview knowledge package records a read-only environment snapshot for the current Loongson 2K1000 board.
+This topic records the retained read-only environment snapshot for the current Loongson 2K1000 board.
 
 Measured operating environment:
 
