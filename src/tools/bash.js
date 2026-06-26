@@ -4,6 +4,37 @@ const { runBashCommand } = require('../tools.js');
 const { createTool } = require('../tool-registry');
 const { optionalNumber, requireObject, requireString, summarize } = require('../tool-utils');
 
+const OBSERVATION_PREVIEW_LIMIT = 900;
+
+function commandOutput(result) {
+  return result && (result.output || [result.stdout, result.stderr].filter(Boolean).join('\n')) || '';
+}
+
+function outputPreview(text, limit) {
+  const value = String(text || '').replace(/\r/g, '');
+  const max = Math.max(120, limit || OBSERVATION_PREVIEW_LIMIT);
+  if (value.length <= max) return value;
+  return `... (${value.length - max} chars truncated)\n${value.slice(value.length - max)}`;
+}
+
+function commandObservation(result) {
+  const source = result || {};
+  const lines = [`$ ${source.command || ''}`];
+  if (source.background) {
+    lines.push(`background pid=${source.pid || 'unknown'} log=${source.logFile || ''} pidFile=${source.pidFile || ''}`.trim());
+  } else {
+    const output = commandOutput(source);
+    lines.push(output && output.trim() ? outputPreview(output, OBSERVATION_PREVIEW_LIMIT) : '(no output)');
+  }
+  if (source.exitCode !== undefined && source.exitCode !== null && Number(source.exitCode) !== 0) {
+    lines.push(`Command exited with code ${source.exitCode}`);
+  }
+  if (source.timedOut) lines.push('Command timed out.');
+  if (source.cancelled) lines.push('Command was cancelled.');
+  if (source.truncated) lines.push('Output was truncated; inspect fullOutputPath for the complete output.');
+  return lines.filter(Boolean).join('\n');
+}
+
 function optionalBoolean(input, name) {
   const objectError = requireObject(input || {});
   if (objectError) return objectError;
@@ -53,9 +84,7 @@ function commandEnvelope(result) {
       likelyLongRunning: result.likelyLongRunning === true,
       recoveryHint: result.recoveryHint || '',
     },
-    summary: result.background
-      ? `background command pid=${result.pid}, log=${result.logFile}, pidFile=${result.pidFile}`
-      : `command=${result.command}, exitCode=${result.exitCode}`,
+    summary: commandObservation(result),
     evidence: [{
       source: 'command',
       command: result.command,
@@ -116,24 +145,14 @@ function createBashToolDefinition() {
       pidFile: 'string optional; path for background pid file',
     },
     promptSnippet: 'Execute shell commands when needed. Use background=true for long-running loggers, monitors, servers, or loops.',
-    promptGuidelines:
+    promptGuidelines: [
       'Bash is a general shell. For while True loops, scripts with time.sleep, servers, monitors, loggers, or every-N-seconds collection, use background=true, then verify with process_status/process_logs/read.',
+      'For open/listening port or service exposure questions, prefer the read-only TCP recipe `ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "Neither ss nor netstat available"` and UDP recipe `ss -ulnp 2>/dev/null || netstat -ulnp 2>/dev/null || echo "No UDP info"` before answering.',
+      'Summarize port observations from the real command output into TCP listening ports, UDP sockets, externally exposed ports, local-only ports, and unknown/unresolved items. If ss/netstat are unavailable, say they could not confirm ports; do not say no ports are open. If a process name is absent, say the process name was not resolved.',
+    ].join(' '),
     validate: validateBash,
-    renderCall: (input) => `command=${input.command}${input.background ? ', background=true' : ''}`,
-    renderResult: (result) => summarize({
-      exitCode: result && result.exitCode,
-      background: result && result.background,
-      pid: result && result.pid,
-      logFile: result && result.logFile,
-      pidFile: result && result.pidFile,
-      stdout: result && result.stdout,
-      stderr: result && result.stderr,
-      output: result && result.output,
-      timedOut: result && result.timedOut,
-      cancelled: result && result.cancelled,
-      truncated: result && result.truncated,
-      warnings: result && result.warnings,
-    }, 700),
+    renderCall: (input) => `$ ${input.command}${input.background ? ' (background)' : ''}`,
+    renderResult: (result) => commandObservation(result && result.data ? result.data : result),
     execute: async (config, input, executionContext) => {
       const result = await runBashCommand(input || {}, config || {}, executionContext || {});
       return commandEnvelope(result);
@@ -142,6 +161,7 @@ function createBashToolDefinition() {
 }
 
 module.exports = {
+  commandObservation,
   commandEnvelope,
   createBashTool,
   createBashToolDefinition,

@@ -34,6 +34,7 @@ function commandSubjects(command) {
     subjects.push('hardware.i2c');
   }
   if (/bmp280|bme280|sensor|iio|hwmon/i.test(text)) subjects.push('hardware.sensor');
+  if (/\bss\s+-(?:t|u)lnp\b|\bnetstat\s+-(?:t|u)lnp\b/i.test(text)) subjects.push('network.ports');
   return unique(subjects);
 }
 
@@ -59,7 +60,11 @@ function classifyRequestContext(prompt) {
   const current = CURRENT_PATTERN.test(text);
   const historical = HISTORICAL_PATTERN.test(text);
   const domainSubjects = promptSubjects(text);
-  const defaultsToCurrent = !historical && domainSubjects.some((subject) => /^system\.|^hardware\./.test(subject));
+  if (/\u7aef\u53e3|\u76d1\u542c|\u5f00\u653e|\u66b4\u9732|\u670d\u52a1\u66b4\u9732|port|ports|listen|listening|socket|sockets|ss\s+-|netstat/i.test(text) &&
+      domainSubjects.indexOf('network.ports') < 0) {
+    domainSubjects.push('network.ports');
+  }
+  const defaultsToCurrent = !historical && domainSubjects.some((subject) => /^system\.|^hardware\.|^network\./.test(subject));
   let intent = 'unknown';
   if (current && historical) intent = 'mixed';
   else if (historical) intent = 'historical';

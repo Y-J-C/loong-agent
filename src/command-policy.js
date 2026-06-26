@@ -45,6 +45,23 @@ const COMMAND_POLICY_METADATA = [
   { command: 'i2cdetect -y 1', matchType: 'exact', category: 'board', level: 'L1', decision: 'allow', description: 'Scan I2C bus 1 for device addresses.', warnings: [I2C_SCAN_WARNING] },
 ];
 
+const READONLY_SHELL_RECIPES = [
+  {
+    command: 'ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "Neither ss nor netstat available"',
+    category: 'network',
+    level: 'L0',
+    description: 'List TCP listening ports with ss or netstat fallback.',
+    warnings: [],
+  },
+  {
+    command: 'ss -ulnp 2>/dev/null || netstat -ulnp 2>/dev/null || echo "No UDP info"',
+    category: 'network',
+    level: 'L0',
+    description: 'List UDP listening sockets with ss or netstat fallback.',
+    warnings: [],
+  },
+];
+
 const FORBIDDEN_EXAMPLES = [
   'apt upgrade',
   'apt install',
@@ -77,6 +94,19 @@ function findCommandMetadata(command) {
   }) || null;
 }
 
+function normalizeShellRecipe(command) {
+  return String(command || '')
+    .trim()
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, ' ');
+}
+
+function findReadonlyShellRecipe(command) {
+  const normalized = normalizeShellRecipe(command);
+  return READONLY_SHELL_RECIPES.find((item) => normalizeShellRecipe(item.command) === normalized) || null;
+}
+
 function evaluateCommand(inputCommand) {
   const command = String(inputCommand || '').trim();
   if (!command) {
@@ -87,6 +117,19 @@ function evaluateCommand(inputCommand) {
       metadata: null,
       reason: 'Missing command reference query.',
       warnings: [],
+    };
+  }
+
+  const recipe = findReadonlyShellRecipe(command);
+  if (recipe) {
+    return {
+      allowed: true,
+      policy: 'readonly_shell_recipe',
+      level: recipe.level,
+      category: recipe.category,
+      metadata: recipe,
+      reason: `Command is listed as a read-only shell recipe: ${recipe.command}`,
+      warnings: Array.isArray(recipe.warnings) ? recipe.warnings.slice() : [],
     };
   }
 
@@ -137,8 +180,10 @@ module.exports = {
   COMMAND_POLICY_METADATA,
   DANGEROUS_COMMAND_PATTERN,
   FORBIDDEN_EXAMPLES,
+  READONLY_SHELL_RECIPES,
   READONLY_COMMAND_METADATA,
   READONLY_COMMANDS,
   evaluateCommand,
+  findReadonlyShellRecipe,
   groupCommandPolicyLevels,
 };

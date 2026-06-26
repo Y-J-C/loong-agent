@@ -44,38 +44,69 @@ function compactDetail(detail) {
   return compact;
 }
 
+function networkPortRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((item) => {
+    const parts = [
+      item.protocol ? String(item.protocol).toUpperCase() : '',
+      item.port !== undefined ? `:${item.port}` : '',
+      item.localAddress || '',
+      item.state || '',
+      item.exposure || '',
+      item.program && item.program !== 'unknown' ? item.program : '进程名未解析',
+      item.pid ? `pid=${item.pid}` : '',
+      item.source ? `source=${item.source}` : '',
+    ].filter(Boolean);
+    return parts.join(' ');
+  });
+}
+
+function addObservationSections(lines, detail) {
+  if (!detail || typeof detail !== 'object') return;
+  const parsed = detail.parsed && typeof detail.parsed === 'object' ? detail.parsed : {};
+  if (detail.subject !== 'network.ports' && !parsed.tcp && !parsed.udp) return;
+  const summary = [];
+  if (Array.isArray(parsed.externalTcpPorts)) summary.push(`对外 TCP: ${parsed.externalTcpPorts.join(', ') || '未解析到'}`);
+  if (Array.isArray(parsed.localTcpPorts)) summary.push(`本地 TCP: ${parsed.localTcpPorts.join(', ') || '未解析到'}`);
+  if (Array.isArray(parsed.udpPorts)) summary.push(`UDP: ${parsed.udpPorts.join(', ') || '未解析到'}`);
+  addSection(lines, '结构化观察: network.ports', summary);
+  addSection(lines, 'TCP 解析结果', networkPortRows(parsed.tcp));
+  addSection(lines, 'UDP 解析结果', networkPortRows(parsed.udp));
+  if (detail.raw) addSection(lines, '原始输出', detail.raw);
+}
+
 function createToolDetailPanel(message) {
   const tool = message || {};
   const display = normalizeToolDisplayStatus(tool);
   const lines = [];
   const detail = tool.detail !== undefined ? tool.detail : {};
   const overview = [
-    `tool: ${tool.toolName || 'unknown'}`,
-    `status: ${display.status}`,
+    `工具: ${tool.toolName || 'unknown'}`,
+    `状态: ${display.status}`,
   ];
-  if (tool.durationMs !== undefined) overview.push(`duration: ${tool.durationMs}ms`);
-  if (tool.evidenceCount !== undefined) overview.push(`evidenceCount: ${tool.evidenceCount}`);
-  if (tool.warningCount !== undefined) overview.push(`warningCount: ${tool.warningCount}`);
-  addSection(lines, 'Overview', overview);
-  addSection(lines, 'Summary', summarizeToolMessage(tool));
-  if (tool.args) addSection(lines, 'Args', jsonLines(tool.args));
+  if (tool.durationMs !== undefined) overview.push(`耗时: ${tool.durationMs}ms`);
+  if (tool.evidenceCount !== undefined) overview.push(`证据数: ${tool.evidenceCount}`);
+  if (tool.warningCount !== undefined) overview.push(`警告数: ${tool.warningCount}`);
+  addSection(lines, '概览', overview);
+  addSection(lines, '摘要', summarizeToolMessage(tool));
+  if (tool.args) addSection(lines, '参数', jsonLines(tool.args));
   const resultLines = [];
   if (tool.resultSummary) resultLines.push(tool.resultSummary);
   const compact = compactDetail(detail);
   if (hasValue(compact)) resultLines.push(typeof compact === 'string' ? compact : jsonLines(compact));
-  addSection(lines, 'Result / Detail', resultLines);
+  addSection(lines, '结果 / 详情', resultLines);
+  addObservationSections(lines, detail);
   if (detail && typeof detail === 'object') {
-    addSection(lines, 'Evidence', detail.evidence !== undefined ? jsonLines(detail.evidence) : []);
-    addSection(lines, 'Warnings', detail.warnings !== undefined ? jsonLines(detail.warnings) : []);
-    addSection(lines, 'Recovery', detail.recovery !== undefined ? (
+    addSection(lines, '证据', detail.evidence !== undefined ? jsonLines(detail.evidence) : []);
+    addSection(lines, '警告', detail.warnings !== undefined ? jsonLines(detail.warnings) : []);
+    addSection(lines, '恢复建议', detail.recovery !== undefined ? (
       typeof detail.recovery === 'string' ? detail.recovery : jsonLines(detail.recovery)
     ) : []);
   }
-  if (!lines.length) addLine(lines, 'No tool detail.');
+  if (!lines.length) addLine(lines, '没有工具详情。');
   return {
     type: 'tool_detail',
-    title: `Tool Detail Viewer: ${tool.toolName || 'unknown'}`,
-    hint: 'Up/Down scroll - PageUp/PageDown page - /find search - Esc close',
+    title: `工具详情: ${tool.toolName || 'unknown'}`,
+    hint: '上/下滚动 - PageUp/PageDown 翻页 - /find 搜索 - Esc 关闭',
     scrollOffset: 0,
     selectedIndex: 0,
     sourceMessageId: tool.id || '',

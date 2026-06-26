@@ -164,7 +164,7 @@ function classifyToolApproval(config, action, tool) {
     const command = String(input.command || '').trim();
     const commandDecision = evaluateCommand(command);
     if (commandDecision.allowed) {
-      return allow(action, 'command_allowlist', commandDecision.reason, 'shell_readonly', {
+      return allow(action, commandDecision.policy || 'command_allowlist', commandDecision.reason, 'shell_readonly', {
         commandPolicy: commandDecision,
         warnings: commandDecision.warnings,
       });

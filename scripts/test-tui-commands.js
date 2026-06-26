@@ -202,10 +202,10 @@ test('find command searches active viewer without polluting main history search'
   context.state.search.query = 'disk';
 
   await handleCommand(context, '/details');
-  await handleCommand(context, '/find evidence');
+  await handleCommand(context, '/find 证据');
   assert(context.state.messages.length === beforeMessages, 'viewer find should not append messages');
   assert(context.state.search.query === 'disk', 'viewer find should not change main history search');
-  assert(context.state.activePanel.search && context.state.activePanel.search.query === 'evidence', 'viewer find should set panel search query');
+  assert(context.state.activePanel.search && context.state.activePanel.search.query === '证据', 'viewer find should set panel search query');
   assert(context.state.activePanel.search.matches.length > 0, 'viewer find should find evidence in panel lines');
 
   const firstIndex = context.state.activePanel.search.index;
@@ -296,8 +296,8 @@ test('help hotkeys and command panel use keybinding shortcut hints', async () =>
   assert(context.state.activePanel.items.some((item) => item.label.indexOf(shortcutHint('autocomplete', 'accept')) >= 0), 'hotkeys panel should use keybinding shortcut hints');
 
   await handleCommand(context, '/commands');
-  assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'confirm')} insert command`) >= 0, 'command panel enter hint should come from keybindings');
-  assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'close')} back`) >= 0, 'command panel escape hint should come from keybindings');
+  assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'confirm')} 插入命令`) >= 0, 'command panel enter hint should come from keybindings');
+  assert(context.state.activePanel.hint.indexOf(`${shortcutHint('panel', 'close')} 返回`) >= 0, 'command panel escape hint should come from keybindings');
 });
 
 test('hotkeys panel filters and closes without executing shortcuts', async () => {
@@ -684,9 +684,9 @@ test('bang command allows read-only shell and blocks general shell without appro
   await handleCommand(context, '! node src/index.js --help');
   await handleCommand(context, '!! node -e "process.exit(1)" || node -v');
   const text = context.state.messages.map((message) => message.text).join('\n');
-  assert(text.indexOf('! node src/index.js --help') >= 0, 'allowed command result was not displayed');
-  assert(text.indexOf('bash approval required') >= 0, 'compound command should require approval without handler');
-  assert(text.indexOf('exitCode:') >= 0, 'allowed command did not record exit code');
+  assert(text.indexOf('$ node src/index.js --help') >= 0, 'allowed command result was not displayed');
+  assert(text.indexOf('bash 需要确认') >= 0, 'compound command should require approval without handler');
+  assert(text.indexOf('$ node src/index.js --help') >= 0, 'allowed command did not use shell observation format');
   const stored = readSessionFromPath(session.filePath);
   const bashEvents = stored.events.filter((event) => event.type === 'bash_execution');
   assert(bashEvents.length === 1, 'unapproved bang command should not persist bash_execution event');

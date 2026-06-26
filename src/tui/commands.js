@@ -8,6 +8,7 @@ const { createSessionManager } = require('../session-manager');
 const { openJsonlSession, renderSessionAudit, renderSessionTrace, writeSessionExport } = require('../session');
 const { createDefaultToolRegistry } = require('../tool-registry');
 const { classifyToolApproval } = require('../tool-approval-policy');
+const { commandObservation } = require('../tools/bash');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
 const { addMessage, clearMessages } = require('./state');
 const {
@@ -44,7 +45,21 @@ function keyHint(namespace, action) {
 }
 
 function commandPanelHint() {
-  return `type filter - ${keyHint('panel', 'confirm')} insert command - ${keyHint('panel', 'close')} back`;
+  return `输入筛选 - ${keyHint('panel', 'confirm')} 插入命令 - ${keyHint('panel', 'close')} 返回`;
+}
+
+function localizeSafetyText(text) {
+  const value = String(text || '');
+  if (!value) return value;
+  if (/Dangerous shell command pattern matched\./i.test(value)) {
+    return '匹配到高风险 shell 命令模式。';
+  }
+  let next = value.replace(/^Command is blocked by safety policy:\s*/i, '该命令被安全策略拦截: ');
+  next = next.replace(/^Shell command requires approval:\s*/i, '该 shell 命令需要确认后才能执行: ');
+  next = next.replace(/^Command requires approval\./i, '该命令需要确认后才能执行。');
+  next = next.replace(/^Command blocked by policy\./i, '该命令被策略阻止。');
+  next = next.replace(/^Command denied\./i, '该命令已被拒绝。');
+  return next;
 }
 
 function hotkeysPanelHint() {
@@ -1300,7 +1315,7 @@ async function runBangCommand(context, text) {
   const excludeFromContext = raw.startsWith('!!');
   const command = raw.replace(/^!!?\s*/, '').trim();
   if (!command) {
-    addMessage(context.state, { type: 'error', text: 'Usage: ! <shell command>' });
+    addMessage(context.state, { type: 'error', text: '用法: ! <shell 命令>' });
     return;
   }
   try {
@@ -1311,10 +1326,10 @@ async function runBangCommand(context, text) {
     if (decision && decision.status === 'deny') {
       addMessage(context.state, {
         type: 'error',
-        text: section('bash blocked / bash command', [
+        text: section('bash 已阻止 / shell 命令', [
           `${excludeFromContext ? '!!' : '!'} ${command}`,
-          `policy: ${decision.policy}`,
-          decision.reason || 'Command blocked by policy.',
+          `策略: ${decision.policy}`,
+          localizeSafetyText(decision.reason || 'Command blocked by policy.'),
         ].filter(Boolean)),
       });
       return;
@@ -1323,10 +1338,10 @@ async function runBangCommand(context, text) {
       if (typeof context.requestToolApproval !== 'function') {
         addMessage(context.state, {
           type: 'error',
-          text: section('bash approval required / bash command', [
+          text: section('bash 需要确认 / shell 命令', [
             `${excludeFromContext ? '!!' : '!'} ${command}`,
-            `risk: ${decision.riskLevel}`,
-            decision.reason || 'Command requires approval.',
+            `风险: ${decision.riskLevel}`,
+            localizeSafetyText(decision.reason || 'Command requires approval.'),
           ].filter(Boolean)),
         });
         return;
@@ -1335,9 +1350,9 @@ async function runBangCommand(context, text) {
       if (!approvalResult || !approvalResult.approved) {
         addMessage(context.state, {
           type: 'error',
-          text: section('bash denied / bash command', [
+          text: section('bash 已拒绝 / shell 命令', [
             `${excludeFromContext ? '!!' : '!'} ${command}`,
-            decision.reason || 'Command denied.',
+            localizeSafetyText(decision.reason || 'Command denied.'),
           ].filter(Boolean)),
         });
         return;
@@ -1368,13 +1383,7 @@ async function runBangCommand(context, text) {
     }
     addMessage(context.state, {
       type: result.ok ? 'system' : 'error',
-      text: section('bash 执行 / bash command', [
-        `${excludeFromContext ? '!!' : '!'} ${command}`,
-        `exitCode: ${result.exitCode}`,
-        result.stdout ? `stdout:\n${result.stdout}` : '',
-        result.stderr ? `stderr:\n${result.stderr}` : '',
-        result.warnings && result.warnings.length ? `warnings:\n${result.warnings.join('\n')}` : '',
-      ].filter(Boolean)),
+      text: commandObservation(data),
     });
   } catch (error) {
     addMessage(context.state, {

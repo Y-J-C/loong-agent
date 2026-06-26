@@ -88,7 +88,7 @@ function formatStats(stats) {
     `toolErrors: ${stats.toolErrors}`,
     `assistantMessages: ${stats.assistantMessages}`,
     `queuedFollowUps: ${stats.queuedFollowUps}`,
-    stats.lastToolName ? `lastTool: ${stats.lastToolName} (${stats.lastToolStatus})` : 'lastTool: (none)',
+    stats.lastToolName ? `最近工具: ${stats.lastToolName} (${stats.lastToolStatus})` : '最近工具: 无',
     stats.lastExportPath ? `lastExport: ${stats.lastExportPath} (${stats.lastExportSize} bytes)` : 'lastExport: (none)',
     `provider/model: ${stats.provider}/${stats.model}`,
     `board: ${board.model || 'unknown'} - ${board.arch || 'unknown'} - node ${board.node || process.version}`,

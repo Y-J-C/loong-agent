@@ -33,11 +33,25 @@ function firstLines(text, limit) {
     .slice(0, limit || 2);
 }
 
+function tailLines(text, limit) {
+  const lines = String(text || '')
+    .replace(/\r/g, '')
+    .split(/\n/)
+    .map((line) => compactLine(line, 160))
+    .filter(Boolean);
+  const max = Math.max(1, limit || 5);
+  if (lines.length <= max) return { lines, folded: 0 };
+  return {
+    lines: lines.slice(lines.length - max),
+    folded: lines.length - max,
+  };
+}
+
 function evidenceSummary(result) {
   const evidence = Array.isArray(result && result.evidence) ? result.evidence.length : 0;
   const warnings = Array.isArray(result && result.warnings) ? result.warnings.length : 0;
   if (!evidence && !warnings) return '';
-  return `evidence=${evidence} warnings=${warnings}`;
+  return `证据=${evidence} 警告=${warnings}`;
 }
 
 function count(value) {
@@ -82,35 +96,54 @@ function failureReason(source) {
 }
 
 function nextStep(reason) {
-  if (reason === 'dependency') return 'check tool availability';
-  if (reason === 'permission') return 'check permissions; do not auto-escalate';
-  if (reason === 'network') return 'check network or remote service';
-  if (reason === 'architecture') return 'check LoongArch compatibility';
-  if (reason === 'code') return 'inspect stderr and failing command';
-  if (reason === 'policy') return 'review blocked operation';
+  if (reason === 'dependency') return '检查工具是否可用';
+  if (reason === 'permission') return '检查权限，不要自动提权';
+  if (reason === 'network') return '检查网络或远端服务';
+  if (reason === 'architecture') return '检查 LoongArch 兼容性';
+  if (reason === 'code') return '查看 stderr 和失败命令';
+  if (reason === 'policy') return '检查被阻止的操作';
   return '';
 }
 
-function bashSummary(result, fallback) {
+function reasonLabel(reason) {
+  if (reason === 'dependency') return '依赖';
+  if (reason === 'permission') return '权限';
+  if (reason === 'network') return '网络';
+  if (reason === 'architecture') return '架构';
+  if (reason === 'code') return '代码';
+  if (reason === 'policy') return '策略';
+  return reason;
+}
+
+function bashSummary(result, fallback, message) {
   const parsedFallback = asObject(fallback);
   const source = parsedFallback || asObject(result && result.resultSummary) || result || {};
   const lines = [];
-  if (fallback && !parsedFallback) lines.push(compactLine(fallback, 160));
-  if (source.exitCode !== undefined) lines.push(`exit=${source.exitCode}`);
-  if (source.background) lines.push('background');
-  if (source.timeout || source.timedOut) lines.push('timeout');
-  if (source.cancelled || source.canceled) lines.push('cancelled');
-  if (source.truncated) lines.push('truncated');
+  const args = message && message.args && typeof message.args === 'object' ? message.args : {};
+  const command = source.command || args.command || '';
+  if (command) lines.push(`$ ${command}`);
+  else if (fallback && !parsedFallback) lines.push(compactLine(fallback, 160));
+  if (source.background) lines.push('后台运行');
+  if (source.timeout || source.timedOut) lines.push('超时');
+  if (source.cancelled || source.canceled) lines.push('已取消');
+  if (source.truncated) lines.push('输出已截断');
   const output = source.stdout || source.output || source.stderr || '';
-  lines.push(...firstLines(output, 2));
+  const tail = tailLines(output, 4);
+  if (tail.folded) lines.push(`... (${tail.folded} 行已折叠，按详情展开)`);
+  lines.push(...tail.lines);
+  if (!output && fallback && !parsedFallback && command) lines.push(compactLine(fallback, 160));
+  if (!output && source.exitCode === 0 && !source.background) lines.push('(no output)');
+  if (source.exitCode !== undefined && Number(source.exitCode) !== 0) lines.push(`exit=${source.exitCode}`);
   const reason = failureReason(source);
   const next = nextStep(reason);
-  if (reason || next) lines.push([reason ? `reason=${reason}` : '', next ? `next=${next}` : ''].filter(Boolean).join(' '));
+  if (reason || next) lines.push([reason ? `原因=${reasonLabel(reason)}` : '', next ? `下一步=${next}` : ''].filter(Boolean).join(' '));
   if (source.blocked || source.policy || normalizeToolStatus(source.status) === 'policy_blocked') {
-    lines.push('not_executed');
+    lines.push('未执行');
   }
+  const duration = source.durationMs !== undefined ? source.durationMs : message && message.durationMs;
+  if (duration !== undefined) lines.push(`耗时 ${(Number(duration) / 1000).toFixed(1)}s`);
   if (!lines.length && fallback) lines.push(compactLine(fallback, 160));
-  return lines.filter(Boolean).slice(0, 3);
+  return lines.filter(Boolean).slice(0, 7);
 }
 
 function envSummary(result, fallback) {
@@ -153,11 +186,11 @@ function knowledgeSummary(result, fallback) {
   const risks = count(source.risks);
   const unknowns = count(source.unknowns);
   const playbooks = count(source.playbooks);
-  if (matches) lines.push(`matches=${matches}`);
+  if (matches) lines.push(`匹配=${matches}`);
   const context = [
-    risks ? `risks=${risks}` : '',
-    unknowns ? `unknowns=${unknowns}` : '',
-    playbooks ? `playbooks=${playbooks}` : '',
+    risks ? `风险=${risks}` : '',
+    unknowns ? `未知=${unknowns}` : '',
+    playbooks ? `排障步骤=${playbooks}` : '',
   ].filter(Boolean).join(' ');
   if (context) lines.push(context);
   const ev = evidenceSummary(source);
@@ -189,13 +222,13 @@ function genericSummary(result, fallback) {
   if (source && typeof source === 'object') {
     const lines = [];
     if (isRepeatedSuppressed(source, fallback)) lines.push('重复调用已跳过，沿用上一次工具结果');
-    if (source.blocked || source.policy || normalizeToolStatus(source.status) === 'policy_blocked') lines.push('not_executed');
+    if (source.blocked || source.policy || normalizeToolStatus(source.status) === 'policy_blocked') lines.push('未执行');
     if (source.error) lines.push(compactLine(source.error, 160));
     else if (source.summary) lines.push(compactLine(source.summary, 160));
     else if (source.resultSummary) lines.push(compactLine(source.resultSummary, 160));
     const reason = failureReason(source);
     const next = nextStep(reason);
-    if (reason || next) lines.push([reason ? `reason=${reason}` : '', next ? `next=${next}` : ''].filter(Boolean).join(' '));
+    if (reason || next) lines.push([reason ? `原因=${reasonLabel(reason)}` : '', next ? `下一步=${next}` : ''].filter(Boolean).join(' '));
     const ev = evidenceSummary(source);
     if (ev) lines.push(ev);
     if (lines.length) return lines.slice(0, 3);
@@ -211,7 +244,7 @@ function summarizeToolMessage(message) {
   const toolName = message && message.toolName ? String(message.toolName) : '';
   const result = message && message.detail && typeof message.detail === 'object' ? message.detail : {};
   const fallback = message && (message.summary || message.resultSummary) ? String(message.summary || message.resultSummary) : '';
-  if (toolName === 'bash') return bashSummary(result, fallback);
+  if (toolName === 'bash') return bashSummary(result, fallback, message);
   if (toolName === 'loong_storage_check') return storageSummary(result, fallback);
   if (toolName === 'loong_env_check' || toolName === 'runtime_health' || toolName === 'board_profile') {
     return envSummary(result, fallback);
@@ -231,10 +264,10 @@ function detailLines(message) {
     lines.push(`result: ${message.resultSummary}`);
   }
   if (result && typeof result === 'object') {
-    if (result.blocked || result.policy || normalizeToolStatus(result.status) === 'policy_blocked') lines.push('not_executed');
-    if (result.evidence !== undefined) lines.push(`evidence: ${JSON.stringify(result.evidence, redactJson, 2)}`);
-    if (result.warnings !== undefined) lines.push(`warnings: ${JSON.stringify(result.warnings, redactJson, 2)}`);
-    if (result.recovery !== undefined) lines.push(`recovery: ${typeof result.recovery === 'string' ? result.recovery : JSON.stringify(result.recovery, redactJson)}`);
+    if (result.blocked || result.policy || normalizeToolStatus(result.status) === 'policy_blocked') lines.push('未执行');
+    if (result.evidence !== undefined) lines.push(`证据: ${JSON.stringify(result.evidence, redactJson, 2)}`);
+    if (result.warnings !== undefined) lines.push(`警告: ${JSON.stringify(result.warnings, redactJson, 2)}`);
+    if (result.recovery !== undefined) lines.push(`恢复建议: ${typeof result.recovery === 'string' ? result.recovery : JSON.stringify(result.recovery, redactJson)}`);
   }
   if (result !== undefined && result !== null && result !== '') {
     if (typeof result === 'string') {
@@ -244,7 +277,7 @@ function detailLines(message) {
       delete compact.evidence;
       delete compact.warnings;
       delete compact.recovery;
-      if (Object.keys(compact).length) lines.push(`detail: ${JSON.stringify(compact, redactJson, 2)}`);
+      if (Object.keys(compact).length) lines.push(`详情: ${JSON.stringify(compact, redactJson, 2)}`);
     }
   }
   return lines;

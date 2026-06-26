@@ -8,6 +8,7 @@ const { createLoongStorageCheckToolDefinition } = require('../../tools/loong-sto
 const { loongBoardContextHook } = require('../../hooks/loong-board-context');
 const { longTaskBeforeToolCallHook, longTaskWorkflowHook } = require('../../hooks/long-task-workflow');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
+const { READONLY_SHELL_RECIPES } = require('../../command-policy');
 
 function resultData(result) {
   if (!result || typeof result !== 'object') return {};
@@ -458,6 +459,37 @@ function isCurrentDiskQuestion(text) {
   return context.isCurrent && context.currentSubjects.indexOf('system.disk') >= 0;
 }
 
+function isCurrentNetworkPortQuestion(text) {
+  const context = classifyRequestContext(text || '');
+  return context.isCurrent && context.currentSubjects.indexOf('network.ports') >= 0;
+}
+
+function latestCurrentNetworkPortObservations(state) {
+  return typedObservationsFromState(state).filter((item) => {
+    return item &&
+      item.subject === 'network.ports' &&
+      item.freshness === 'current' &&
+      item.parsed &&
+      typeof item.parsed === 'object';
+  });
+}
+
+function hasNetworkPortProtocol(state, protocol) {
+  const key = String(protocol || '').toLowerCase();
+  return latestCurrentNetworkPortObservations(state).some((item) => {
+    const ports = Array.isArray(item.parsed && item.parsed[key]) ? item.parsed[key] : [];
+    if (ports.length) return true;
+    return String(item.command || '').indexOf(`ss -${key === 'udp' ? 'u' : 't'}lnp`) >= 0;
+  });
+}
+
+function readonlyPortRecipe(protocol) {
+  const key = String(protocol || '').toLowerCase();
+  const flag = key === 'udp' ? '-ulnp' : '-tlnp';
+  const recipe = (READONLY_SHELL_RECIPES || []).find((item) => String(item.command || '').indexOf(`ss ${flag}`) >= 0);
+  return recipe && recipe.command ? recipe.command : '';
+}
+
 function isCurrentHardwareQuestion(text) {
   const context = classifyRequestContext(text || '');
   return context.isCurrent && contextHasSubject(context, ['hardware.i2c', 'hardware.sensor']);
@@ -482,6 +514,36 @@ function finalAnswerEvidenceGuard(context) {
       reason: 'missing_current_disk_evidence',
       action: { tool: 'loong_storage_check', input: {}, reason: 'Required current storage evidence before answering.' },
       message: 'The user asked for current disk/storage state. Call loong_storage_check first, then answer only with confirmed storage evidence and mark uncollected health/media details as pending confirmation.',
+    };
+  }
+  if (isCurrentNetworkPortQuestion(prompt) && !hasNetworkPortProtocol(state, 'tcp')) {
+    return {
+      reason: 'missing_current_network_port_tcp_evidence',
+      action: {
+        tool: 'bash',
+        input: { command: readonlyPortRecipe('tcp') },
+        reason: 'Required current TCP listening-port evidence before answering.',
+      },
+      message: [
+        'The user asked for current device port exposure.',
+        'Collect the read-only TCP listening-port recipe first.',
+        'Do not answer that no TCP ports are open unless the command output itself supports that conclusion.',
+      ].join('\n'),
+    };
+  }
+  if (isCurrentNetworkPortQuestion(prompt) && !hasNetworkPortProtocol(state, 'udp')) {
+    return {
+      reason: 'missing_current_network_port_udp_evidence',
+      action: {
+        tool: 'bash',
+        input: { command: readonlyPortRecipe('udp') },
+        reason: 'Required current UDP listening-port evidence before answering.',
+      },
+      message: [
+        'The user asked for current device port exposure.',
+        'Collect the read-only UDP listening-port recipe before finalizing.',
+        'If process names are missing, say they were not resolved; do not claim there is no service.',
+      ].join('\n'),
     };
   }
   if (isCurrentHardwareQuestion(prompt) && isI2cQuestion(prompt) && !hasCurrentObservationSubject(state, 'hardware.i2c')) {

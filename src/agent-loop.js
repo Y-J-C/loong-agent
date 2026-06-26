@@ -743,6 +743,96 @@ function memoryObservationFallbackSummary(observation) {
   return lines.join('\n');
 }
 
+function isCurrentNetworkPortQuestion(prompt) {
+  const context = requestContextForPrompt(prompt);
+  return context.isCurrent && context.currentSubjects.indexOf('network.ports') >= 0;
+}
+
+function currentNetworkPortObservations(state) {
+  return typedObservationsFromState(state).filter((item) => {
+    return item &&
+      item.subject === 'network.ports' &&
+      item.freshness === 'current' &&
+      item.parsed &&
+      typeof item.parsed === 'object';
+  });
+}
+
+function networkPortItems(observations, protocol) {
+  const key = String(protocol || '').toLowerCase();
+  const items = [];
+  for (const observation of observations || []) {
+    const rows = Array.isArray(observation.parsed && observation.parsed[key])
+      ? observation.parsed[key]
+      : [];
+    rows.forEach((row) => {
+      if (!row || row.port === undefined || row.port === null) return;
+      items.push(row);
+    });
+  }
+  const seen = {};
+  return items.filter((item) => {
+    const id = [
+      key,
+      item.localAddress || '',
+      item.port,
+      item.state || '',
+      item.program || '',
+      item.pid || '',
+    ].join('|');
+    if (seen[id]) return false;
+    seen[id] = true;
+    return true;
+  }).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+}
+
+function networkEvidenceHasPorts(observations) {
+  return networkPortItems(observations, 'tcp').length > 0 ||
+    networkPortItems(observations, 'udp').length > 0 ||
+    (observations || []).some((item) => /\b(LISTEN|UNCONN)\b/i.test(String(item.raw || '')));
+}
+
+function answerClaimsNoNetworkPorts(answer) {
+  const text = String(answer || '');
+  const noPort = /没有.*(?:端口|监听|服务)|无.*(?:端口|监听|服务)|未开放.*(?:端口|服务)|no\s+(?:open|listening)\s+ports?/i.test(text);
+  const noTcp = /没有.*TCP|无.*TCP|未开放.*TCP|no\s+tcp/i.test(text);
+  const noUdp = /没有.*UDP|无.*UDP|未开放.*UDP|no\s+udp/i.test(text);
+  return noPort || (noTcp && noUdp);
+}
+
+function formatPortRow(item) {
+  const address = item.localAddress || 'unknown';
+  const state = item.state || '';
+  const exposure = item.exposure || 'unknown';
+  const program = item.program && item.program !== 'unknown' ? item.program : '进程名未解析';
+  const pid = item.pid ? ` pid=${item.pid}` : '';
+  return `- ${item.port} ${address} ${state} ${exposure} ${program}${pid}`.replace(/\s+/g, ' ').trim();
+}
+
+function networkPortFallbackSummary(observations) {
+  const tcp = networkPortItems(observations, 'tcp');
+  const udp = networkPortItems(observations, 'udp');
+  const externalTcp = tcp.filter((item) => item.exposure === 'external').map((item) => item.port);
+  const localTcp = tcp.filter((item) => item.exposure === 'local').map((item) => item.port);
+  const udpPorts = udp.map((item) => item.port);
+  const commands = Array.from(new Set((observations || []).map((item) => item.command).filter(Boolean)));
+  return [
+    '当前设备端口开放情况以本轮只读命令输出为准。',
+    commands.length ? `证据命令：${commands.join('；')}` : '',
+    '',
+    'TCP 监听端口：',
+    tcp.length ? tcp.map(formatPortRow).join('\n') : '- 未从当前 TCP 输出解析到监听端口。',
+    '',
+    'UDP 端口：',
+    udp.length ? udp.map(formatPortRow).join('\n') : '- 未从当前 UDP 输出解析到端口。',
+    '',
+    `对外暴露 TCP 端口：${externalTcp.length ? externalTcp.join(', ') : '未解析到'}`,
+    `仅本地 TCP 端口：${localTcp.length ? localTcp.join(', ') : '未解析到'}`,
+    `UDP 端口：${udpPorts.length ? Array.from(new Set(udpPorts)).join(', ') : '未解析到'}`,
+    '说明：没有进程名时只能标记为“进程名未解析”，不能推断为没有服务。',
+  ].filter((line) => line !== '').join('\n');
+}
+
 function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
   const prompt = String(currentUserPrompt || (state && state.userPrompt) || '');
   const bindingGuard = validateFinalAnswerBinding(state, prompt, answerSummary);
@@ -776,6 +866,21 @@ function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
             : 'The answer did not include any memory value from the current free -h output.',
         };
       }
+    }
+  }
+  if (isCurrentNetworkPortQuestion(prompt)) {
+    const networkObservations = currentNetworkPortObservations(state);
+    if (networkEvidenceHasPorts(networkObservations) && answerClaimsNoNetworkPorts(answerSummary)) {
+      const fallbackSummary = networkPortFallbackSummary(networkObservations);
+      return {
+        reason: 'answer_claim_network_ports_conflict_with_evidence',
+        fallbackSummary,
+        message: [
+          'The answer claimed there are no open/listening ports, but current network.ports observations contain LISTEN or UNCONN rows.',
+          'Rewrite the answer from the TCP and UDP observation data. Do not say there are no ports when raw evidence lists ports.',
+          fallbackSummary,
+        ].join('\n'),
+      };
     }
   }
   if (!isBoardEnvironmentQuestion(prompt)) return null;

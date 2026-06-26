@@ -351,7 +351,9 @@ test('event adapter renders message_update and tool events', () => {
   handleAgentEvent(state, { type: 'tool_execution_end', loop: 1, toolName: 'runtime_health', resultSummary: 'ok' });
   handleAgentEvent(state, { type: 'agent_end', summary: 'done' });
   const output = renderTui(state, { columns: 100, rows: 30 });
-  assert(output.indexOf('assistant -> tool: runtime_health') >= 0, 'missing assistant update');
+  const hiddenToolCall = state.messages.find((message) => message.displayKind === 'tool_call');
+  assert(hiddenToolCall && hiddenToolCall.hidden === true, 'assistant tool call message should be hidden');
+  assert(output.indexOf('助手调用工具: runtime_health') < 0, 'assistant tool call should not be rendered by default');
   assert(output.indexOf('tool') >= 0 && output.indexOf('runtime_health') >= 0, 'missing tool render');
   assert(output.indexOf('done') >= 0, 'missing summary');
 });
@@ -371,7 +373,7 @@ test('event adapter hides provisional answer before internal retry', () => {
 test('renderer highlights user block and renders final answer as markdown flow', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.messages.push({ type: 'user', text: '你好' });
-  state.messages.push({ type: 'assistant', text: 'assistant -> tool: board_profile' });
+  state.messages.push({ type: 'assistant', text: '助手调用工具: board_profile' });
   state.messages.push({
     type: 'assistant_final',
     text: '最终回答\n第二行',
@@ -380,12 +382,12 @@ test('renderer highlights user block and renders final answer as markdown flow',
   const output = renderTui(state, { columns: 60, rows: 24 });
   assert(output.indexOf('\x1b[38;5;255m\x1b[48;5;237m  你好') >= 0, 'missing user content background');
   assert(output.split('\n').every((line) => stripAnsi(line).trim() !== '你'), 'user label should not be rendered');
-  assert(output.indexOf('\x1b[38;5;255m\x1b[48;5;237massistant -> tool') < 0, 'assistant tool line used user background');
+  assert(output.indexOf('\x1b[38;5;255m\x1b[48;5;237m助手调用工具') < 0, 'assistant tool line used user background');
   assert(output.indexOf('\x1b[38;5;16m\x1b[48;5;250m最终回答') < 0, 'final answer should not use gray background');
   assert(output.indexOf('最终回答') >= 0, 'missing final answer text');
-  assert(output.indexOf('status=ok source=model_answer evidence=0') < 0, 'ok final metadata should stay hidden by default');
+  assert(output.indexOf('状态=ok 来源=model_answer 证据=0') < 0, 'ok final metadata should stay hidden by default');
   state.expandedTools = true;
-  assert(renderTui(state, { columns: 60, rows: 24 }).indexOf('status=ok source=model_answer evidence=0') >= 0, 'expanded details should show final answer metadata');
+  assert(renderTui(state, { columns: 60, rows: 24 }).indexOf('状态=ok 来源=model_answer 证据=0') >= 0, 'expanded details should show final answer metadata');
   state.expandedTools = false;
   const rows = output.split('\n');
   const userRow = rows.findIndex((line) => line.indexOf('\x1b[38;5;255m\x1b[48;5;237m  你好') >= 0);
@@ -461,9 +463,32 @@ test('renderer uses pi-style tool blocks', () => {
     detail: { stdout: 'ok' },
   });
   const plain = stripAnsi(renderTui(state, { columns: 80, rows: 20 }));
-  assert(plain.indexOf('╭─ tool bash /') >= 0, 'missing tool block header');
+  assert(plain.indexOf('╭─ bash /') >= 0, 'missing bash tool block header');
   assert(plain.indexOf('│ listed files') >= 0, 'missing compact tool summary');
   assert(plain.indexOf('╰─') >= 0, 'missing tool block footer');
+});
+
+test('renderer shows bash output tail and folds long output by default', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.messages.push({
+    id: 'tool-one',
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    args: { command: 'ss -tlnp' },
+    detail: {
+      command: 'ss -tlnp',
+      exitCode: 0,
+      stdout: Array.from({ length: 10 }, (_, index) => `LISTEN ${index} 0.0.0.0:${3000 + index}`).join('\n'),
+      durationMs: 32,
+    },
+  });
+  const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
+  assert(plain.indexOf('$ ss -tlnp') >= 0, 'bash command line missing');
+  assert(plain.indexOf('行已折叠') >= 0, 'long bash output should show folded line count');
+  assert(plain.indexOf('LISTEN 9 0.0.0.0:3009') >= 0, 'bash output tail missing');
+  assert(plain.indexOf('LISTEN 0 0.0.0.0:3000') < 0, 'collapsed bash output should prefer tail');
+  assert(plain.indexOf('耗时 0.0s') >= 0, 'bash elapsed time missing');
 });
 
 test('renderer expands only selected tool detail by message state', () => {
@@ -529,7 +554,7 @@ test('renderer marks selected tool block', () => {
     detail: { stdout: 'selected detail' },
   });
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 20 }));
-  assert(plain.indexOf('> ╭─ tool bash') >= 0, 'selected tool marker missing');
+  assert(plain.indexOf('> ╭─ bash') >= 0, 'selected tool marker missing');
   assert(plain.indexOf(`${shortcutHint('tool', 'toggleCurrentDetail')} details`) >= 0, 'selected tool hint should come from keybindings');
 });
 
@@ -550,7 +575,8 @@ test('renderer keeps json tool summaries compact by default', () => {
   });
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
   assert(plain.indexOf('"exitCode"') < 0, 'raw json tool summary leaked in compact mode');
-  assert(plain.indexOf('exit=0 Mem: 3.7Gi') >= 0, 'compact tool summary missing useful stdout');
+  assert(plain.indexOf('$ free -h Mem: 3.7Gi') >= 0 || plain.indexOf('Mem: 3.7Gi') >= 0, 'compact tool summary missing useful stdout');
+  assert(plain.indexOf('证据=1') < 0, 'collapsed bash tool should not show evidence count');
 });
 
 test('renderer explains failed bash tool with reason and next step', () => {
@@ -571,8 +597,8 @@ test('renderer explains failed bash tool with reason and next step', () => {
   });
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
   assert(plain.indexOf('exit=127') >= 0, 'missing failed exit code');
-  assert(plain.indexOf('reason=dependency') >= 0, 'missing dependency failure classification');
-  assert(plain.indexOf('next=check tool availability') >= 0, 'missing actionable next step');
+  assert(plain.indexOf('原因=依赖') >= 0, 'missing dependency failure classification');
+  assert(plain.indexOf('下一步=检查工具是否可用') >= 0, 'missing actionable next step');
 });
 
 test('renderer shows specialized loong env tool summary', () => {
@@ -657,8 +683,8 @@ test('renderer summarizes knowledge tools without raw json', () => {
     },
   });
   const plain = stripAnsi(renderTui(state, { columns: 100, rows: 24 }));
-  assert(plain.indexOf('matches=2') >= 0, 'missing knowledge match count');
-  assert(plain.indexOf('playbooks=1') >= 0, 'missing playbook count');
+  assert(plain.indexOf('匹配=2') >= 0, 'missing knowledge match count');
+  assert(plain.indexOf('排障步骤=1') >= 0, 'missing playbook count');
   assert(plain.indexOf('"matches"') < 0, 'raw knowledge json leaked in compact mode');
 });
 
@@ -724,10 +750,10 @@ test('renderer shows tool policy error metadata', () => {
   const output = renderTui(state, { columns: 100, rows: 30 });
   assert(output.indexOf('policy_blocked') >= 0, 'missing policy status');
   assert(output.indexOf('12ms') >= 0 || output.indexOf('durationMs: 12') >= 0, 'missing duration');
-  assert(output.indexOf('evidence=1') >= 0, 'missing evidence count');
-  assert(output.indexOf('warnings=1') >= 0, 'missing warning count');
+  assert(output.indexOf('证据=1') >= 0, 'missing evidence count');
+  assert(output.indexOf('警告=1') >= 0, 'missing warning count');
   assert(output.indexOf('dangerous_command') >= 0, 'missing policy id');
-  assert(output.indexOf('not_executed') >= 0, 'blocked tool should say it was not executed');
+  assert(output.indexOf('未执行') >= 0, 'blocked tool should say it was not executed');
 });
 
 test('renderer downgrades repeat guard blocks to repeated suppressed', () => {
@@ -835,9 +861,9 @@ test('renderer expanded tool details label evidence warnings and recovery', () =
   });
   const plain = stripAnsi(renderTui(state, { columns: 110, rows: 32 }));
   assert(plain.indexOf('args:') >= 0, 'expanded detail missing args');
-  assert(plain.indexOf('evidence:') >= 0, 'expanded detail missing evidence label');
-  assert(plain.indexOf('warnings:') >= 0, 'expanded detail missing warnings label');
-  assert(plain.indexOf('recovery: check file path') >= 0, 'expanded detail missing recovery');
+  assert(plain.indexOf('证据:') >= 0, 'expanded detail missing evidence label');
+  assert(plain.indexOf('警告:') >= 0, 'expanded detail missing warnings label');
+  assert(plain.indexOf('恢复建议: check file path') >= 0, 'expanded detail missing recovery');
 });
 
 test('renderer shows slash command autocomplete', () => {
@@ -1054,11 +1080,11 @@ test('renderer shows polished viewer sections and position state', () => {
       recovery: 'Run read-only follow-up checks.',
     },
   });
-  assert(state.activePanel.lines.indexOf('Overview') >= 0, 'tool detail viewer missing Overview section');
-  assert(state.activePanel.lines.indexOf('Summary') >= 0, 'tool detail viewer missing Summary section');
-  assert(state.activePanel.lines.indexOf('Args') >= 0, 'tool detail viewer missing Args section');
-  assert(state.activePanel.lines.indexOf('Evidence') >= 0, 'tool detail viewer missing Evidence section');
-  assert(state.activePanel.lines.indexOf('Warnings') >= 0, 'tool detail viewer missing Warnings section');
+  assert(state.activePanel.lines.indexOf('概览') >= 0, 'tool detail viewer missing Overview section');
+  assert(state.activePanel.lines.indexOf('摘要') >= 0, 'tool detail viewer missing Summary section');
+  assert(state.activePanel.lines.indexOf('参数') >= 0, 'tool detail viewer missing Args section');
+  assert(state.activePanel.lines.indexOf('证据') >= 0, 'tool detail viewer missing Evidence section');
+  assert(state.activePanel.lines.indexOf('警告') >= 0, 'tool detail viewer missing Warnings section');
   let output = renderTui(state, { columns: 72, rows: 18 });
   let plain = stripAnsi(output);
   assert(plain.indexOf('/find search') >= 0, 'viewer hint should mention /find search');
@@ -1072,13 +1098,57 @@ test('renderer shows polished viewer sections and position state', () => {
   plain = stripAnsi(output);
   assert(plain.indexOf('bottom') >= 0, 'viewer should show bottom position state after clamp');
 
-  state.activePanel.search = { query: 'recovery', matches: [], index: 0, pendingJump: true, message: '' };
+  state.activePanel.search = { query: '恢复', matches: [], index: 0, pendingJump: true, message: '' };
   output = renderTui(state, { columns: 48, rows: 18 });
   plain = stripAnsi(output);
-  assert(plain.indexOf('match 1/1 "recovery"') >= 0, 'viewer should show search and position state together');
+  assert(plain.indexOf('match 1/1 "恢复"') >= 0, 'viewer should show search and position state together');
   output.split('\n').forEach((line) => {
     assert(visibleWidth(line) <= 48, `polished viewer search line exceeded width: ${visibleWidth(line)} ${stripAnsi(line)}`);
   });
+});
+
+test('tool detail viewer shows structured network port observations', () => {
+  const panel = createToolDetailPanel({
+    id: 'network-observation',
+    type: 'tool',
+    toolName: 'bash',
+    status: 'ok',
+    resultSummary: '$ ss -tlnp\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:*',
+    detail: {
+      subject: 'network.ports',
+      raw: 'LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nUNCONN 0 0 0.0.0.0:5353 0.0.0.0:*',
+      parsed: {
+        tcp: [{
+          protocol: 'tcp',
+          localAddress: '0.0.0.0',
+          port: 22,
+          state: 'LISTEN',
+          exposure: 'external',
+          program: 'sshd',
+          pid: 777,
+          source: 'ss',
+        }],
+        udp: [{
+          protocol: 'udp',
+          localAddress: '0.0.0.0',
+          port: 5353,
+          state: 'UNCONN',
+          exposure: 'external',
+          program: 'unknown',
+          pid: null,
+          source: 'ss',
+        }],
+        externalTcpPorts: [22],
+        localTcpPorts: [],
+        udpPorts: [5353],
+      },
+    },
+  });
+  const text = panel.lines.join('\n');
+  assert(text.indexOf('network.ports') >= 0, 'network observation section missing');
+  assert(text.indexOf(':22') >= 0 && text.indexOf('external') >= 0, 'TCP port detail missing');
+  assert(text.indexOf(':5353') >= 0, 'UDP port detail missing');
+  assert(text.indexOf('进程名未解析') >= 0, 'unresolved process label missing');
 });
 
 test('transcript viewer uses readable labels separators and hides internal messages', () => {

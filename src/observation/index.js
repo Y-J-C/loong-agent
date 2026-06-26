@@ -1,5 +1,11 @@
 'use strict';
 
+const {
+  commandPortProtocol,
+  networkPortObservationParsed,
+  parseNetworkPortOutput,
+} = require('./network-ports');
+
 function resultData(result) {
   if (!result || typeof result !== 'object') return {};
   return result.data && typeof result.data === 'object' ? result.data : result;
@@ -141,6 +147,25 @@ function commandObservation(action, result, context, command, raw, data, evidenc
   const tool = action && action.tool ? action.tool : '';
   const source = tool === 'bash' ? 'bash' : tool || 'tool';
   const exitCode = data && data.exitCode;
+  const portProtocol = commandPortProtocol(command);
+  if (portProtocol) {
+    const parsedOutput = parseNetworkPortOutput(raw, {
+      protocol: portProtocol,
+      source: /\bnetstat\b/i.test(command) ? 'netstat' : 'ss',
+    });
+    return makeObservation(context, {
+      subject: 'network.ports',
+      kind: 'network_ports',
+      freshness: 'current',
+      source,
+      tool,
+      command,
+      raw,
+      parsed: networkPortObservationParsed(parsedOutput),
+      exitCode,
+      evidence,
+    });
+  }
   if (/\bfree\s+-h\b/.test(String(command || '').toLowerCase())) {
     return makeObservation(context, {
       subject: 'system.memory',

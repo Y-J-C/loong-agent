@@ -87,7 +87,7 @@ function resolvePendingApproval(state, approved) {
   }
   addMessage(state, {
     type: approved ? 'system' : 'error',
-    text: approved ? 'Tool request approved for this run.' : 'Tool request denied.',
+    text: approved ? '已允许本次工具调用。' : '已拒绝工具调用。',
     ephemeral: true,
   });
   return true;

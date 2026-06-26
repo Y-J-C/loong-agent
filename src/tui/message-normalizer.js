@@ -42,8 +42,9 @@ function normalizeAssistantContent(content, options) {
     if (toolName && (!type || type === 'tool')) {
       return {
         displayKind: 'tool_call',
-        text: `assistant -> tool: ${toolName}`,
+        text: '',
         toolName,
+        hidden: true,
         complete: true,
       };
     }
@@ -63,7 +64,7 @@ function normalizeAssistantContent(content, options) {
   if (looksLikeStructuredJson(text) && (opts.streaming || opts.partial !== false)) {
     return {
       displayKind: 'streaming_structured',
-      text: 'receiving structured response...',
+      text: '正在接收结构化响应...',
       complete: false,
     };
   }

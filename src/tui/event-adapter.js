@@ -12,6 +12,7 @@ function assistantPatch(content, event) {
     text: normalized.text,
     displayKind: normalized.displayKind,
   };
+  if (normalized.hidden !== undefined) patch.hidden = Boolean(normalized.hidden);
   if (normalized.status || normalized.evidence) {
     patch.meta = {
       status: normalized.status || '',
@@ -87,6 +88,16 @@ function toolResultSummary(event) {
   const rawSummary = event.resultSummary || result.summary || result.error || '';
   const parsedSummary = parseMaybeJsonObject(rawSummary);
   const source = parsedSummary || result;
+  if (event.toolName === 'bash' && source && typeof source === 'object') {
+    const command = source.command || event.command || event.callSummary || '';
+    const output = source.stdout || source.output || source.stderr || '';
+    const lines = [];
+    if (command) lines.push(`$ ${command}`);
+    if (output) lines.push(output);
+    else if (source.exitCode === 0) lines.push('(no output)');
+    if (source.exitCode !== undefined && Number(source.exitCode) !== 0) lines.push(`Command exited with code ${source.exitCode}`);
+    if (lines.length) return compactText(lines.join('\n'), 220);
+  }
   if (source && typeof source === 'object') {
     if (source.error) return compactText(source.error, 180);
     const exit = source.exitCode !== undefined ? `exit=${source.exitCode}` : '';
@@ -99,7 +110,7 @@ function toolResultSummary(event) {
     if (Array.isArray(source.evidence) || Array.isArray(source.warnings)) {
       const evidence = Array.isArray(source.evidence) ? source.evidence.length : 0;
       const warnings = Array.isArray(source.warnings) ? source.warnings.length : 0;
-      return `evidence=${evidence} warnings=${warnings}`;
+      return `证据=${evidence} 警告=${warnings}`;
     }
   }
   return compactText(rawSummary, 180);

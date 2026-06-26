@@ -26,8 +26,10 @@ const { OutputAccumulator } = require('../src/runtime/output-accumulator');
 const { getShellConfig, killProcessTree, sanitizeBinaryOutput } = require('../src/runtime/shell');
 const { createSessionManager } = require('../src/session-manager');
 const { renderSessionTrace } = require('../src/session');
-const { COMMAND_POLICY_METADATA, COMMAND_POLICY_COMMANDS, evaluateCommand } = require('../src/command-policy');
+const { COMMAND_POLICY_METADATA, COMMAND_POLICY_COMMANDS, READONLY_SHELL_RECIPES, evaluateCommand } = require('../src/command-policy');
 const { classifyToolApproval } = require('../src/tool-approval-policy');
+const { commandEnvelope } = require('../src/tools/bash');
+const { parseNetworkPortOutput } = require('../src/observation/network-ports');
 const {
   createDefaultToolRegistry,
   createDefaultTools,
@@ -246,6 +248,10 @@ test('context selector classifies current historical and mixed requests', () => 
   const i2c = classifyRequestContext('current I2C situation');
   assert(i2c.intent === 'current', `current I2C intent mismatch: ${i2c.intent}`);
   assert(i2c.currentSubjects.indexOf('hardware.i2c') >= 0, 'current I2C subject missing');
+
+  const ports = classifyRequestContext('当前设备端口开放情况');
+  assert(ports.intent === 'current', `current ports intent mismatch: ${ports.intent}`);
+  assert(ports.currentSubjects.indexOf('network.ports') >= 0, 'current network ports subject missing');
 
   const historical = classifyRequestContext('上次 I2C 扫描结果');
   assert(historical.intent === 'historical', `historical I2C intent mismatch: ${historical.intent}`);
@@ -582,6 +588,63 @@ test('recordToolResult derives system.memory observation from free -h', () => {
   assert(state.messages.some((item) => item.role === 'observation' && item.subject === 'system.memory'), 'missing observation message');
 });
 
+test('network port parser extracts TCP UDP exposure and unresolved process names', () => {
+  const tcpOutput = [
+    'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
+    'LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=777,fd=3))',
+    'LISTEN 0 128 127.0.0.1:5432 0.0.0.0:*',
+    'LISTEN 0 128 [::]:80 [::]:*',
+  ].join('\n');
+  const udpOutput = [
+    'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
+    'UNCONN 0 0 0.0.0.0:5353 0.0.0.0:* users:(("avahi-daemon",pid=321,fd=12))',
+    'UNCONN 0 0 [::1]:631 [::]:*',
+  ].join('\n');
+  const tcp = parseNetworkPortOutput(tcpOutput, { protocol: 'tcp', source: 'ss' });
+  const udp = parseNetworkPortOutput(udpOutput, { protocol: 'udp', source: 'ss' });
+
+  assert(tcp.entries.length === 3, `expected 3 tcp entries, got ${tcp.entries.length}`);
+  assert(tcp.entries.some((entry) => entry.port === 22 && entry.exposure === 'external' && entry.program === 'sshd' && entry.pid === 777), 'missing external ssh entry');
+  assert(tcp.entries.some((entry) => entry.port === 5432 && entry.exposure === 'local' && entry.program === 'unknown'), 'missing local unresolved postgres entry');
+  assert(tcp.entries.some((entry) => entry.port === 80 && entry.address === '[::]' && entry.exposure === 'external'), 'missing external ipv6 wildcard entry');
+  assert(udp.entries.some((entry) => entry.port === 5353 && entry.protocol === 'udp' && entry.program === 'avahi-daemon'), 'missing udp mdns entry');
+  assert(udp.entries.some((entry) => entry.port === 631 && entry.exposure === 'local'), 'missing local udp entry');
+});
+
+test('deriveObservations parses network port bash recipes into structured observations', () => {
+  const command = 'ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "Neither ss nor netstat available"';
+  const output = [
+    'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
+    'LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=777,fd=3))',
+    'LISTEN 0 128 127.0.0.1:5432 0.0.0.0:*',
+    'LISTEN 0 128 *:80 *:*',
+  ].join('\n');
+  const observations = deriveObservations({
+    tool: 'bash',
+    input: { command },
+  }, {
+    ok: true,
+    data: {
+      command,
+      exitCode: 0,
+      stdout: output,
+      stderr: '',
+      output,
+      durationMs: 1,
+    },
+    evidence: [{ source: 'command', command, exitCode: 0 }],
+  }, { turn: 1, observationIndex: 0 });
+
+  assert(observations.length === 1, `expected one network observation, got ${observations.length}`);
+  assert(observations[0].subject === 'network.ports', `unexpected subject ${observations[0].subject}`);
+  assert(observations[0].kind === 'network_ports', `unexpected kind ${observations[0].kind}`);
+  assert(observations[0].parsed.tcp.length === 3, 'tcp entries missing from parsed observation');
+  assert(observations[0].parsed.externalTcpPorts.indexOf(22) >= 0, 'external tcp port 22 missing');
+  assert(observations[0].parsed.externalTcpPorts.indexOf(80) >= 0, 'external tcp port 80 missing');
+  assert(observations[0].parsed.localTcpPorts.indexOf(5432) >= 0, 'local tcp port 5432 missing');
+  assert(observations[0].raw.indexOf('LISTEN') >= 0, 'raw network evidence missing');
+});
+
 test('deriveObservations parses disk runtime i2c sensor filesystem and historical subjects', () => {
   const disk = deriveObservations({
     tool: 'bash',
@@ -873,6 +936,50 @@ test('prompt builder includes only selected current I2C context', () => {
   assert(prompt.indexOf('hardware.i2c') >= 0, 'prompt missing selected I2C observation');
   assert(prompt.indexOf('i2c-1') >= 0, 'prompt missing selected I2C raw output');
   assert(prompt.indexOf('MEMORY_SHOULD_NOT_APPEAR') < 0, 'prompt leaked unrelated memory observation');
+});
+
+test('prompt builder includes selected current network port observations', () => {
+  const messages = buildMessagesFromTurnContext({
+    userPrompt: '当前设备端口开放情况',
+    messages: [
+      {
+        role: 'observation',
+        turn: 1,
+        subject: 'system.memory',
+        freshness: 'current',
+        source: 'bash',
+        raw: 'MEMORY_SHOULD_NOT_APPEAR Mem: 1.4Gi',
+        parsed: { mem: { total: '1.4Gi' } },
+      },
+      {
+        role: 'observation',
+        turn: 2,
+        subject: 'network.ports',
+        freshness: 'current',
+        source: 'bash',
+        command: 'ss -tlnp',
+        raw: 'LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=777,fd=3))\nLISTEN 0 128 *:80 *:*',
+        parsed: {
+          tcp: [
+            { protocol: 'tcp', state: 'LISTEN', address: '0.0.0.0', port: 22, exposure: 'external', program: 'sshd', pid: 777 },
+            { protocol: 'tcp', state: 'LISTEN', address: '*', port: 80, exposure: 'external', program: 'unknown', pid: null },
+          ],
+          externalTcpPorts: [22, 80],
+          localTcpPorts: [],
+          udp: [],
+          externalUdpPorts: [],
+          localUdpPorts: [],
+        },
+      },
+    ],
+    tools: createDefaultTools(),
+    config: {},
+  });
+  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  assert(prompt.indexOf('network.ports') >= 0, 'network ports observation missing from prompt');
+  assert(prompt.indexOf('externalTcpPorts') >= 0, 'network ports parsed facts missing from prompt');
+  assert(prompt.indexOf('0.0.0.0:22') >= 0 && prompt.indexOf('*:80') >= 0, 'network ports raw evidence missing from prompt');
+  assert(prompt.indexOf('MEMORY_SHOULD_NOT_APPEAR') < 0, 'unrelated memory observation leaked into port prompt');
 });
 
 test('prompt builder keeps historical context separate from current observations', () => {
@@ -2710,14 +2817,42 @@ test('tool approval policy allows read-only tools asks for mutating tools and de
   const externalWriteDecision = classifyToolApproval(cfg, { tool: 'write', input: { path: path.join(os.tmpdir(), 'outside.txt'), content: 'x' } }, { safety: { readOnly: false } });
   const envDecision = classifyToolApproval(cfg, { tool: 'read', input: { path: '.env' } }, { safety: { readOnly: true } });
   const bashReadOnlyDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'free -h' } }, { safety: { readOnly: false } });
+  const bashTcpPortsDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "Neither ss nor netstat available"' } }, { safety: { readOnly: false } });
+  const bashUdpPortsDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'ss -ulnp 2>/dev/null || netstat -ulnp 2>/dev/null || echo "No UDP info"' } }, { safety: { readOnly: false } });
   const bashGeneralDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'node -e "console.log(1)"' } }, { safety: { readOnly: false } });
+  const bashNpmInstallDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'npm install || true' } }, { safety: { readOnly: false } });
+  const bashSystemctlDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'systemctl restart demo' } }, { safety: { readOnly: false } });
 
   assert(readDecision.status === 'allow', 'read should be allowed');
   assert(writeDecision.status === 'ask' && writeDecision.riskLevel === 'workspace_write', 'workspace write should ask');
   assert(externalWriteDecision.status === 'ask' && externalWriteDecision.riskLevel === 'external_path', 'external write should ask');
   assert(envDecision.status === 'deny' && envDecision.riskLevel === 'sensitive_path', 'sensitive path should be denied');
   assert(bashReadOnlyDecision.status === 'allow' && bashReadOnlyDecision.riskLevel === 'shell_readonly', 'allowlisted bash should be allowed');
+  assert(bashTcpPortsDecision.status === 'allow' && bashTcpPortsDecision.riskLevel === 'shell_readonly', 'TCP port recipe should be allowed');
+  assert(bashTcpPortsDecision.policy === 'readonly_shell_recipe', 'TCP port recipe policy missing');
+  assert(bashUdpPortsDecision.status === 'allow' && bashUdpPortsDecision.riskLevel === 'shell_readonly', 'UDP port recipe should be allowed');
+  assert(bashUdpPortsDecision.policy === 'readonly_shell_recipe', 'UDP port recipe policy missing');
   assert(bashGeneralDecision.status === 'ask' && bashGeneralDecision.riskLevel === 'shell_general', 'general bash should ask');
+  assert(bashNpmInstallDecision.status === 'ask', 'npm install fallback should still ask');
+  assert(bashSystemctlDecision.status === 'ask', 'systemctl restart should still ask');
+});
+
+test('bash command envelope uses Pi-style observation summary and keeps raw output', () => {
+  const result = commandEnvelope({
+    command: 'ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "Neither ss nor netstat available"',
+    exitCode: 0,
+    stdout: 'LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nLISTEN 0 128 127.0.0.1:5432 0.0.0.0:*\n',
+    stderr: '',
+    output: 'LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nLISTEN 0 128 127.0.0.1:5432 0.0.0.0:*\n',
+    durationMs: 8,
+  });
+  assert(result.ok === true, 'bash envelope should be ok');
+  assert(result.data.stdout.indexOf('0.0.0.0:22') >= 0, 'stdout should keep raw command output');
+  assert(result.data.output.indexOf('127.0.0.1:5432') >= 0, 'output should keep raw command output');
+  assert(result.summary.indexOf('$ ss -tlnp') === 0, 'summary should start with shell observation command');
+  assert(result.summary.indexOf('LISTEN 0 128 0.0.0.0:22') >= 0, 'summary should include output preview');
+  assert(result.summary.indexOf('command=') < 0, 'summary should not prefer internal command field');
+  assert(result.summary.indexOf('evidence') < 0 && result.summary.indexOf('warnings') < 0, 'summary should not expose internal evidence/warnings');
 });
 
 test('agent session default safety requires approval for general bash command content', async () => {
@@ -3575,6 +3710,117 @@ test('tool prompt includes prompt metadata', async () => {
   assert(prompt.indexOf('Guidance:') >= 0, 'missing promptGuidelines in tool prompt');
   assert(prompt.indexOf('runtime_health') >= 0, 'missing runtime_health tool');
   assert(prompt.indexOf('session_summary') >= 0, 'missing session_summary tool');
+});
+
+function readonlyPortRecipe(protocol) {
+  const flag = protocol === 'udp' ? '-ulnp' : '-tlnp';
+  const recipe = READONLY_SHELL_RECIPES.find((item) => String(item.command || '').indexOf(`ss ${flag}`) >= 0);
+  return recipe && recipe.command;
+}
+
+test('current port questions force TCP and UDP readonly evidence before final answer', async () => {
+  const tcpCommand = readonlyPortRecipe('tcp');
+  const udpCommand = readonlyPortRecipe('udp');
+  const tcpOutput = [
+    'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
+    'LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=777,fd=3))',
+  ].join('\n');
+  const udpOutput = [
+    'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
+    'UNCONN 0 0 0.0.0.0:5353 0.0.0.0:* users:(("avahi-daemon",pid=321,fd=12))',
+  ].join('\n');
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-port-evidence-guard',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls < 3) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当前设备没有任何开放端口。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '根据当前只读命令证据：TCP 22 对外监听，UDP 5353 可见。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-port-evidence-guard'), {
+    maxLoops: 6,
+    streaming: false,
+  }), {
+    session: null,
+    registry: createFakeBashRegistry({
+      [tcpCommand]: tcpOutput,
+      [udpCommand]: udpOutput,
+    }),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当前设备端口开放情况');
+  const tcpStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash' && event.args && event.args.command === tcpCommand);
+  const udpStart = events.find((event) => event.type === 'tool_execution_start' && event.toolName === 'bash' && event.args && event.args.command === udpCommand);
+  const tcpGuard = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_network_port_tcp_evidence');
+  const udpGuard = events.find((event) => event.type === 'turn_end' && event.reason === 'missing_current_network_port_udp_evidence');
+  assert(tcpGuard && udpGuard, 'port evidence guard did not request both TCP and UDP evidence');
+  assert(tcpStart && udpStart, 'port evidence guard did not execute both readonly recipes');
+  assert(/22/.test(result.summary) && /5353/.test(result.summary), 'final port answer did not use collected TCP and UDP evidence');
+});
+
+test('current port answer conflicting with observations is retried or replaced', async () => {
+  const tcpCommand = readonlyPortRecipe('tcp');
+  const udpCommand = readonlyPortRecipe('udp');
+  const tcpOutput = [
+    'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
+    'LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=777,fd=3))',
+    'LISTEN 0 128 127.0.0.1:5432 0.0.0.0:*',
+  ].join('\n');
+  const udpOutput = 'UNCONN 0 0 0.0.0.0:5353 0.0.0.0:* users:(("avahi-daemon",pid=321,fd=12))';
+  let calls = 0;
+  registerProvider({
+    name: 'test-current-port-consistency-guard',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({ type: 'tool', tool: 'bash', input: { command: tcpCommand }, reason: 'tcp ports' });
+      }
+      if (calls === 2) {
+        return JSON.stringify({ type: 'tool', tool: 'bash', input: { command: udpCommand }, reason: 'udp ports' });
+      }
+      if (calls === 3) {
+        return JSON.stringify({
+          type: 'answer',
+          answer: '当前设备未开放任何 TCP 或 UDP 监听端口。',
+          status: 'ok',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '纠正：当前证据显示 TCP 22 对外监听，TCP 5432 仅本地监听，UDP 5353 可见。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-current-port-consistency-guard'), {
+    maxLoops: 6,
+    streaming: false,
+  }), {
+    session: null,
+    registry: createFakeBashRegistry({
+      [tcpCommand]: tcpOutput,
+      [udpCommand]: udpOutput,
+    }),
+  });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当前设备端口开放情况');
+  const retry = events.find((event) => event.type === 'turn_end' && event.reason === 'answer_claim_network_ports_conflict_with_evidence');
+  assert(retry, 'network port consistency guard did not reject contradictory final answer');
+  assert(!/未开放任何/.test(result.summary), 'contradictory no-port answer was accepted');
+  assert(/22/.test(result.summary) && /5353/.test(result.summary), 'corrected network port answer missing observed ports');
 });
 
 async function main() {

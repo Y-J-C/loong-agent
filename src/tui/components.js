@@ -210,6 +210,29 @@ function divider(theme, width, active) {
   return paint(theme, active ? 'editorActiveBorder' : 'editorBorder', hline(width));
 }
 
+function localizeApprovalText(text) {
+  const value = String(text || '');
+  if (!value) return value;
+  if (/Dangerous shell command pattern matched\./i.test(value)) {
+    return '匹配到高风险 shell 命令模式。';
+  }
+  let next = value.replace(/^Command is blocked by safety policy:\s*/i, '该命令被安全策略拦截: ');
+  next = next.replace(/^Shell command requires approval:\s*/i, '该 shell 命令需要确认后才能执行: ');
+  next = next.replace(/^Stopping a process requires approval\./i, '停止进程需要确认。');
+  next = next.replace(/^Tool may modify workspace files:\s*/i, '该工具可能修改工作区文件: ');
+  next = next.replace(/^Tool is not read-only:\s*/i, '该工具不是只读工具: ');
+  next = next.replace(/^Sensitive path is blocked:\s*/i, '敏感路径已被阻止: ');
+  return next;
+}
+
+function localizeOperation(text) {
+  const value = String(text || '');
+  if (value.indexOf('command=') === 0) return `命令: ${value.slice('command='.length)}`;
+  if (value.indexOf('path=') === 0) return `路径: ${value.slice('path='.length)}`;
+  if (value.indexOf('tool=') === 0) return `工具: ${value.slice('tool='.length)}`;
+  return value;
+}
+
 function listPosition(start, end, total) {
   if (!total) return '0/0';
   return `${start + 1}-${end}/${total}`;
@@ -416,9 +439,9 @@ class FinalAnswerComponent {
     );
     if (showMeta && (meta.status || meta.completionSource || meta.evidenceCount !== undefined)) {
       const parts = [];
-      if (meta.status) parts.push(`status=${meta.status}`);
-      if (meta.completionSource) parts.push(`source=${meta.completionSource}`);
-      if (meta.evidenceCount !== undefined) parts.push(`evidence=${meta.evidenceCount}`);
+      if (meta.status) parts.push(`状态=${meta.status}`);
+      if (meta.completionSource) parts.push(`来源=${meta.completionSource}`);
+      if (meta.evidenceCount !== undefined) parts.push(`证据=${meta.evidenceCount}`);
       output.push(paint(theme, 'dim', fitLine(parts.join(' '), width)));
     }
 
@@ -475,17 +498,19 @@ class ToolMessageComponent {
     const statusToken = isError ? 'toolError' : message.done ? 'toolOk' : 'toolRunning';
     const blockToken = selected ? 'selectedBg' : isError ? 'toolErrorBg' : message.done ? 'toolSuccessBg' : 'toolPendingBg';
     const displayStatus = toolStatusLabel(rawStatus, message.isError);
+    const toolName = message.toolName || 'unknown';
+    const isBashTool = toolName === 'bash';
     const meta = [];
     if (message.durationMs !== undefined) meta.push(`${message.durationMs}ms`);
-    if (message.evidenceCount !== undefined) meta.push(`evidence=${message.evidenceCount}`);
-    if (message.warningCount !== undefined) meta.push(`warnings=${message.warningCount}`);
+    if ((!isBashTool || expanded) && message.evidenceCount !== undefined) meta.push(`证据=${message.evidenceCount}`);
+    if ((!isBashTool || expanded) && message.warningCount !== undefined) meta.push(`警告=${message.warningCount}`);
     const suffix = meta.length ? ` ${meta.join(' ')}` : '';
-    const toolName = message.toolName || 'unknown';
     const lines = [];
 
     const marker = selected ? '> ' : '';
     const toolHint = selected ? `  ${hint('tool', 'toggleCurrentDetail')} details / /more all` : '';
-    lines.push(fullLine(`${marker}${GLYPHS.toolTop} tool ${toolName} / ${displayStatus}${suffix}${toolHint}`, width, theme, blockToken));
+    const title = isBashTool ? 'bash' : `tool ${toolName}`;
+    lines.push(fullLine(`${marker}${GLYPHS.toolTop} ${title} / ${displayStatus}${suffix}${toolHint}`, width, theme, blockToken));
     if (isError) {
       const errorDetail = message.errorType ? `policy: ${message.errorType}` : `error: ${rawStatus}`;
       lines.push(fullLine(`${GLYPHS.toolMid}${errorDetail}`, width, theme, 'toolError'));
@@ -497,7 +522,7 @@ class ToolMessageComponent {
     if (!expanded) {
       const summaryLines = (compactSummary.length ? compactSummary : [redactSensitive(message.summary || message.resultSummary || '')])
         .filter(Boolean)
-        .slice(0, 3);
+        .slice(0, isBashTool ? 7 : 3);
       for (const line of summaryLines) {
         const wrapped = wrapToWidth(line, Math.max(1, width - visibleWidth(GLYPHS.toolMid))).slice(0, 1);
         for (const part of wrapped) lines.push(paint(theme, statusToken, fitLine(`${GLYPHS.toolMid}${part}`, width)));
@@ -514,7 +539,7 @@ class ToolMessageComponent {
     }
 
     lines.push(paint(theme, 'toolBorder', fitLine(`${GLYPHS.toolBottom}${hline(Math.max(1, width - visibleWidth(GLYPHS.toolBottom)))}`, width)));
-    return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : 5, width, theme);
+    return clampLines(lines, expanded ? MAX_TOOL_DETAIL_LINES + 10 : (isBashTool ? 9 : 5), width, theme);
     });
   }
 
@@ -740,19 +765,19 @@ class ApprovalComponent {
     const maxRows = slotMaxRows(context);
     const lines = [
       divider(theme, width, false),
-      paint(theme, 'header', fitLine('Tool approval required', width)),
-      paint(theme, 'dim', fitLine('[y] allow once  [n] deny  [Esc] deny', width)),
-      paint(theme, 'muted', fitLine(`tool: ${approval.tool || 'unknown'}`, width)),
-      paint(theme, 'muted', fitLine(`risk: ${approval.riskLevel || 'unknown'}`, width)),
+      paint(theme, 'header', fitLine('需要确认工具调用', width)),
+      paint(theme, 'dim', fitLine('[y] 允许本次  [n] 拒绝  [Esc] 拒绝', width)),
+      paint(theme, 'muted', fitLine(`工具: ${approval.tool || 'unknown'}`, width)),
+      paint(theme, 'muted', fitLine(`风险: ${approval.riskLevel || 'unknown'}`, width)),
     ];
     const operation = approval.operation || '';
     if (operation) {
-      lines.push(...renderBlock(`operation: ${operation}`, width, theme, 'accent', { maxLines: 3 }));
+      lines.push(...renderBlock(`操作: ${localizeOperation(operation)}`, width, theme, 'accent', { maxLines: 3 }));
     }
-    const reason = approval.reason || 'This operation may change files, processes, network, or board state.';
+    const reason = localizeApprovalText(approval.reason || '该操作可能修改文件、进程、网络或开发板状态。');
     lines.push(...renderBlock(reason, width, theme, 'dim', { maxLines: 3 }));
     if (approval.warnings && approval.warnings.length) {
-      lines.push(...renderBlock(`warnings: ${approval.warnings.join('; ')}`, width, theme, 'error', { maxLines: 2 }));
+      lines.push(...renderBlock(`警告: ${approval.warnings.map(localizeApprovalText).join('; ')}`, width, theme, 'error', { maxLines: 2 }));
     }
     lines.push(divider(theme, width, false));
     return lines.slice(0, maxRows);
