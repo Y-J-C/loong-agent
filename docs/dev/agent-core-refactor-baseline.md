@@ -116,7 +116,7 @@ Baseline 执行时间：2026-06-27。
 | `node scripts/test-runtime.js` | PASS | 全部用例通过 |
 | `node scripts/test-cli-smoke.js` | PASS | 全部用例通过 |
 | `node scripts/test-rpc.js` | PASS | 首次在沙箱内因 `spawn EPERM` 失败；沙箱外重跑通过 |
-| `node scripts/board-smoke.js --no-model` | PASS | `passed=3 failed=0 skipped=16` |
+| `node scripts/board-smoke.js --no-model` | PASS | 核心无模型检查通过，模型相关或依赖模型能力的项目按预期跳过；`passed=3 failed=0 skipped=16` |
 
 `board-smoke --no-model` 生成报告：
 

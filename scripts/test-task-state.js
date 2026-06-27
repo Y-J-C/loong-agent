@@ -11,6 +11,7 @@ const {
 } = require('../src/session');
 const {
   addBlocker,
+  addEvidence,
   addObservation,
   completeStep,
   createTaskState,
@@ -114,6 +115,23 @@ test('addObservation appends observation without mutating previous state', () =>
   assert.strictEqual(state.observations.length, 0);
   assert.strictEqual(next.observations.length, 1);
   assert.strictEqual(next.observations[0].summary, 'Node runtime is available.');
+});
+
+test('addEvidence appends evidence without mutating previous state', () => {
+  const state = createTaskState({ goal: 'collect evidence' });
+  const next = addEvidence(state, {
+    kind: 'command',
+    title: 'node -v',
+    summary: 'Node runtime is available.',
+  });
+
+  assert.strictEqual(state.evidence.length, 0);
+  assert.strictEqual(next.evidence.length, 1);
+  assert.strictEqual(next.evidence[0].kind, 'command');
+  assert.strictEqual(next.evidence[0].title, 'node -v');
+  assert.strictEqual(next.evidence[0].summary, 'Node runtime is available.');
+  assert.ok(next.evidence[0].id);
+  assert.ok(next.evidence[0].createdAt);
 });
 
 test('summarizeTaskState includes goal steps blockers and conclusion', () => {
