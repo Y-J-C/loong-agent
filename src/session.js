@@ -380,6 +380,20 @@ function collectTimeline(session) {
           blockers: event.state && event.state.blockers || [],
         },
       });
+    } else if (event.type === 'finish_check') {
+      timeline.push({
+        type: 'finish_check',
+        title: `Finish check: ${event.result && event.result.finishMode || 'unknown'}`,
+        timestamp: event.timestamp,
+        status: event.result && event.result.canFinish ? 'ok' : 'incomplete',
+        detail: {
+          taskId: event.taskId || '',
+          canFinish: Boolean(event.result && event.result.canFinish),
+          finishMode: event.result && event.result.finishMode || '',
+          reason: event.result && event.result.reason || '',
+          missingCriteria: event.result && event.result.missingCriteria || [],
+        },
+      });
     } else if (event.type === 'model_usage') {
       timeline.push({
         type: 'model_usage',
@@ -1242,6 +1256,12 @@ function renderSessionTrace(session) {
     } else if (event.type === 'task_state_update') {
       const state = event.state || {};
       lines.push(`task_state_update ${state.taskId || event.taskId || ''} phase=${state.phase || 'unknown'} goal=${state.goal || ''}`);
+    } else if (event.type === 'finish_check') {
+      const check = event.result || {};
+      const missing = Array.isArray(check.missingCriteria) && check.missingCriteria.length
+        ? ` missing=${check.missingCriteria.join(',')}`
+        : '';
+      lines.push(`finish_check ${event.taskId || ''} mode=${check.finishMode || 'unknown'} canFinish=${Boolean(check.canFinish)}${missing}`);
     } else if (event.type === 'model_usage') {
       const usage = event.usage || {};
       lines.push(`model_usage #${event.loop || ''} ${event.provider || ''}/${event.model || ''} [${usage.status || 'unknown'} total=${usage.totalTokens || 0}${event.fallbackUsed ? ' fallback' : ''}${event.nativeThinking ? ' nativeThinking' : ''}${event.reasoningContentAvailable ? ' reasoningContentAvailable' : ''}]`);

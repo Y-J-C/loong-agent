@@ -49,6 +49,25 @@ function hasObservationSupport(state) {
   });
 }
 
+function observationCategoryMatches(blocker, observation) {
+  if (!blocker || !observation || !blocker.category) return false;
+  if (observation.likelyCategory === blocker.category) return true;
+  const signal = Array.isArray(observation.signal) ? observation.signal[0] : '';
+  const signalCategory = {
+    exec_format_error: 'architecture',
+    unsupported_arch: 'architecture',
+    permission_denied: 'permission',
+    dns_failure: 'network',
+    connection_refused: 'service',
+    port_in_use: 'service',
+    no_such_file: 'missing_file',
+    command_not_found: 'missing_dependency',
+    module_not_found: 'missing_dependency',
+    shared_library_missing: 'runtime',
+  };
+  return signalCategory[signal] === blocker.category;
+}
+
 function hasProjectStructure(text) {
   return hasAny(text, [
     /project structure/,
@@ -143,10 +162,15 @@ function blockingErrorPresent(state) {
 
 function supportedBlocker(state) {
   const evidenceIds = new Set((state.evidence || []).map((item) => item.id).filter(Boolean));
+  const observationIds = new Set((state.observations || []).map((item) => item.id || item.observationId).filter(Boolean));
   return (state.blockers || []).find((blocker) => {
-    const hasEvidenceId = (blocker.evidenceIds || []).some((id) => evidenceIds.has(id));
-    const hasSupport = hasEvidenceId || hasEvidence(state) || hasObservationSupport(state);
-    return hasSupport && Boolean(blocker.suggestedMinimalNextStep);
+    if (!blocker.suggestedMinimalNextStep) return false;
+    const blockerEvidenceIds = blocker.evidenceIds || [];
+    if (blockerEvidenceIds.length) return blockerEvidenceIds.some((id) => evidenceIds.has(id));
+    const blockerObservationIds = blocker.observationIds || [];
+    if (blockerObservationIds.length) return blockerObservationIds.some((id) => observationIds.has(id));
+    return hasObservationSupport(state) &&
+      (state.observations || []).some((observation) => observationCategoryMatches(blocker, observation));
   });
 }
 

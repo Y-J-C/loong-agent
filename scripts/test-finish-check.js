@@ -89,6 +89,58 @@ test('exec_format_error can finish as architecture blocker with evidence', () =>
   assert.match(result.reason, /architecture|blocker/i);
 });
 
+test('blocker with unrelated evidence is not treated as supported', () => {
+  let state = projectState();
+  state = addEvidence(state, {
+    kind: 'file',
+    title: 'package.json',
+    summary: 'Project manifest exists.',
+  });
+  state = addBlocker(state, {
+    category: 'architecture',
+    summary: 'Binary architecture is unsupported.',
+    evidenceIds: ['evidence-does-not-exist'],
+    suggestedMinimalNextStep: 'Check uname -m and file ./bin/app.',
+  });
+
+  const result = checkFinishCriteria(state);
+  assert.strictEqual(result.canFinish, false);
+  assert.notStrictEqual(result.finishMode, 'blocked');
+});
+
+test('blocker with matching evidenceIds can finish as blocked', () => {
+  let state = projectState();
+  state = addEvidence(state, {
+    kind: 'command',
+    title: 'file ./bin/app',
+    summary: 'file reports x86-64 binary on LoongArch board.',
+  });
+  state = addBlocker(state, {
+    category: 'architecture',
+    summary: 'Binary architecture is unsupported.',
+    evidenceIds: [state.evidence[0].id],
+    suggestedMinimalNextStep: 'Check uname -m and file ./bin/app.',
+  });
+
+  const result = checkFinishCriteria(state);
+  assert.strictEqual(result.canFinish, true);
+  assert.strictEqual(result.finishMode, 'blocked');
+});
+
+test('blocker category can be supported by matching observation category', () => {
+  let state = projectState();
+  state = addObservation(state, parseObservation('cannot execute binary file: Exec format error'));
+  state = addBlocker(state, {
+    category: 'architecture',
+    summary: 'Binary architecture is unsupported.',
+    suggestedMinimalNextStep: 'Check uname -m and file ./bin/app.',
+  });
+
+  const result = checkFinishCriteria(state);
+  assert.strictEqual(result.canFinish, true);
+  assert.strictEqual(result.finishMode, 'blocked');
+});
+
 test('complete project run check evidence can finish successfully', () => {
   const result = checkFinishCriteria(addSuccessEvidence(projectState()));
 

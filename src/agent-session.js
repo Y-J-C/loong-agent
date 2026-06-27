@@ -2,8 +2,13 @@
 
 const { createAgent } = require('./agent-runtime');
 const { createEventBus } = require('./event-bus');
+const { checkFinishCriteria } = require('./agent/finish-check');
 const { classifyTaskType } = require('./agent/task-classifier');
 const { createProjectRunCheckSteps } = require('./agent/planners/project-run-check');
+const {
+  advanceProjectRunCheckSteps,
+  ingestToolExecutionEnd,
+} = require('./agent/project-run-check-runtime');
 const {
   addBlocker,
   createTaskState,
@@ -136,6 +141,33 @@ function createAgentSession(config, options) {
     await bus.emit(event);
   }
 
+  async function emitFinishCheck(taskState, finishCheck) {
+    if (!taskState || !finishCheck) return;
+    const event = {
+      type: 'finish_check',
+      taskId: taskState.taskId,
+      result: finishCheck,
+    };
+    await appendSessionEvent(event);
+    await bus.emit(event);
+  }
+
+  function conclusionFromFinishCheck(result, modelSummary) {
+    const finishCheck = result || {};
+    if (!finishCheck.canFinish) {
+      const missing = (finishCheck.missingCriteria || []).join(', ') || 'unknown';
+      return `Current project run check is incomplete; missing criteria: ${missing}. ${finishCheck.reason || ''}`.trim();
+    }
+    if (finishCheck.finishMode === 'blocked') {
+      return `Project run check is blocked. ${finishCheck.reason || ''}`.trim();
+    }
+    if (finishCheck.finishMode === 'partial') {
+      const missing = (finishCheck.missingCriteria || []).join(', ');
+      return `Project run check is partially complete${missing ? `; remaining criteria: ${missing}` : ''}. ${finishCheck.reason || ''}`.trim();
+    }
+    return modelSummary || finishCheck.reason || 'Project run check completed successfully.';
+  }
+
   function createPromptTaskState(text) {
     const goal = String(text || '').trim() || 'Continue current agent run.';
     const taskType = classifyTaskType(goal, 'agent_run');
@@ -184,6 +216,19 @@ function createAgentSession(config, options) {
   agent.subscribe(async (event) => {
     await appendSessionEvent(event);
     await bus.emit(event);
+    const agentState = agent.getState();
+    if (
+      agentState.taskState &&
+      agentState.taskState.taskType === 'project_run_check' &&
+      event &&
+      event.type === 'tool_execution_end'
+    ) {
+      const nextTaskState = ingestToolExecutionEnd(agentState.taskState, event);
+      if (nextTaskState !== agentState.taskState) {
+        agentState.taskState = nextTaskState;
+        await emitTaskStateUpdate(agentState.taskState);
+      }
+    }
   });
 
   async function prompt(text) {
@@ -192,12 +237,19 @@ function createAgentSession(config, options) {
     await emitTaskStateUpdate(state.taskState);
     try {
       const result = await agent.prompt(text);
-      state.taskState = setConclusion(
-        updateTaskPhase(state.taskState, 'finish'),
-        result && result.summary ? result.summary : 'Agent run completed.'
-      );
+      let finalSummary = result && result.summary ? result.summary : 'Agent run completed.';
+      let finishCheck = null;
+      if (state.taskState && state.taskState.taskType === 'project_run_check') {
+        finishCheck = checkFinishCriteria(state.taskState);
+        await emitFinishCheck(state.taskState, finishCheck);
+        state.taskState = advanceProjectRunCheckSteps(state.taskState, { finishCheck });
+        finalSummary = conclusionFromFinishCheck(finishCheck, finalSummary);
+      }
+      state.taskState = setConclusion(updateTaskPhase(state.taskState, 'finish'), finalSummary);
       await emitTaskStateUpdate(state.taskState);
       return Object.assign({}, result, {
+        summary: finalSummary,
+        finishCheck,
         session: session && {
           id: session.id,
           path: session.filePath,
