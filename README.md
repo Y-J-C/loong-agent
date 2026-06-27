@@ -87,6 +87,7 @@ Model request audit:
 - `redacted` stores sanitized prompt messages. `full` stores complete prompt messages only when `LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG=1`.
 - Do not share `runs/*.jsonl` generated in `full` mode because it may contain secrets or private prompt content.
 - `LOONG_AGENT_MODEL_REQUEST_MAX_CHARS=50000` limits persisted message content in `redacted` and `full` events.
+- Field semantics for `charStats` and `contextStats` are documented in `docs/research/session-system-contract.md`.
 
 说明：
 

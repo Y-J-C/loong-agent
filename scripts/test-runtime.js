@@ -1066,8 +1066,47 @@ test('prompt builder exposes model request audit metadata without changing messa
   assert(metadata.contextStats.contextBudgetChars === 1234, 'context budget mismatch');
   assert(metadata.contextStats.selectedConversationMessageCount === 1, 'conversation count mismatch');
   assert(metadata.contextStats.selectedObservationMessageCount === 1, 'observation count mismatch');
+  assert(metadata.contextStats.llmContextMessageCount <= metadata.contextStats.selectedContextMessageCount, 'llm context count should not exceed selected count');
   assert(metadata.tokenEstimate.method === 'chars_div_4', 'token estimate method mismatch');
   assert(metadata.tokenEstimate.approxPromptTokens > 0, 'missing token estimate');
+});
+
+test('prompt builder distinguishes selected context from LLM transcript context count', () => {
+  const subjects = [
+    'system.memory',
+    'system.disk',
+    'system.runtime',
+    'hardware.i2c',
+    'hardware.sensor',
+    'network.ports',
+    'process',
+    'filesystem',
+  ];
+  const contextMessages = [];
+  subjects.forEach((subject) => {
+    contextMessages.push({
+      role: 'observation',
+      subject,
+      freshness: 'current',
+      content: `${subject} first`,
+      turn: contextMessages.length + 1,
+    });
+    contextMessages.push({
+      role: 'observation',
+      subject,
+      freshness: 'current',
+      content: `${subject} second`,
+      turn: contextMessages.length + 1,
+    });
+  });
+  const built = buildMessagesWithAuditMetadata({
+    userPrompt: 'current memory disk runtime i2c sensor port process file status',
+    messages: contextMessages,
+    tools: createDefaultTools(),
+  });
+  const stats = built.metadata.contextStats;
+  assert(stats.selectedContextMessageCount > stats.llmContextMessageCount, 'selected context should exceed LLM transcript context');
+  assert(stats.llmContextMessageCount === 12, 'LLM transcript context should be capped at 12');
 });
 
 test('finish event order includes turn_end', async () => {
@@ -1213,12 +1252,51 @@ test('model request redaction and truncation protect message content', () => {
   assert(event.messages.some((message) => message.truncated), 'truncated message marker missing');
 });
 
+test('model request redaction covers common secret text patterns across the full event', () => {
+  const cases = [
+    ['authorization bearer', 'authSecretValue123', (secret) => `Authorization: Bearer ${secret}`],
+    ['openai env key', 'openaiSecretValue123', (secret) => `OPENAI_API_KEY=${secret}`],
+    ['deepseek env key', 'deepseekSecretValue123', (secret) => `DEEPSEEK_API_KEY=${secret}`],
+    ['password assignment', 'passwordSecretValue123', (secret) => `password=${secret}`],
+    ['Chinese password', 'cnPasswordSecret123', (secret) => `密码：${secret}`],
+    ['Chinese api key', 'cnApiSecretValue123', (secret) => `API密钥=${secret}`],
+    ['access key', 'accessSecretValue123', (secret) => `access_key=${secret}`],
+    ['client secret', 'clientSecretValue123', (secret) => `client_secret=${secret}`],
+    ['sk token', 'sk-test-secret-123456789', (secret) => `token text ${secret}`],
+    ['natural language api key', 'naturalSecretValue123', (secret) => `api key is ${secret}`],
+  ];
+  cases.forEach(([name, secret, buildContent]) => {
+    const event = createModelRequestEvent({
+      provider: 'openai-compatible',
+      providerProfile: 'deepseek',
+      model: 'mock',
+      recordModelRequest: 'redacted',
+      modelRequestMaxChars: 50000,
+    }, 1, [
+      { role: 'system', content: buildContent(secret) },
+      { role: 'user', content: `ordinary context for ${name}` },
+    ], {
+      messageCount: 2,
+      roles: ['system', 'user'],
+      charStats: { systemChars: 10, userChars: 20, totalChars: 30 },
+      contextStats: { contextBudgetChars: 1800 },
+      tokenEstimate: { approxPromptTokens: 8, method: 'chars_div_4' },
+    });
+    const raw = JSON.stringify(event);
+    assert(event.mode === 'redacted', `${name}: event should stay redacted`);
+    assert(event.redaction && event.redaction.enabled === true, `${name}: redaction should be enabled`);
+    assert(raw.indexOf(secret) < 0, `${name}: redacted event should not contain original secret`);
+    assert(raw.indexOf('[redacted]') >= 0, `${name}: redacted marker should be present`);
+  });
+});
+
 test('model request full mode requires unsafe config and otherwise uses redacted mode', () => {
   const secret = 'sk-full-secret-123456789';
   const full = createModelRequestEvent({
     provider: 'openai-compatible',
     model: 'mock',
     recordModelRequest: 'full',
+    allowUnsafeModelRequestLog: true,
     modelRequestMaxChars: 50000,
   }, 1, [{ role: 'user', content: `normal content ${secret}` }], {
     charStats: { totalChars: 30 },
@@ -1228,13 +1306,15 @@ test('model request full mode requires unsafe config and otherwise uses redacted
   const redacted = createModelRequestEvent({
     provider: 'openai-compatible',
     model: 'mock',
-    recordModelRequest: normalizeRecordModelRequest('full', false),
+    recordModelRequest: 'full',
+    allowUnsafeModelRequestLog: false,
     modelRequestMaxChars: 50000,
   }, 1, [{ role: 'user', content: `normal content ${secret}` }], {
     charStats: { totalChars: 30 },
   });
-  assert(redacted.mode === 'redacted', 'unauthorized full config should normalize to redacted');
-  assert(JSON.stringify(redacted).indexOf(secret) < 0, 'normalized redacted full should not leak secret');
+  assert(redacted.mode === 'redacted', 'unauthorized full config should downgrade inside event creation');
+  assert(redacted.redaction && redacted.redaction.enabled === true, 'downgraded full mode should enable redaction');
+  assert(JSON.stringify(redacted).indexOf(secret) < 0, 'downgraded full should not leak secret');
 });
 
 test('model usage marks supported provider without token report as pending confirmation', async () => {

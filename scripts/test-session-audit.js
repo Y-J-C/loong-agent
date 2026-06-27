@@ -12,6 +12,7 @@ const {
   collectModelUsage,
   createJsonlSession,
   readSessionFromPath,
+  renderSessionAudit,
   renderSessionHtml,
   renderSessionMarkdown,
   renderSessionReplay,
@@ -542,6 +543,29 @@ test('exports include model request summary without treating it as replay eviden
   assert(markdown.indexOf('approxPrompt=8') >= 0, 'markdown missing request token estimate');
   assert(html.indexOf('Model requests') >= 0, 'html missing model request summary');
   assert(replay.indexOf('model_request') >= 0, 'replay should show model request audit line');
+});
+
+test('old v2 session without model request remains auditable and exportable', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'old-without-model-request', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'old-without-model-request', rootSessionId: 'old-without-model-request', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'old request', provider: 'openai-compatible', providerProfile: 'deepseek', model: 'mock' }),
+    JSON.stringify({ type: 'turn_start', loop: 1 }),
+    JSON.stringify({ type: 'message_start', role: 'user', loop: 1, content: 'old request' }),
+    JSON.stringify({ type: 'message_end', role: 'user', loop: 1, content: 'old request' }),
+    JSON.stringify({ type: 'model_usage', loop: 1, provider: 'openai-compatible', model: 'mock', usage: { promptTokens: 3, completionTokens: 4, totalTokens: 7, status: 'reported', note: '' } }),
+    JSON.stringify({ type: 'turn_end', loop: 1, status: 'ok' }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const audit = auditSession(session);
+  assert(audit.ok, 'old v2 session should audit successfully');
+  assert(audit.stats.modelRequestCount === 0, 'old v2 session should not require model_request');
+  assert(audit.stats.modelUsage >= 1, 'old v2 session should keep model usage stats');
+  assert(renderSessionAudit(session).indexOf('Model request events: 0') >= 0, 'audit render should include zero model request count');
+  assert(renderSessionReplay(session).indexOf('model_usage') >= 0, 'replay should still include model usage');
+  assert(renderSessionMarkdown(session).indexOf('Model Usage / Provider') >= 0, 'markdown export should still render');
+  assert(renderSessionHtml(session).indexOf('Model Usage / Provider') >= 0, 'html export should still render');
 });
 
 test('session writer keeps usage token counts while redacting secrets', () => {

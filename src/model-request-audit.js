@@ -7,9 +7,12 @@ function redactString(value) {
   return String(value || '')
     .replace(/\b(Authorization)\s*[:=]\s*(?:Bearer|Basic)?\s*["']?[A-Za-z0-9._~+/=-]+/gi, `$1: ${REDACTION}`)
     .replace(/\b(x-api-key|api[_-]?key|token|password|secret|credential)\s*[:=]\s*["']?[^"'\s\\]+/gi, `$1=${REDACTION}`)
+    .replace(/\b(api\s*key|apikey|access[_-]?key|client[_-]?secret)\s*(?:is|[:=])\s*["']?[^"'\s\\]+/gi, `$1=${REDACTION}`)
     .replace(/\b(OPENAI_API_KEY|DEEPSEEK_API_KEY|LOONG_AGENT_API_KEY)\s*=\s*["']?[^"'\s\\]+/gi, `$1=${REDACTION}`)
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, `$1 ${REDACTION}`)
     .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, REDACTION)
+    .replace(/(API密钥|api密钥|访问密钥|密钥|密码|令牌)\s*[:：=]\s*["']?[^\s"']+/gi, `$1=${REDACTION}`)
+    .replace(/(API密钥|api密钥|访问密钥)\s*[:：=]\s*["']?[^\s"']+/gi, `$1=${REDACTION}`)
     .replace(/(密钥|密码|令牌|API Key)\s*[:：=]\s*["']?[^\s"']+/gi, `$1: ${REDACTION}`);
 }
 
@@ -64,7 +67,10 @@ function limitMessages(messages, maxChars) {
 function createModelRequestEvent(config, loop, messages, metadata) {
   config = config || {};
   metadata = metadata || {};
-  const mode = config.recordModelRequest || 'summary';
+  let mode = config.recordModelRequest || 'summary';
+  if (mode === 'full' && config.allowUnsafeModelRequestLog !== true) {
+    mode = 'redacted';
+  }
   if (mode === 'off') return null;
   const event = {
     type: 'model_request',

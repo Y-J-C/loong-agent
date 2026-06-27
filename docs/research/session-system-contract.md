@@ -150,6 +150,7 @@ Agent Loop 在模型调用前追加 `model_request`，用于审计最终 prompt 
   contextStats: {
     contextBudgetChars: 1800,
     selectedContextMessageCount: 0,
+    llmContextMessageCount: 0,
     selectedConversationMessageCount: 0,
     selectedObservationMessageCount: 0,
     selectedBashFallbackMessageCount: 0
@@ -162,6 +163,10 @@ Agent Loop 在模型调用前追加 `model_request`，用于审计最终 prompt 
 ```
 
 `summary` 模式不得包含 `messages`。`redacted` 模式可以包含脱敏后的 `messages`。`full` 模式会持久化完整 prompt 内容，必须显式设置 `LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG=1`，对应 `runs/*.jsonl` 不应对外分享。
+
+`charStats.kbSummaryChars` 表示原始 `kbSummary` 内容长度。`charStats.controlledContextChars` 表示最终注入 user prompt 的 `Controlled context / knowledge additions` 块长度，包含标题、`kbSummary` 正文和不确定性提示。因此 `controlledContextChars` 通常会大于 `kbSummaryChars`；二者不是两个独立上下文来源，不能简单相加归因。
+
+`contextStats.selectedContextMessageCount` 表示 context selector 选出的消息数。`contextStats.llmContextMessageCount` 表示经过 `convertToLlm(..., { maxMessages: 12 })` 后实际进入 recent conversation transcript 的消息数，可能小于前者。
 
 `model_request` 是审计/导出事件，不得作为工具结果 replay，不得作为 evidence，不得改变下一轮上下文选择。
 

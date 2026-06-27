@@ -177,9 +177,10 @@ function buildMessagesWithAuditMetadata(turnContext) {
     conversationMessages: 4,
   });
   const selectedMessages = selectedGroups.selected || [];
-  const transcriptText = summarizeMessages(convertToLlm(selectedMessages, {
+  const llmContextMessages = convertToLlm(selectedMessages, {
     maxMessages: 12,
-  }));
+  });
+  const transcriptText = summarizeMessages(llmContextMessages);
   const parts = [{
     name: 'currentRequest',
     content: `Current user request:\n${turnContext.userPrompt || 'Continue from current context.'}`,
@@ -264,6 +265,7 @@ function buildMessagesWithAuditMetadata(turnContext) {
             ? turnContext.config.contextBudgetChars
             : 1800,
         selectedContextMessageCount: selectedMessages.length,
+        llmContextMessageCount: llmContextMessages.length,
         selectedConversationMessageCount: (selectedGroups.conversation || []).length,
         selectedObservationMessageCount: (selectedGroups.observations || []).length,
         selectedBashFallbackMessageCount: (selectedGroups.bashFallback || []).length,
