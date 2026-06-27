@@ -394,6 +394,23 @@ function collectTimeline(session) {
           missingCriteria: event.result && event.result.missingCriteria || [],
         },
       });
+    } else if (event.type === 'model_request') {
+      const chars = event.charStats || {};
+      const estimate = event.tokenEstimate || {};
+      timeline.push({
+        type: 'model_request',
+        title: `Model request: ${event.provider || 'provider'}/${event.model || 'model'} ${event.mode || 'summary'}`,
+        timestamp: event.timestamp,
+        detail: {
+          mode: event.mode || '',
+          messageCount: event.messageCount || 0,
+          roles: event.roles || [],
+          charStats: chars,
+          contextStats: event.contextStats || {},
+          tokenEstimate: estimate,
+          truncated: Boolean(event.truncated),
+        },
+      });
     } else if (event.type === 'model_usage') {
       timeline.push({
         type: 'model_usage',
@@ -609,6 +626,7 @@ function collectSessionStats(session) {
     invalidJson: audit.stats.invalidJson,
     evidence: audit.stats.evidence,
     warnings: audit.stats.warnings,
+    modelRequestCount: audit.stats.modelRequestCount || 0,
     modelUsage: audit.stats.modelUsage || 0,
     auditStatus: audit.status,
     auditIssues: audit.issues.length,
@@ -637,6 +655,7 @@ function collectModelUsage(session) {
   const start = events.find((event) => event.type === 'agent_start') || {};
   const end = events.find((event) => event.type === 'agent_end') || {};
   const calls = events.filter((event) => event.type === 'model_usage');
+  const requests = events.filter((event) => event.type === 'model_request');
   const summary = end.usageSummary || emptyUsageSummary();
   return {
     provider: start.provider || (calls[0] && calls[0].provider) || '',
@@ -655,6 +674,16 @@ function collectModelUsage(session) {
       nativeThinking: Boolean(event.nativeThinking),
       reasoningContentAvailable: Boolean(event.reasoningContentAvailable),
       usage: event.usage || {},
+    })),
+    requests: requests.map((event) => ({
+      loop: event.loop || '',
+      mode: event.mode || '',
+      messageCount: event.messageCount || 0,
+      roles: event.roles || [],
+      charStats: event.charStats || {},
+      contextStats: event.contextStats || {},
+      tokenEstimate: event.tokenEstimate || {},
+      truncated: Boolean(event.truncated),
     })),
   };
 }
@@ -1043,6 +1072,15 @@ function renderModelUsageMarkdown(modelUsage) {
   lines.push(`- Usage status: \`${summary.status || 'unavailable'}\``);
   lines.push(`- Calls: \`${summary.calls || 0}\`, reported: \`${summary.reportedCalls || 0}\`, unreported: \`${summary.unreportedCalls || 0}\``);
   lines.push(`- Tokens: prompt=\`${summary.promptTokens || 0}\`, completion=\`${summary.completionTokens || 0}\`, total=\`${summary.totalTokens || 0}\``);
+  if (modelUsage.requests && modelUsage.requests.length) {
+    lines.push('');
+    lines.push('Model requests:');
+    modelUsage.requests.slice(0, 12).forEach((request) => {
+      const chars = request.charStats || {};
+      const estimate = request.tokenEstimate || {};
+      lines.push(`- loop=${request.loop} mode=${request.mode || 'summary'} messages=${request.messageCount || 0} chars=${chars.totalChars || 0} approxPrompt=${estimate.approxPromptTokens || 0}${request.truncated ? ' truncated=true' : ''}`);
+    });
+  }
   if (modelUsage.calls && modelUsage.calls.length) {
     lines.push('');
     lines.push('Model calls:');
@@ -1057,6 +1095,7 @@ function renderModelUsageMarkdown(modelUsage) {
 function renderModelUsageHtml(modelUsage) {
   const summary = modelUsage.summary || emptyUsageSummary();
   const calls = modelUsage.calls || [];
+  const requests = modelUsage.requests || [];
   return [
     '<section class="card"><h2>Model Usage / Provider</h2>',
     `<div class="meta">Provider: <code>${escapeHtml(modelUsage.provider || 'unknown')}</code></div>`,
@@ -1067,6 +1106,13 @@ function renderModelUsageHtml(modelUsage) {
     `<div class="meta">Usage status: <code>${escapeHtml(summary.status || 'unavailable')}</code></div>`,
     `<div class="meta">Calls: <code>${escapeHtml(summary.calls || 0)}</code>, reported: <code>${escapeHtml(summary.reportedCalls || 0)}</code>, unreported: <code>${escapeHtml(summary.unreportedCalls || 0)}</code></div>`,
     `<div class="meta">Tokens: prompt=<code>${escapeHtml(summary.promptTokens || 0)}</code>, completion=<code>${escapeHtml(summary.completionTokens || 0)}</code>, total=<code>${escapeHtml(summary.totalTokens || 0)}</code></div>`,
+    requests.length
+      ? `<div class="meta"><strong>Model requests</strong></div><pre>${escapeHtml(requests.slice(0, 12).map((request) => {
+          const chars = request.charStats || {};
+          const estimate = request.tokenEstimate || {};
+          return `loop=${request.loop} mode=${request.mode || 'summary'} messages=${request.messageCount || 0} chars=${chars.totalChars || 0} approxPrompt=${estimate.approxPromptTokens || 0}${request.truncated ? ' truncated=true' : ''}`;
+        }).join('\n'))}</pre>`
+      : '<div class="meta">No model request events.</div>',
     calls.length
       ? `<pre>${escapeHtml(calls.slice(0, 12).map((call) => {
           const usage = call.usage || {};
@@ -1155,6 +1201,7 @@ function renderSessionHtml(session, config) {
     `<div class="meta">Invalid JSON: <code>${escapeHtml(stats.invalidJson)}</code></div>`,
     `<div class="meta">Evidence: <code>${escapeHtml(stats.evidence)}</code></div>`,
     `<div class="meta">Warnings: <code>${escapeHtml(stats.warnings)}</code></div>`,
+    `<div class="meta">Model request events: <code>${escapeHtml(stats.modelRequestCount)}</code></div>`,
     `<div class="meta">Model usage events: <code>${escapeHtml(stats.modelUsage)}</code></div>`,
     `<div class="meta">Message updates: <code>${escapeHtml(stats.assistantUpdates)}</code></div>`,
     `<div class="meta">Ledger entries: <code>${escapeHtml(stats.ledgerEntries)}</code></div>`,
@@ -1262,6 +1309,10 @@ function renderSessionTrace(session) {
         ? ` missing=${check.missingCriteria.join(',')}`
         : '';
       lines.push(`finish_check ${event.taskId || ''} mode=${check.finishMode || 'unknown'} canFinish=${Boolean(check.canFinish)}${missing}`);
+    } else if (event.type === 'model_request') {
+      const estimate = event.tokenEstimate || {};
+      const chars = event.charStats || {};
+      lines.push(`model_request #${event.loop || ''} ${event.provider || ''}/${event.model || ''} [${event.mode || 'summary'} chars=${chars.totalChars || 0} approxPrompt=${estimate.approxPromptTokens || 0}${event.truncated ? ' truncated' : ''}]`);
     } else if (event.type === 'model_usage') {
       const usage = event.usage || {};
       lines.push(`model_usage #${event.loop || ''} ${event.provider || ''}/${event.model || ''} [${usage.status || 'unknown'} total=${usage.totalTokens || 0}${event.fallbackUsed ? ' fallback' : ''}${event.nativeThinking ? ' nativeThinking' : ''}${event.reasoningContentAvailable ? ' reasoningContentAvailable' : ''}]`);

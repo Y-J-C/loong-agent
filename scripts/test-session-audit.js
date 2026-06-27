@@ -488,6 +488,62 @@ test('exports include provider capability and model usage summary', () => {
   assert(markdown.indexOf('reported') >= 0, 'markdown missing usage status');
 });
 
+test('exports include model request summary without treating it as replay evidence', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'model-request', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'model-request', rootSessionId: 'model-request', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'request', provider: 'openai-compatible', providerProfile: 'deepseek', model: 'mock' }),
+    JSON.stringify({ type: 'turn_start', loop: 1 }),
+    JSON.stringify({
+      type: 'model_request',
+      version: 1,
+      loop: 1,
+      mode: 'summary',
+      provider: 'openai-compatible',
+      providerProfile: 'deepseek',
+      model: 'mock',
+      streaming: false,
+      thinkingLevel: 'off',
+      messageCount: 2,
+      roles: ['system', 'user'],
+      charStats: {
+        systemChars: 10,
+        userChars: 20,
+        totalChars: 30,
+        currentRequestChars: 8,
+        recentConversationChars: 0,
+        kbSummaryChars: 0,
+        controlledContextChars: 0,
+        analysisHintChars: 0,
+      },
+      contextStats: {
+        contextBudgetChars: 1800,
+        selectedContextMessageCount: 0,
+        selectedConversationMessageCount: 0,
+        selectedObservationMessageCount: 0,
+        selectedBashFallbackMessageCount: 0,
+      },
+      tokenEstimate: {
+        approxPromptTokens: 8,
+        method: 'chars_div_4',
+      },
+    }),
+    JSON.stringify({ type: 'model_usage', loop: 1, provider: 'openai-compatible', model: 'mock', usage: { promptTokens: 9, completionTokens: 1, totalTokens: 10, status: 'reported', note: '' } }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const audit = auditSession(session);
+  const html = renderSessionHtml(session);
+  const markdown = renderSessionMarkdown(session);
+  const replay = renderSessionReplay(session);
+  assert(audit.stats.modelRequestCount === 1, 'audit missing model request count');
+  assert(audit.stats.evidence === 0, 'model_request should not count as evidence');
+  assert(markdown.indexOf('Model requests:') >= 0, 'markdown missing model request summary');
+  assert(markdown.indexOf('approxPrompt=8') >= 0, 'markdown missing request token estimate');
+  assert(html.indexOf('Model requests') >= 0, 'html missing model request summary');
+  assert(replay.indexOf('model_request') >= 0, 'replay should show model request audit line');
+});
+
 test('session writer keeps usage token counts while redacting secrets', () => {
   const workspace = tempWorkspace();
   const session = createJsonlSession(config('writer-redaction', workspace), { command: 'test' });

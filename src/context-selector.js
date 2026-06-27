@@ -167,12 +167,16 @@ function selectedBashFallbackMessages(messages, requestContext, selectedObservat
 }
 
 function selectContextMessages(messages, requestContext, options) {
+  return selectContextMessageGroups(messages, requestContext, options).selected;
+}
+
+function selectContextMessageGroups(messages, requestContext, options) {
   const context = requestContext || classifyRequestContext('');
   const conversation = selectedConversationMessages(messages, options);
   const observations = selectedObservationMessages(messages, context, options);
   const bashFallback = selectedBashFallbackMessages(messages, context, observations);
   const selected = conversation.concat(observations, bashFallback);
-  return selected.sort((left, right) => {
+  const sorted = selected.sort((left, right) => {
     const leftTurn = Number(left && left.turn) || 0;
     const rightTurn = Number(right && right.turn) || 0;
     if (leftTurn !== rightTurn) return leftTurn - rightTurn;
@@ -180,11 +184,18 @@ function selectContextMessages(messages, requestContext, options) {
     const rightTime = Number(right && right.timestamp) || 0;
     return leftTime - rightTime;
   });
+  return {
+    conversation,
+    observations,
+    bashFallback,
+    selected: sorted,
+  };
 }
 
 module.exports = {
   classifyRequestContext,
   commandSubjects,
   promptSubjects,
+  selectContextMessageGroups,
   selectContextMessages,
 };

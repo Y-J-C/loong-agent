@@ -3,7 +3,7 @@
 const { createDefaultTools, formatToolsForPrompt } = require('./tool-registry');
 const { resolveProviderCapabilities } = require('./provider-registry');
 const { convertToLlm } = require('./messages');
-const { classifyRequestContext, selectContextMessages } = require('./context-selector');
+const { classifyRequestContext, selectContextMessageGroups } = require('./context-selector');
 const { createDefaultExtensionRuntime } = require('./extensions');
 
 const CORE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
@@ -168,19 +168,28 @@ function buildTurnContext(options) {
   };
 }
 
-function buildMessagesFromTurnContext(turnContext) {
+function buildMessagesWithAuditMetadata(turnContext) {
   turnContext = turnContext || {};
   const requestContext = classifyRequestContext(turnContext.userPrompt || '');
-  const selectedMessages = selectContextMessages(turnContext.messages || [], requestContext, {
+  const selectedGroups = selectContextMessageGroups(turnContext.messages || [], requestContext, {
     maxMessages: 12,
     observationsPerSubject: 2,
     conversationMessages: 4,
   });
+  const selectedMessages = selectedGroups.selected || [];
   const transcriptText = summarizeMessages(convertToLlm(selectedMessages, {
     maxMessages: 12,
   }));
-  const parts = [`Current user request:\n${turnContext.userPrompt || 'Continue from current context.'}`];
-  if (transcriptText) parts.push(`Recent conversation:\n${transcriptText}`);
+  const parts = [{
+    name: 'currentRequest',
+    content: `Current user request:\n${turnContext.userPrompt || 'Continue from current context.'}`,
+  }];
+  if (transcriptText) {
+    parts.push({
+      name: 'recentConversation',
+      content: `Recent conversation:\n${transcriptText}`,
+    });
+  }
   if (turnContext.kbSummary) {
     parts.push([
       'Controlled context / knowledge additions:',
@@ -208,13 +217,67 @@ function buildMessagesFromTurnContext(turnContext) {
     ].join('\n'));
   }
 
-  return [
-    { role: 'system', content: turnContext.systemPrompt || buildSystemPrompt(turnContext.tools, turnContext.extensionGuidelines) },
+  const partText = (part) => part && typeof part === 'object' && Object.prototype.hasOwnProperty.call(part, 'content')
+    ? String(part.content || '')
+    : String(part || '');
+  const namedPartChars = {};
+  parts.forEach((part) => {
+    if (part && typeof part === 'object' && part.name) namedPartChars[`${part.name}Chars`] = partText(part).length;
+  });
+  const systemContent = turnContext.systemPrompt || buildSystemPrompt(turnContext.tools, turnContext.extensionGuidelines);
+  const userContent = parts.map(partText).join('\n\n');
+  const controlledContextChars = parts
+    .map(partText)
+    .filter((text) => text.indexOf('Controlled context / knowledge additions:') === 0)
+    .reduce((sum, text) => sum + text.length, 0);
+  const analysisHintChars = parts
+    .map(partText)
+    .filter((text) => text.indexOf('Analysis depth hint:') === 0)
+    .reduce((sum, text) => sum + text.length, 0);
+  const totalChars = systemContent.length + userContent.length;
+  const messages = [
+    { role: 'system', content: systemContent },
     {
       role: 'user',
-      content: parts.join('\n\n'),
+      content: userContent,
     },
   ];
+  return {
+    messages,
+    metadata: {
+      messageCount: messages.length,
+      roles: messages.map((message) => message.role || ''),
+      charStats: {
+        systemChars: systemContent.length,
+        userChars: userContent.length,
+        totalChars,
+        currentRequestChars: namedPartChars.currentRequestChars || 0,
+        recentConversationChars: namedPartChars.recentConversationChars || 0,
+        kbSummaryChars: turnContext.kbSummary ? turnContext.kbSummary.length : 0,
+        controlledContextChars,
+        analysisHintChars,
+      },
+      contextStats: {
+        contextBudgetChars: turnContext.budget && turnContext.budget.contextBudgetChars
+          ? turnContext.budget.contextBudgetChars
+          : turnContext.config && turnContext.config.contextBudgetChars
+            ? turnContext.config.contextBudgetChars
+            : 1800,
+        selectedContextMessageCount: selectedMessages.length,
+        selectedConversationMessageCount: (selectedGroups.conversation || []).length,
+        selectedObservationMessageCount: (selectedGroups.observations || []).length,
+        selectedBashFallbackMessageCount: (selectedGroups.bashFallback || []).length,
+      },
+      tokenEstimate: {
+        approxPromptTokens: Math.ceil(totalChars / 4),
+        method: 'chars_div_4',
+      },
+    },
+  };
+}
+
+function buildMessagesFromTurnContext(turnContext) {
+  return buildMessagesWithAuditMetadata(turnContext).messages;
 }
 
 function buildMessages(userPrompt, observations, tools, messages) {
@@ -235,6 +298,7 @@ module.exports = {
   buildSystemPrompt,
   buildMessages,
   buildMessagesFromTurnContext,
+  buildMessagesWithAuditMetadata,
   buildTurnContext,
   safeConfigSummary,
 };

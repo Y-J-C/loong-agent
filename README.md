@@ -75,9 +75,18 @@ LOONG_AGENT_THINKING_LEVEL=off
 LOONG_AGENT_MAX_LOOPS=6
 LOONG_AGENT_CONTEXT_BUDGET=1800
 LOONG_AGENT_STREAMING=1
+LOONG_AGENT_RECORD_MODEL_REQUEST=summary
+LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG=0
+LOONG_AGENT_MODEL_REQUEST_MAX_CHARS=50000
 LOONG_AGENT_ALLOW_WRITE=0
 LOONG_AGENT_ALLOW_COMMANDS=0
 ```
+
+Model request audit:
+- `LOONG_AGENT_RECORD_MODEL_REQUEST=off|summary|redacted|full` controls model request audit logging. Default `summary` records counts, character stats, and token estimates only.
+- `redacted` stores sanitized prompt messages. `full` stores complete prompt messages only when `LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG=1`.
+- Do not share `runs/*.jsonl` generated in `full` mode because it may contain secrets or private prompt content.
+- `LOONG_AGENT_MODEL_REQUEST_MAX_CHARS=50000` limits persisted message content in `redacted` and `full` events.
 
 说明：
 

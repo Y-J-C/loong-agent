@@ -120,6 +120,51 @@ Agent Loop 可以在 `prepareNextTurn` 后追加 `context_update`：
 
 `knowledgeEvidence` 条目在可用时应包含 `source`、`path`、`topic`、`status`、`confidence`、`last_updated` 和 `sources`。
 
+## Model Request
+
+Agent Loop 在模型调用前追加 `model_request`，用于审计最终 prompt 输入的摘要：
+
+```js
+{
+  type: "model_request",
+  version: 1,
+  loop: 1,
+  mode: "summary|redacted|full",
+  provider: "openai-compatible",
+  providerProfile: "deepseek",
+  model: "deepseek-v4-flash",
+  streaming: true,
+  thinkingLevel: "off",
+  messageCount: 2,
+  roles: ["system", "user"],
+  charStats: {
+    systemChars: 0,
+    userChars: 0,
+    totalChars: 0,
+    currentRequestChars: 0,
+    recentConversationChars: 0,
+    kbSummaryChars: 0,
+    controlledContextChars: 0,
+    analysisHintChars: 0
+  },
+  contextStats: {
+    contextBudgetChars: 1800,
+    selectedContextMessageCount: 0,
+    selectedConversationMessageCount: 0,
+    selectedObservationMessageCount: 0,
+    selectedBashFallbackMessageCount: 0
+  },
+  tokenEstimate: {
+    approxPromptTokens: 0,
+    method: "chars_div_4"
+  }
+}
+```
+
+`summary` 模式不得包含 `messages`。`redacted` 模式可以包含脱敏后的 `messages`。`full` 模式会持久化完整 prompt 内容，必须显式设置 `LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG=1`，对应 `runs/*.jsonl` 不应对外分享。
+
+`model_request` 是审计/导出事件，不得作为工具结果 replay，不得作为 evidence，不得改变下一轮上下文选择。
+
 ## Model Usage
 
 Agent Loop 在每次成功模型调用后追加 `model_usage`：

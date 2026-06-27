@@ -8,6 +8,7 @@ const path = require('path');
 const childProcess = require('child_process');
 const { createAgent } = require('../src/agent-runtime');
 const { createAgentState, recordToolResult } = require('../src/agent-state');
+const { normalizeRecordModelRequest } = require('../src/config');
 const { parseAgentResponse, parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
@@ -18,7 +19,8 @@ const { classifyRequestContext, selectContextMessages } = require('../src/contex
 const { bindClaims, extractClaims, validateFinalAnswerBinding } = require('../src/evidence-binding');
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
 const { deriveObservations } = require('../src/observation');
-const { buildMessagesFromTurnContext } = require('../src/prompts');
+const { buildMessagesFromTurnContext, buildMessagesWithAuditMetadata } = require('../src/prompts');
+const { createModelRequestEvent } = require('../src/model-request-audit');
 const { streamJson } = require('../src/provider-registry');
 const { waitForChildProcess, spawnProcess } = require('../src/runtime/child-process');
 const { runShell } = require('../src/runtime/bash-executor');
@@ -78,6 +80,16 @@ function config(provider, workspace) {
     workspace: workspace || tempWorkspace(),
   };
 }
+
+test('model request config mode normalization is safe by default', () => {
+  assert(normalizeRecordModelRequest('', false) === 'summary', 'empty mode should default to summary');
+  assert(normalizeRecordModelRequest('invalid', false) === 'summary', 'invalid mode should default to summary');
+  assert(normalizeRecordModelRequest('off', false) === 'off', 'off mode should be accepted');
+  assert(normalizeRecordModelRequest('summary', false) === 'summary', 'summary mode should be accepted');
+  assert(normalizeRecordModelRequest('redacted', false) === 'redacted', 'redacted mode should be accepted');
+  assert(normalizeRecordModelRequest('full', false) === 'redacted', 'full mode should require unsafe opt-in');
+  assert(normalizeRecordModelRequest('full', true) === 'full', 'full mode should work with unsafe opt-in');
+});
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
@@ -1013,6 +1025,51 @@ test('prompt builder keeps historical context separate from current observations
   assert(prompt.indexOf('CURRENT_I2C_SHOULD_NOT_APPEAR') < 0, 'prompt leaked current observation into historical request');
 });
 
+test('prompt builder exposes model request audit metadata without changing messages shape', () => {
+  const built = buildMessagesWithAuditMetadata({
+    userPrompt: 'current memory status',
+    kbSummary: 'KB_TOPIC',
+    budget: { contextBudgetChars: 1234 },
+    config: { thinkingLevel: 'high', providerCapabilities: { thinking: false } },
+    messages: [
+      {
+        role: 'user',
+        content: 'previous memory question',
+        turn: 1,
+      },
+      {
+        role: 'observation',
+        subject: 'system.memory',
+        freshness: 'current',
+        content: 'Mem: 1Gi',
+        turn: 2,
+      },
+      {
+        role: 'bashExecution',
+        command: 'free -h',
+        content: 'fallback memory',
+        turn: 3,
+      },
+    ],
+    tools: createDefaultTools(),
+  });
+  const messages = built.messages;
+  const metadata = built.metadata;
+  assert(Array.isArray(messages) && messages.length === 2, 'messages shape should stay system+user');
+  assert(metadata.messageCount === 2, 'metadata message count mismatch');
+  assert(metadata.roles.join(',') === 'system,user', 'metadata roles mismatch');
+  assert(metadata.charStats.systemChars > 0, 'missing system chars');
+  assert(metadata.charStats.currentRequestChars > 0, 'missing current request chars');
+  assert(metadata.charStats.recentConversationChars > 0, 'missing recent conversation chars');
+  assert(metadata.charStats.kbSummaryChars === 'KB_TOPIC'.length, 'kb summary chars mismatch');
+  assert(metadata.charStats.analysisHintChars > 0, 'missing analysis hint chars');
+  assert(metadata.contextStats.contextBudgetChars === 1234, 'context budget mismatch');
+  assert(metadata.contextStats.selectedConversationMessageCount === 1, 'conversation count mismatch');
+  assert(metadata.contextStats.selectedObservationMessageCount === 1, 'observation count mismatch');
+  assert(metadata.tokenEstimate.method === 'chars_div_4', 'token estimate method mismatch');
+  assert(metadata.tokenEstimate.approxPromptTokens > 0, 'missing token estimate');
+});
+
 test('finish event order includes turn_end', async () => {
   registerProvider({
     name: 'test-finish',
@@ -1031,7 +1088,7 @@ test('finish event order includes turn_end', async () => {
   assert(result.summary === 'ok', 'finish summary mismatch');
   assert(
     events.join(' -> ') ===
-      'agent_start -> turn_start -> message_start -> message_end -> message_start -> message_update -> message_end -> model_usage -> tool_execution_start -> tool_execution_end -> message_start -> message_end -> turn_end -> agent_end',
+      'agent_start -> turn_start -> message_start -> message_end -> model_request -> message_start -> message_update -> message_end -> model_usage -> tool_execution_start -> tool_execution_end -> message_start -> message_end -> turn_end -> agent_end',
     `unexpected event order: ${events.join(' -> ')}`
   );
 });
@@ -1078,6 +1135,106 @@ test('model usage records reported tokens and provider capabilities', async () =
   assert(usage.usage.totalTokens === 15, 'model_usage total token mismatch');
   assert(end.usageSummary.totalTokens === 15, 'agent_end usage summary mismatch');
   assert(end.usageSummary.status === 'reported', 'agent_end usage status mismatch');
+});
+
+test('model request summary is emitted by default before model usage', async () => {
+  registerProvider({
+    name: 'test-model-request-summary',
+    capabilities: { streaming: false, thinking: false, usage: true, toolCalling: false },
+    chatCompletion: async () => ({
+      content: JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'request summary ok' },
+        reason: 'done',
+      }),
+      usage: { promptTokens: 11, completionTokens: 2, totalTokens: 13 },
+    }),
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-model-request-summary'), { streaming: false }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('request summary');
+  const requestIndex = events.findIndex((event) => event.type === 'model_request');
+  const usageIndex = events.findIndex((event) => event.type === 'model_usage');
+  const request = events[requestIndex];
+  assert(result.summary === 'request summary ok', 'summary request run did not finish');
+  assert(requestIndex >= 0, 'model_request should be emitted by default');
+  assert(usageIndex > requestIndex, 'model_request should precede model_usage');
+  assert(request.mode === 'summary', 'default model_request mode should be summary');
+  assert(!request.messages, 'summary model_request should not include messages');
+  assert(request.charStats && request.charStats.totalChars > 0, 'model_request missing char stats');
+  assert(request.tokenEstimate && request.tokenEstimate.method === 'chars_div_4', 'model_request missing token estimate');
+});
+
+test('model request off mode emits no model_request event', async () => {
+  registerProvider({
+    name: 'test-model-request-off',
+    capabilities: { streaming: false, thinking: false, usage: true, toolCalling: false },
+    chatCompletion: async () => JSON.stringify({
+      tool: 'finish',
+      input: { summary: 'off ok' },
+      reason: 'done',
+    }),
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-model-request-off'), {
+    streaming: false,
+    recordModelRequest: 'off',
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  await agent.prompt('off mode');
+  assert(!events.some((event) => event.type === 'model_request'), 'off mode should not emit model_request');
+});
+
+test('model request redaction and truncation protect message content', () => {
+  const secret = 'sk-test-secret-123456789';
+  const event = createModelRequestEvent({
+    provider: 'openai-compatible',
+    providerProfile: 'deepseek',
+    model: 'mock',
+    recordModelRequest: 'redacted',
+    modelRequestMaxChars: 60,
+  }, 1, [
+    { role: 'system', content: `Authorization: Bearer ${secret}` },
+    { role: 'user', content: `OPENAI_API_KEY=${secret}\n密码：${secret}\n` + 'x'.repeat(120) },
+  ], {
+    messageCount: 2,
+    roles: ['system', 'user'],
+    charStats: { systemChars: 10, userChars: 20, totalChars: 30 },
+    contextStats: { contextBudgetChars: 1800 },
+    tokenEstimate: { approxPromptTokens: 8, method: 'chars_div_4' },
+  });
+  const raw = JSON.stringify(event);
+  assert(event.mode === 'redacted', 'event should stay redacted');
+  assert(event.messages && event.messages.length === 2, 'redacted event should include messages');
+  assert(raw.indexOf(secret) < 0, 'redacted event should not contain original secret');
+  assert(raw.indexOf('[redacted]') >= 0, 'redacted marker should be present');
+  assert(event.truncated === true, 'event should record truncation');
+  assert(event.messages.some((message) => message.truncated), 'truncated message marker missing');
+});
+
+test('model request full mode requires unsafe config and otherwise uses redacted mode', () => {
+  const secret = 'sk-full-secret-123456789';
+  const full = createModelRequestEvent({
+    provider: 'openai-compatible',
+    model: 'mock',
+    recordModelRequest: 'full',
+    modelRequestMaxChars: 50000,
+  }, 1, [{ role: 'user', content: `normal content ${secret}` }], {
+    charStats: { totalChars: 30 },
+  });
+  assert(JSON.stringify(full).indexOf(secret) >= 0, 'full mode should include raw content after config normalization allows it');
+
+  const redacted = createModelRequestEvent({
+    provider: 'openai-compatible',
+    model: 'mock',
+    recordModelRequest: normalizeRecordModelRequest('full', false),
+    modelRequestMaxChars: 50000,
+  }, 1, [{ role: 'user', content: `normal content ${secret}` }], {
+    charStats: { totalChars: 30 },
+  });
+  assert(redacted.mode === 'redacted', 'unauthorized full config should normalize to redacted');
+  assert(JSON.stringify(redacted).indexOf(secret) < 0, 'normalized redacted full should not leak secret');
 });
 
 test('model usage marks supported provider without token report as pending confirmation', async () => {

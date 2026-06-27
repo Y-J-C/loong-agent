@@ -34,6 +34,11 @@ function intEnv(name, defaultValue) {
   return Number.isFinite(value) && value > 0 ? value : defaultValue;
 }
 
+function nonNegativeIntEnv(name, defaultValue) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : defaultValue;
+}
+
 function listEnv(name, defaultValue) {
   const value = process.env[name];
   if (value === undefined) return defaultValue;
@@ -67,6 +72,13 @@ function normalizeThinkingLevel(value) {
   return 'off';
 }
 
+function normalizeRecordModelRequest(value, allowUnsafe) {
+  const mode = String(value || 'summary').toLowerCase();
+  if (mode === 'off' || mode === 'summary' || mode === 'redacted') return mode;
+  if (mode === 'full') return allowUnsafe ? 'full' : 'redacted';
+  return 'summary';
+}
+
 function loadConfig() {
   const projectRoot = path.resolve(__dirname, '..');
   loadDotEnv(path.join(projectRoot, '.env'));
@@ -95,6 +107,12 @@ function loadConfig() {
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),
+    recordModelRequest: normalizeRecordModelRequest(
+      process.env.LOONG_AGENT_RECORD_MODEL_REQUEST || 'summary',
+      boolEnv('LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG', false)
+    ),
+    allowUnsafeModelRequestLog: boolEnv('LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG', false),
+    modelRequestMaxChars: nonNegativeIntEnv('LOONG_AGENT_MODEL_REQUEST_MAX_CHARS', 50000),
     extensions: listEnv('LOONG_AGENT_EXTENSIONS', ['loong']),
   };
 }
@@ -102,5 +120,6 @@ function loadConfig() {
 module.exports = {
   loadConfig,
   normalizeThinkingLevel,
+  normalizeRecordModelRequest,
   PROVIDER_PROFILES,
 };

@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildMessagesFromTurnContext, buildTurnContext } = require('./prompts');
+const { buildMessagesWithAuditMetadata, buildTurnContext } = require('./prompts');
 const { resolveProviderCapabilities } = require('./provider-registry');
 const {
   finishRun,
@@ -13,6 +13,7 @@ const {
 const { classifyRequestContext } = require('./context-selector');
 const { validateFinalAnswerBinding } = require('./evidence-binding');
 const { executeToolCall } = require('./tool-execution-runtime');
+const { createModelRequestEvent } = require('./model-request-audit');
 
 function nowIso() {
   return new Date().toISOString();
@@ -1478,7 +1479,10 @@ async function runAgentLoop(options) {
         tools: state.tools,
         userPrompt: currentUserPrompt || state.userPrompt,
       });
-      const messages = buildMessagesFromTurnContext(modelTurnContext);
+      const built = buildMessagesWithAuditMetadata(modelTurnContext);
+      const messages = built.messages;
+      const modelRequestEvent = createModelRequestEvent(config, turn, messages, built.metadata);
+      if (modelRequestEvent) await emit(modelRequestEvent);
       if (config.streaming === false) {
         content = await chatCompletion(config, messages, modelCallbacks);
       } else {

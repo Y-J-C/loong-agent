@@ -144,6 +144,7 @@ function auditSession(session) {
     policyBlocked: toolEndEvents.filter((event) => event.errorType === 'policy_blocked').length,
     evidence: countResultItems(toolEndEvents.concat(events.filter((event) => event.type === 'context_update')), 'evidence'),
     warnings: countResultItems(toolEndEvents.concat(events.filter((event) => event.type === 'context_update')), 'warnings'),
+    modelRequestCount: events.filter((event) => event.type === 'model_request').length,
     modelUsage: events.filter((event) => event.type === 'model_usage').length,
     modelUsageReported: events.filter((event) => event.type === 'model_usage' && event.usage && event.usage.status === 'reported').length,
     modelUsageUnreported: events.filter((event) => event.type === 'model_usage' && (!event.usage || event.usage.status !== 'reported')).length,
@@ -201,6 +202,7 @@ function renderSessionAudit(session, options) {
     `Policy blocked: ${audit.stats.policyBlocked}`,
     `Evidence: ${audit.stats.evidence}`,
     `Warnings: ${audit.stats.warnings}`,
+    `Model request events: ${audit.stats.modelRequestCount}`,
     `Model usage events: ${audit.stats.modelUsage}`,
     `Ledger entries: ${audit.stats.ledgerEntries}`,
     `Ledger observations: ${audit.stats.ledgerObservations}`,
@@ -240,6 +242,10 @@ function replayLines(session) {
     } else if (event.type === 'model_usage') {
       const usage = event.usage || {};
       lines.push(`model_usage ${event.provider || ''}/${event.model || ''} ${usage.status || 'unknown'} total=${usage.totalTokens || 0}`);
+    } else if (event.type === 'model_request') {
+      const estimate = event.tokenEstimate || {};
+      const chars = event.charStats || {};
+      lines.push(`model_request ${event.provider || ''}/${event.model || ''} ${event.mode || 'summary'} chars=${chars.totalChars || 0} approxPrompt=${estimate.approxPromptTokens || 0}`);
     } else if (event.type === 'agent_end') {
       lines.push(`agent_end ${event.status || (event.error ? 'error' : 'ok')}: ${event.summary || event.error || ''}`);
     }

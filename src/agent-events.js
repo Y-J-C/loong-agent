@@ -160,6 +160,23 @@ function normalizeModelUsage(event) {
   });
 }
 
+function normalizeModelRequest(event) {
+  return Object.assign(baseEvent('model_request', 'model', event, {
+    subtype: 'request',
+    provider: event.provider || '',
+    providerProfile: event.providerProfile || '',
+    model: event.model || '',
+    mode: event.mode || '',
+    messageCount: event.messageCount || 0,
+    charStats: event.charStats || {},
+    contextStats: event.contextStats || {},
+    tokenEstimate: event.tokenEstimate || {},
+    truncated: Boolean(event.truncated),
+  }), {
+    subtype: 'request',
+  });
+}
+
 function normalizeDebug(event) {
   return baseEvent(event.type, 'debug', event, {
     sourceSessionId: event.sourceSessionId || '',
@@ -185,6 +202,7 @@ function normalizeAgentEvent(event) {
   if (event.type === 'tool_execution_update') return normalizeToolUpdate(event);
   if (event.type === 'tool_execution_end') return normalizeToolEnd(event);
   if (event.type === 'task_state_update') return normalizeTaskStateUpdate(event);
+  if (event.type === 'model_request') return normalizeModelRequest(event);
   if (event.type === 'model_usage') return normalizeModelUsage(event);
   if (event.type === 'fork_start' || event.type === 'log_start' || event.type === 'log_end') {
     return normalizeDebug(event);
