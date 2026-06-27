@@ -1,5 +1,8 @@
 'use strict';
 
+const { classifyTaskType } = require('./task-classifier');
+const { createProjectRunCheckSteps } = require('./planners/project-run-check');
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -44,12 +47,14 @@ function mapStep(state, stepId, mapper) {
 function createTaskState(input) {
   const value = input || {};
   const createdAt = nowIso();
+  const taskType = value.taskType || classifyTaskType(value.goal || '', 'general');
+  const plannedSteps = value.steps || (taskType === 'project_run_check' ? createProjectRunCheckSteps() : []);
   return {
     taskId: createId('task'),
     goal: String(value.goal || '').trim(),
-    taskType: value.taskType || 'general',
+    taskType,
     phase: 'understand',
-    steps: (value.steps || []).map(normalizeStep),
+    steps: plannedSteps.map(normalizeStep),
     currentStepId: undefined,
     observations: [],
     evidence: [],

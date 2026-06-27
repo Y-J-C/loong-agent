@@ -44,7 +44,7 @@ function extractText(input) {
   if (input instanceof Error) {
     return {
       text: compactText([input.message, input.stack]),
-      source: 'model',
+      source: 'system',
       status: 'failed',
       facts: {
         errorName: input.name || 'Error',
@@ -124,9 +124,12 @@ function matchCommandNotFound(text) {
   const match = firstMatch(text, [
     /(?:^|\n|\r)\s*([A-Za-z0-9_.+-]+):\s*command not found\b/i,
     /\bcommand not found:\s*([A-Za-z0-9_.+-]+)/i,
-    /\b([A-Za-z0-9_.+-]+):\s*not found\b/i,
+    /(?:^|\n|\r)\s*([A-Za-z0-9_.+-]+):\s*not found\b/i,
   ]);
-  return match ? { command: match[1] } : null;
+  if (!match) return null;
+  const command = match[1] || '';
+  if (/^(status|result|error|warning|info|debug|message|summary)$/i.test(command)) return null;
+  return { command };
 }
 
 function matchModuleNotFound(text) {
@@ -164,6 +167,8 @@ function matchUnsupportedArch(text) {
   return match ? { architecture: match[1] || '' } : null;
 }
 
+// SIGNALS order is the parser's primary signal priority. Add new rules only after
+// considering false positives and whether they should run before or after existing rules.
 const SIGNALS = [
   {
     signal: 'command_not_found',

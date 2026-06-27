@@ -120,7 +120,12 @@ test('unknown text returns unknown without throwing', () => {
 test('parses ordinary Error objects', () => {
   const observation = parseObservation(new Error('Cannot find module lodash'));
   assert.strictEqual(observation.signal[0], 'module_not_found');
-  assert.strictEqual(observation.source, 'model');
+  assert.strictEqual(observation.source, 'system');
+});
+
+test('does not treat ordinary not found text as command_not_found', () => {
+  const observation = parseObservation('status: not found in cache');
+  assert.notStrictEqual(observation.signal[0], 'command_not_found');
 });
 
 test('parses bash tool result envelopes', () => {

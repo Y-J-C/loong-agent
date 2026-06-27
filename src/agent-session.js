@@ -2,6 +2,8 @@
 
 const { createAgent } = require('./agent-runtime');
 const { createEventBus } = require('./event-bus');
+const { classifyTaskType } = require('./agent/task-classifier');
+const { createProjectRunCheckSteps } = require('./agent/planners/project-run-check');
 const {
   addBlocker,
   createTaskState,
@@ -135,10 +137,13 @@ function createAgentSession(config, options) {
   }
 
   function createPromptTaskState(text) {
+    const goal = String(text || '').trim() || 'Continue current agent run.';
+    const taskType = classifyTaskType(goal, 'agent_run');
+    const projectRunCheck = taskType === 'project_run_check';
     return createTaskState({
-      goal: String(text || '').trim() || 'Continue current agent run.',
-      taskType: 'agent_run',
-      steps: [
+      goal,
+      taskType,
+      steps: projectRunCheck ? createProjectRunCheckSteps() : [
         {
           id: 'understand',
           title: 'Understand user goal',
@@ -159,10 +164,19 @@ function createAgentSession(config, options) {
         },
       ],
       finishCriteria: {
-        requiredSignals: ['agent_end'],
-        requiredEvidenceKinds: ['session'],
+        requiredSignals: projectRunCheck ? [
+          'project_structure',
+          'project_type',
+          'entrypoint_or_uncertainty',
+          'runtime',
+          'dependency_risk',
+          'low_risk_validation',
+        ] : ['agent_end'],
+        requiredEvidenceKinds: projectRunCheck ? ['file', 'command', 'tool'] : ['session'],
         allowBlockedFinish: true,
-        description: 'Agent run reaches agent_end with a final summary, error, or blocker.',
+        description: projectRunCheck
+          ? 'Project run check reaches a success, blocked, or partial conclusion using read-only evidence and low-risk validation.'
+          : 'Agent run reaches agent_end with a final summary, error, or blocker.',
       },
     });
   }
