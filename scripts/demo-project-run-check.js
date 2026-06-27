@@ -11,6 +11,42 @@ const { createToolRegistry } = require('../src/tool-registry');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const EXAMPLES_ROOT = path.join(PROJECT_ROOT, 'examples', 'project-run-check');
 const REPORT_PATH = path.join(PROJECT_ROOT, 'runs', 'project-run-check-demo-report.md');
+const EXAMPLE_REPORT_PATH = path.join(PROJECT_ROOT, 'docs', 'demo', 'project-run-check-demo-report.example.md');
+
+const CASE_TITLES = {
+  'node-ok': 'Node.js 正常项目',
+  'python-missing-module': 'Python 缺失模块项目',
+  'cpp-makefile': 'C/C++ Makefile 项目',
+  'arch-mismatch': '架构不匹配项目',
+};
+
+const FINISH_MODE_LABELS = {
+  success: '成功',
+  blocked: '阻塞',
+  failed: '未完成',
+  partial: '部分完成',
+};
+
+const CRITERIA_LABELS = {
+  project_structure: '项目结构',
+  project_type: '项目类型',
+  entrypoint: '入口命令',
+  runtime: '运行环境',
+  dependency_risk: '依赖风险',
+  low_risk_validation: '低风险验证',
+};
+
+const OBSERVATION_LABELS = {
+  command_not_found: '命令不存在',
+  module_not_found: '模块缺失',
+  exec_format_error: '可执行文件格式/架构不匹配',
+  unsupported_arch: '不支持的架构',
+  permission_denied: '权限不足',
+  no_such_file: '文件不存在',
+  dns_failure: 'DNS 解析失败',
+  connection_refused: '连接被拒绝',
+  port_in_use: '端口占用',
+};
 
 const CASES = [
   {
@@ -200,11 +236,59 @@ function signalValues(state, prefix) {
       if (!prefix || String(signal).indexOf(prefix) === 0) signals.push(signal);
     });
   });
-  return signals;
+  return unique(signals);
 }
 
 function evidenceByCriteria(state, criteria) {
   return (state.evidence || []).filter((item) => (item.criteria || []).includes(criteria));
+}
+
+function unique(items) {
+  return Array.from(new Set((items || []).filter(Boolean).map(String)));
+}
+
+function chineseOrRaw(map, value) {
+  return map[value] ? `${map[value]}(${value})` : String(value || '');
+}
+
+function criteriaText(criteria) {
+  const items = unique(criteria || []);
+  return items.length ? items.map((item) => chineseOrRaw(CRITERIA_LABELS, item)).join('、') : '无';
+}
+
+function signalText(signals) {
+  const items = unique(signals || []);
+  return items.length ? items.join('、') : '无';
+}
+
+function missingCriteriaText(missing) {
+  const items = unique(missing || []);
+  return items.length ? items.map((item) => chineseOrRaw(CRITERIA_LABELS, item)).join('、') : '无';
+}
+
+function observationText(observation) {
+  const signals = unique(observation.signal || []);
+  if (!signals.length) return 'unknown';
+  return signals.map((signal) => chineseOrRaw(OBSERVATION_LABELS, signal)).join('、');
+}
+
+function cleanReason(reason) {
+  return String(reason || '阻塞原因待确认').trim().replace(/[.。]+$/g, '');
+}
+
+function finalConclusion(finishCheck) {
+  const finish = finishCheck || {};
+  const missing = missingCriteriaText(finish.missingCriteria || []);
+  if (finish.finishMode === 'success') {
+    return '当前项目运行检查已完成，项目结构、入口命令、运行环境、依赖风险和低风险验证均已有证据支撑。';
+  }
+  if (finish.finishMode === 'blocked') {
+    return `当前项目运行检查已完成，但发现明确阻塞问题：${cleanReason(finish.reason)}。`;
+  }
+  if (finish.finishMode === 'partial') {
+    return `当前项目运行检查已完成部分只读验证，但仍存在不确定项：${missing}。`;
+  }
+  return `当前项目运行检查尚未完成，缺少必要检查条件：${missing}。`;
 }
 
 function renderCaseReport(item) {
@@ -212,42 +296,44 @@ function renderCaseReport(item) {
   const finish = item.finishCheck || {};
   const observations = state.observations || [];
   const evidence = state.evidence || [];
-  const projectTypes = signalValues(state, 'project_type:').join(', ') || '(unknown)';
-  const entrypoints = signalValues(state, 'entrypoint:').join(', ') || '(unknown)';
-  const runtime = evidenceByCriteria(state, 'runtime').map((entry) => `- ${entry.title || entry.command || entry.id}: ${entry.summary || ''}`).join('\n') || '- (none)';
-  const dependency = evidenceByCriteria(state, 'dependency_risk').map((entry) => `- ${entry.title || entry.command || entry.id}: ${entry.summary || ''}`).join('\n') || '- (none)';
-  const validation = evidenceByCriteria(state, 'low_risk_validation').map((entry) => `- ${entry.title || entry.command || entry.id}: ${entry.summary || ''}`).join('\n') || '- (none)';
+  const projectTypes = signalValues(state, 'project_type:').join('、') || '未识别到明确项目类型';
+  const entrypoints = signalValues(state, 'entrypoint:').join('、') || '未识别到明确入口';
+  const runtime = evidenceByCriteria(state, 'runtime').map((entry) => `- ${entry.title || entry.command || entry.id}：${entry.summary || ''}`).join('\n') || '- 无';
+  const dependency = evidenceByCriteria(state, 'dependency_risk').map((entry) => `- ${entry.title || entry.command || entry.id}：${entry.summary || ''}`).join('\n') || '- 无';
+  const validation = evidenceByCriteria(state, 'low_risk_validation').map((entry) => `- ${entry.title || entry.command || entry.id}：${entry.summary || ''}`).join('\n') || '- 无';
   const observationLines = observations.length
-    ? observations.map((obs) => `- ${(obs.signal || []).join(',') || 'unknown'} ${obs.likelyCategory || ''}: ${obs.summary || ''}`).join('\n')
-    : '- (none)';
+    ? observations.map((obs) => `- ${observationText(obs)}：${(obs.signal || []).join(',') || 'unknown'} ${obs.likelyCategory || ''}；${obs.summary || ''}`).join('\n')
+    : '- 无';
   const evidenceLines = evidence.length
-    ? evidence.map((entry) => `- ${entry.kind || 'manual'} ${entry.title || entry.command || entry.id}: criteria=${(entry.criteria || []).join(',') || 'none'} signals=${(entry.signals || []).join(',') || 'none'}`).join('\n')
-    : '- (none)';
+    ? evidence.map((entry) => `- ${entry.kind || 'manual'} ${entry.title || entry.command || entry.id}：条件=${criteriaText(entry.criteria || [])}；criteria=${unique(entry.criteria || []).join(',') || 'none'}；signals=${signalText(entry.signals || [])}`).join('\n')
+    : '- 无';
+  const finishMode = finish.finishMode || 'unknown';
+  const finishLabel = FINISH_MODE_LABELS[finishMode] || '未知';
 
   return [
-    `## ${item.caseName}`,
+    `## ${item.caseName}：${CASE_TITLES[item.caseName] || item.caseName}`,
     '',
-    `Session: \`${item.sessionPath}\``,
-    `User goal: ${item.goal}`,
-    `Detected project type: ${projectTypes}`,
-    `Detected entrypoint: ${entrypoints}`,
+    `会话文件：\`${item.sessionPath}\``,
+    `用户目标：${item.goal}`,
+    `识别出的项目类型：${projectTypes}`,
+    `识别出的入口命令：${entrypoints}`,
     '',
-    'Runtime evidence:',
+    '运行环境证据：',
     runtime,
     '',
-    'Dependency risk:',
+    '依赖风险：',
     dependency,
     '',
-    'Low-risk validation result:',
+    '低风险验证结果：',
     validation,
     '',
-    'Observations:',
+    '观察结果：',
     observationLines,
     '',
-    `FinishCheck result: canFinish=${Boolean(finish.canFinish)} finishMode=${finish.finishMode || 'unknown'} missing=${(finish.missingCriteria || []).join(',') || 'none'}`,
-    `Final conclusion: ${state.conclusion || ''}`,
+    `完成判定：canFinish=${Boolean(finish.canFinish)}，finishMode=${finishMode}（${finishLabel}），缺失条件=${missingCriteriaText(finish.missingCriteria || [])}`,
+    `最终结论：${finalConclusion(finish)}`,
     '',
-    'Evidence chain:',
+    '证据链：',
     evidenceLines,
     '',
   ].join('\n');
@@ -282,18 +368,20 @@ async function runCase(caseDef) {
 
 async function runDemo() {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
+  fs.mkdirSync(path.dirname(EXAMPLE_REPORT_PATH), { recursive: true });
   const results = [];
   for (const caseDef of CASES) {
     results.push(await runCase(caseDef));
   }
   const report = [
-    '# Project Run Check Demo Report',
+    '# 项目运行检查演示报告',
     '',
-    `Generated at: ${new Date().toISOString()}`,
+    `生成时间：${new Date().toISOString()}`,
     '',
     ...results.map(renderCaseReport),
   ].join('\n');
   fs.writeFileSync(REPORT_PATH, report, 'utf8');
+  fs.writeFileSync(EXAMPLE_REPORT_PATH, report, 'utf8');
   return { reportPath: REPORT_PATH, results };
 }
 

@@ -9,17 +9,19 @@ const { runDemo } = require('./demo-project-run-check');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const REPORT_PATH = path.join(PROJECT_ROOT, 'runs', 'project-run-check-demo-report.md');
+const EXAMPLE_REPORT_PATH = path.join(PROJECT_ROOT, 'docs', 'demo', 'project-run-check-demo-report.example.md');
 const CASES = ['node-ok', 'python-missing-module', 'cpp-makefile', 'arch-mismatch'];
 
 async function runDemoScript() {
   await runDemo();
   assert(fs.existsSync(REPORT_PATH), 'demo report was not generated');
+  assert(fs.existsSync(EXAMPLE_REPORT_PATH), 'example demo report was not generated');
   return fs.readFileSync(REPORT_PATH, 'utf8');
 }
 
 function sessionPathsFromReport(report) {
   const paths = [];
-  const pattern = /Session:\s+`([^`]+\.jsonl)`/g;
+  const pattern = /会话文件：`([^`]+\.jsonl)`/g;
   let match = pattern.exec(report);
   while (match) {
     paths.push(match[1]);
@@ -43,6 +45,11 @@ runDemoScript()
     CASES.forEach((name) => {
       assert(report.includes(`## ${name}`), `report missing case ${name}`);
     });
+    assert(report.includes('项目运行检查演示报告'), 'report missing Chinese title');
+    assert(report.includes('完成判定'), 'report missing Chinese finish check label');
+    assert(report.includes('证据链'), 'report missing Chinese evidence chain label');
+    assert(report.includes('架构不匹配'), 'report missing Chinese architecture mismatch text');
+    assert(report.includes('finishMode=blocked'), 'report should keep raw blocked finishMode');
 
     const sessionPaths = sessionPathsFromReport(report);
     assert.strictEqual(sessionPaths.length, CASES.length, 'report should contain one session per case');
