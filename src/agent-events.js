@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseObservation } = require('./observation/parser');
+
 function arrayCount(value) {
   return Array.isArray(value) ? value.length : 0;
 }
@@ -110,7 +112,14 @@ function normalizeToolEnd(event) {
 
 function observationFromToolEnd(event) {
   const result = resultOf(event);
-  return baseEvent('observation', 'observation', event, {
+  let parsed = null;
+  try {
+    parsed = parseObservation(event);
+  } catch (error) {
+    parsed = null;
+  }
+  const parsedKnown = parsed && Array.isArray(parsed.signal) && parsed.signal[0] && parsed.signal[0] !== 'unknown';
+  const lightweight = baseEvent('observation', 'observation', event, {
     source: 'tool',
     toolCallId: event.toolCallId || '',
     toolName: event.toolName || '',
@@ -118,6 +127,19 @@ function observationFromToolEnd(event) {
     summary: event.resultSummary || result.summary || result.error || '',
     evidenceCount: arrayCount(result.evidence),
     warningCount: arrayCount(result.warnings),
+  });
+  if (!parsedKnown) return lightweight;
+  return Object.assign({}, lightweight, {
+    status: parsed.status || (event.status || (event.isError ? 'failed' : 'ok')),
+    signal: parsed.signal,
+    severity: parsed.severity,
+    likelyCategory: parsed.likelyCategory,
+    summary: parsed.summary || event.resultSummary || result.summary || result.error || '',
+    rawExcerpt: parsed.rawExcerpt,
+    facts: parsed.facts || {},
+    suggestedNextCheck: parsed.suggestedNextCheck || '',
+    observationId: parsed.id,
+    createdAt: parsed.createdAt,
   });
 }
 
