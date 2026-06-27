@@ -205,6 +205,40 @@ function sessionMeta(session) {
   };
 }
 
+function latestTaskState(session) {
+  const updates = (session.events || []).filter((event) => event.type === 'task_state_update');
+  const latest = updates[updates.length - 1] || null;
+  return latest && latest.state ? latest.state : null;
+}
+
+function renderTaskSummaryMarkdown(session) {
+  const state = latestTaskState(session);
+  if (!state) return '';
+  const lines = [];
+  lines.push('## Task Summary');
+  lines.push('');
+  lines.push(`- Task: \`${state.taskId || ''}\``);
+  lines.push(`- Goal: ${state.goal || ''}`);
+  lines.push(`- Type: \`${state.taskType || 'general'}\``);
+  lines.push(`- Phase: \`${state.phase || 'idle'}\``);
+  if (state.conclusion) lines.push(`- Conclusion: ${state.conclusion}`);
+  if (Array.isArray(state.steps) && state.steps.length) {
+    lines.push('');
+    lines.push('Steps:');
+    state.steps.forEach((step) => {
+      lines.push(`- ${step.status || 'pending'} \`${step.id || ''}\` ${step.title || ''}${step.resultSummary ? ` - ${step.resultSummary}` : ''}${step.failureReason ? ` - ${step.failureReason}` : ''}`);
+    });
+  }
+  if (Array.isArray(state.blockers) && state.blockers.length) {
+    lines.push('');
+    lines.push('Blockers:');
+    state.blockers.forEach((blocker) => {
+      lines.push(`- ${blocker.category || 'unknown'}: ${blocker.summary || ''}`);
+    });
+  }
+  return lines.join('\n');
+}
+
 function collectTimeline(session) {
   const timeline = [];
   for (const event of session.events) {
@@ -332,6 +366,20 @@ function collectTimeline(session) {
           budget: event.budget || {},
         },
       });
+    } else if (event.type === 'task_state_update') {
+      timeline.push({
+        type: 'task_state_update',
+        title: `Task state: ${event.state && event.state.phase || 'unknown'}`,
+        timestamp: event.timestamp,
+        detail: {
+          taskId: event.taskId || event.state && event.state.taskId || '',
+          goal: event.state && event.state.goal || '',
+          phase: event.state && event.state.phase || '',
+          conclusion: event.state && event.state.conclusion || '',
+          steps: event.state && event.state.steps || [],
+          blockers: event.state && event.state.blockers || [],
+        },
+      });
     } else if (event.type === 'model_usage') {
       timeline.push({
         type: 'model_usage',
@@ -448,6 +496,11 @@ function renderSessionMarkdown(session) {
     lines.push('## Final Summary');
     lines.push('');
     lines.push(meta.summary);
+  }
+  const taskSummary = renderTaskSummaryMarkdown(session);
+  if (taskSummary) {
+    lines.push('');
+    lines.push(taskSummary);
   }
   lines.push('');
   lines.push('## Audit Summary');
@@ -929,6 +982,30 @@ function renderFactLedgerHtml(session) {
   ].join('\n');
 }
 
+function renderTaskSummaryHtml(session) {
+  const state = latestTaskState(session);
+  if (!state) return '';
+  const stepLines = Array.isArray(state.steps) && state.steps.length
+    ? state.steps.map((step) => `${step.status || 'pending'} ${step.id || ''}: ${step.title || ''}${step.resultSummary ? ` - ${step.resultSummary}` : ''}${step.failureReason ? ` - ${step.failureReason}` : ''}`).join('\n')
+    : 'No task steps.';
+  const blockerLines = Array.isArray(state.blockers) && state.blockers.length
+    ? state.blockers.map((blocker) => `${blocker.category || 'unknown'}: ${blocker.summary || ''}`).join('\n')
+    : 'No blockers.';
+  return [
+    '<section class="card"><h2>Task Summary</h2>',
+    `<div class="meta">Task: <code>${escapeHtml(state.taskId || '')}</code></div>`,
+    `<div class="meta">Goal: ${escapeHtml(state.goal || '')}</div>`,
+    `<div class="meta">Type: <code>${escapeHtml(state.taskType || 'general')}</code></div>`,
+    `<div class="meta">Phase: <code>${escapeHtml(state.phase || 'idle')}</code></div>`,
+    state.conclusion ? `<div class="meta">Conclusion: ${escapeHtml(state.conclusion)}</div>` : '',
+    '<div class="meta"><strong>Steps</strong></div>',
+    `<pre>${escapeHtml(stepLines)}</pre>`,
+    '<div class="meta"><strong>Blockers</strong></div>',
+    `<pre>${escapeHtml(blockerLines)}</pre>`,
+    '</section>',
+  ].filter(Boolean).join('\n');
+}
+
 function capabilityText(capabilities) {
   capabilities = capabilities || {};
   return [
@@ -1082,6 +1159,7 @@ function renderSessionHtml(session, config) {
     renderCapabilityCoverageHtml(coverage),
     renderFactLedgerHtml(session),
     renderModelUsageHtml(modelUsage),
+    renderTaskSummaryHtml(session),
     boardContribution ? renderBoardProfileHtml(board) : '',
     '<section class="card"><h2>Safety Constraints</h2>',
     '<div class="meta">Node 14 + CommonJS + no npm runtime dependency.</div>',
@@ -1161,6 +1239,9 @@ function renderSessionTrace(session) {
       const evidence = Array.isArray(event.knowledgeEvidence) ? event.knowledgeEvidence.length : 0;
       const warnings = Array.isArray(event.warnings) ? event.warnings.length : 0;
       lines.push(`context_update #${event.loop || ''} evidence=${evidence} warnings=${warnings}`);
+    } else if (event.type === 'task_state_update') {
+      const state = event.state || {};
+      lines.push(`task_state_update ${state.taskId || event.taskId || ''} phase=${state.phase || 'unknown'} goal=${state.goal || ''}`);
     } else if (event.type === 'model_usage') {
       const usage = event.usage || {};
       lines.push(`model_usage #${event.loop || ''} ${event.provider || ''}/${event.model || ''} [${usage.status || 'unknown'} total=${usage.totalTokens || 0}${event.fallbackUsed ? ' fallback' : ''}${event.nativeThinking ? ' nativeThinking' : ''}${event.reasoningContentAvailable ? ' reasoningContentAvailable' : ''}]`);

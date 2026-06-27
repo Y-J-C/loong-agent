@@ -9,7 +9,9 @@ function assistantPatch(content, event) {
     streaming: Boolean(event && event.streaming),
   });
   const patch = {
-    text: normalized.text,
+    text: normalized.displayKind === 'tool_call' && normalized.toolName
+      ? `assistant -> tool: ${normalized.toolName}`
+      : normalized.text,
     displayKind: normalized.displayKind,
   };
   if (normalized.hidden !== undefined) patch.hidden = Boolean(normalized.hidden);

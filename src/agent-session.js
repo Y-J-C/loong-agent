@@ -2,6 +2,13 @@
 
 const { createAgent } = require('./agent-runtime');
 const { createEventBus } = require('./event-bus');
+const {
+  addBlocker,
+  createTaskState,
+  setConclusion,
+  summarizeTaskState,
+  updateTaskPhase,
+} = require('./agent/task-state');
 const { createDefaultExtensionRuntime } = require('./extensions');
 const {
   createAfterToolCallChain,
@@ -115,19 +122,82 @@ function createAgentSession(config, options) {
 
   const appendSessionEvent = createSessionAppender(session);
 
+  async function emitTaskStateUpdate(taskState) {
+    if (!taskState) return;
+    const event = {
+      type: 'task_state_update',
+      taskId: taskState.taskId,
+      state: taskState,
+      summary: summarizeTaskState(taskState),
+    };
+    await appendSessionEvent(event);
+    await bus.emit(event);
+  }
+
+  function createPromptTaskState(text) {
+    return createTaskState({
+      goal: String(text || '').trim() || 'Continue current agent run.',
+      taskType: 'agent_run',
+      steps: [
+        {
+          id: 'understand',
+          title: 'Understand user goal',
+          status: 'pending',
+          expectedOutput: 'Goal and constraints are available to the agent loop.',
+        },
+        {
+          id: 'act',
+          title: 'Run necessary tools',
+          status: 'pending',
+          expectedOutput: 'Tool observations and evidence are collected when needed.',
+        },
+        {
+          id: 'finish',
+          title: 'Return evidence-backed result',
+          status: 'pending',
+          expectedOutput: 'Final answer or blocker is recorded.',
+        },
+      ],
+      finishCriteria: {
+        requiredSignals: ['agent_end'],
+        requiredEvidenceKinds: ['session'],
+        allowBlockedFinish: true,
+        description: 'Agent run reaches agent_end with a final summary, error, or blocker.',
+      },
+    });
+  }
+
   agent.subscribe(async (event) => {
     await appendSessionEvent(event);
     await bus.emit(event);
   });
 
   async function prompt(text) {
-    const result = await agent.prompt(text);
-    return Object.assign({}, result, {
-      session: session && {
-        id: session.id,
-        path: session.filePath,
-      },
-    });
+    const state = agent.getState();
+    state.taskState = createPromptTaskState(text);
+    await emitTaskStateUpdate(state.taskState);
+    try {
+      const result = await agent.prompt(text);
+      state.taskState = setConclusion(
+        updateTaskPhase(state.taskState, 'finish'),
+        result && result.summary ? result.summary : 'Agent run completed.'
+      );
+      await emitTaskStateUpdate(state.taskState);
+      return Object.assign({}, result, {
+        session: session && {
+          id: session.id,
+          path: session.filePath,
+        },
+      });
+    } catch (error) {
+      state.taskState = addBlocker(state.taskState, {
+        category: 'runtime',
+        summary: error && error.message ? error.message : String(error),
+        suggestedMinimalNextStep: 'Inspect the session JSONL and runtime error before retrying.',
+      });
+      await emitTaskStateUpdate(state.taskState);
+      throw error;
+    }
   }
 
   async function continueRun() {
