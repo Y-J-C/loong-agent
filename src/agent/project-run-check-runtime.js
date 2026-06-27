@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const {
+  addBlocker,
   addEvidence,
   addObservation,
   completeStep,
@@ -269,6 +270,18 @@ function inspectProjectFiles(workspace) {
   return evidence;
 }
 
+function isArchitectureObservation(observation) {
+  if (!observation) return false;
+  const signal = Array.isArray(observation.signal) ? observation.signal[0] : '';
+  return observation.likelyCategory === 'architecture' ||
+    signal === 'exec_format_error' ||
+    signal === 'unsupported_arch';
+}
+
+function hasArchitectureBlocker(state) {
+  return (state.blockers || []).some((blocker) => blocker.category === 'architecture');
+}
+
 function ingestToolExecutionEnd(taskState, event) {
   let state = taskState;
   if (!state || state.taskType !== 'project_run_check' || !event || event.type !== 'tool_execution_end') {
@@ -279,6 +292,15 @@ function ingestToolExecutionEnd(taskState, event) {
   const signal = observation && Array.isArray(observation.signal) ? observation.signal[0] : '';
   if (signal && signal !== 'unknown') {
     state = addObservation(state, observation);
+    const latestObservation = state.observations[state.observations.length - 1] || observation;
+    if (isArchitectureObservation(latestObservation) && !hasArchitectureBlocker(state)) {
+      state = addBlocker(state, {
+        category: 'architecture',
+        summary: latestObservation.summary || 'Architecture mismatch was observed during project run check.',
+        observationIds: [latestObservation.id || latestObservation.observationId].filter(Boolean),
+        suggestedMinimalNextStep: 'Check uname -m and inspect the target binary with file <binary> before choosing a rebuild path.',
+      });
+    }
   }
   const result = event.result && typeof event.result === 'object' ? event.result : {};
   const evidence = Array.isArray(result.evidence) ? result.evidence : [];
