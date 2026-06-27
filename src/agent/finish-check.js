@@ -10,6 +10,11 @@ function textOf(value) {
     value.summary,
     value.ref,
     value.excerpt,
+    value.command,
+    value.toolName,
+    value.status,
+    value.criteria && Array.isArray(value.criteria) ? value.criteria.join(' ') : '',
+    value.signals && Array.isArray(value.signals) ? value.signals.join(' ') : '',
     value.likelyCategory,
     value.severity,
     value.status,
@@ -40,6 +45,17 @@ function hasAny(text, patterns) {
 
 function hasEvidence(state) {
   return Array.isArray(state.evidence) && state.evidence.length > 0;
+}
+
+function stateCriteria(state) {
+  const criteria = [];
+  (state.evidence || []).forEach((item) => {
+    if (item && Array.isArray(item.criteria)) criteria.push(...item.criteria);
+  });
+  (state.observations || []).forEach((item) => {
+    if (item && Array.isArray(item.criteria)) criteria.push(...item.criteria);
+  });
+  return new Set(criteria.filter(Boolean));
 }
 
 function hasObservationSupport(state) {
@@ -176,13 +192,14 @@ function supportedBlocker(state) {
 
 function collectMissingCriteria(state) {
   const text = stateText(state);
+  const criteria = stateCriteria(state);
   const missing = [];
-  if (!hasProjectStructure(text)) missing.push('project_structure');
-  if (!hasProjectType(text)) missing.push('project_type');
-  if (!hasEntrypoint(text)) missing.push('entrypoint');
-  if (!hasRuntime(text)) missing.push('runtime');
-  if (!hasDependencyRisk(text)) missing.push('dependency_risk');
-  if (!hasLowRiskValidation(text)) missing.push('low_risk_validation');
+  if (!criteria.has('project_structure') && !hasProjectStructure(text)) missing.push('project_structure');
+  if (!criteria.has('project_type') && !hasProjectType(text)) missing.push('project_type');
+  if (!criteria.has('entrypoint') && !hasEntrypoint(text)) missing.push('entrypoint');
+  if (!criteria.has('runtime') && !hasRuntime(text)) missing.push('runtime');
+  if (!criteria.has('dependency_risk') && !hasDependencyRisk(text)) missing.push('dependency_risk');
+  if (!criteria.has('low_risk_validation') && !hasLowRiskValidation(text)) missing.push('low_risk_validation');
   if (!hasEvidence(state)) missing.push('evidence');
   return missing;
 }

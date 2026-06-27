@@ -149,6 +149,26 @@ test('complete project run check evidence can finish successfully', () => {
   assert.deepStrictEqual(result.missingCriteria, []);
 });
 
+test('criteria evidence can satisfy finish check without text fallback', () => {
+  let state = projectState();
+  state = addEvidence(state, {
+    kind: 'manual',
+    title: 'opaque-a',
+    summary: 'opaque',
+    criteria: ['project_structure', 'project_type', 'entrypoint'],
+  });
+  state = addEvidence(state, {
+    kind: 'manual',
+    title: 'opaque-b',
+    summary: 'opaque',
+    criteria: ['runtime', 'dependency_risk', 'low_risk_validation'],
+  });
+
+  const result = checkFinishCriteria(state);
+  assert.strictEqual(result.canFinish, true);
+  assert.strictEqual(result.finishMode, 'success');
+});
+
 test('missing entrypoint can finish partial when remaining uncertainty is explicit', () => {
   let state = projectState();
   state = addEvidence(state, {

@@ -54,6 +54,12 @@ export type Evidence = {
   summary: string;
   ref?: string;
   excerpt?: string;
+  criteria?: string[];
+  signals?: string[];
+  toolName?: string;
+  command?: string;
+  exitCode?: number;
+  status?: string;
   createdAt: string;
 };
 

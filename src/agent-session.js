@@ -7,10 +7,12 @@ const { classifyTaskType } = require('./agent/task-classifier');
 const { createProjectRunCheckSteps } = require('./agent/planners/project-run-check');
 const {
   advanceProjectRunCheckSteps,
+  inspectProjectFiles,
   ingestToolExecutionEnd,
 } = require('./agent/project-run-check-runtime');
 const {
   addBlocker,
+  addEvidence,
   createTaskState,
   setConclusion,
   summarizeTaskState,
@@ -213,6 +215,19 @@ function createAgentSession(config, options) {
     });
   }
 
+  function applyProjectInspection(taskState) {
+    let state = taskState;
+    if (!state || state.taskType !== 'project_run_check') return state;
+    try {
+      inspectProjectFiles(config && config.workspace ? config.workspace : process.cwd()).forEach((item) => {
+        state = addEvidence(state, item);
+      });
+      return advanceProjectRunCheckSteps(state);
+    } catch (error) {
+      return state;
+    }
+  }
+
   agent.subscribe(async (event) => {
     await appendSessionEvent(event);
     await bus.emit(event);
@@ -233,7 +248,7 @@ function createAgentSession(config, options) {
 
   async function prompt(text) {
     const state = agent.getState();
-    state.taskState = createPromptTaskState(text);
+    state.taskState = applyProjectInspection(createPromptTaskState(text));
     await emitTaskStateUpdate(state.taskState);
     try {
       const result = await agent.prompt(text);
