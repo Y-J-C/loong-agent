@@ -863,6 +863,16 @@ test('Loong extension registers board tools by default and can be disabled', () 
   assert(disabledToolNames.indexOf('command_reference') < 0, 'disabled default tools should not include command_reference');
 });
 
+test('Loong extension prompt guidelines keep UTF-8 Chinese rules without mojibake duplicates', () => {
+  const guidelines = createDefaultExtensionRuntime({}).getPromptGuidelines();
+  assert(guidelines.indexOf('结论 / 证据 / 风险 / 待确认 / 下一步只读排查') >= 0, 'Loong answer structure rule missing UTF-8 Chinese');
+  assert(guidelines.indexOf('时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认') >= 0, 'historical-state rule missing UTF-8 Chinese');
+  assert(guidelines.indexOf('当前复测/current re-check') >= 0, 'current re-check label rule missing UTF-8 Chinese');
+  ['缁撹', '璇佹嵁', '寰呯', '褰撳墠', '鏃堕棿', '瑜版挸'].forEach((fragment) => {
+    assert(guidelines.indexOf(fragment) < 0, `Loong prompt guidelines still contain mojibake fragment: ${fragment}`);
+  });
+});
+
 test('prompt builder no longer includes all observations blindly', () => {
   const messages = buildMessagesFromTurnContext({
     userPrompt: 'current memory',
