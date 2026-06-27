@@ -239,6 +239,53 @@ function signalValues(state, prefix) {
   return unique(signals);
 }
 
+function displaySessionPath(sessionPath) {
+  const relative = path.relative(PROJECT_ROOT, sessionPath || '');
+  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return relative.split(path.sep).join('/');
+  }
+  return `examples/project-run-check/<case>/runs/${path.basename(sessionPath || 'session.jsonl')}`;
+}
+
+function stateSignals(state) {
+  const signals = [];
+  (state.evidence || []).forEach((item) => signals.push(...(item.signals || [])));
+  (state.observations || []).forEach((item) => signals.push(...(item.signal || [])));
+  return unique(signals);
+}
+
+function localizedBlockedReason(finishCheck, state) {
+  const reason = String((finishCheck || {}).reason || '').toLowerCase();
+  const signals = stateSignals(state || {}).join(' ').toLowerCase();
+  const categories = (state && state.blockers ? state.blockers : [])
+    .map((blocker) => String(blocker.category || '').toLowerCase())
+    .join(' ');
+  const text = `${reason} ${signals} ${categories}`;
+  if (
+    text.includes('architecture') ||
+    text.includes('exec_format_error') ||
+    text.includes('unsupported_arch') ||
+    text.includes('exec format') ||
+    text.includes('binary cannot run')
+  ) {
+    return '目标二进制文件与当前 LoongArch 运行环境架构或可执行格式不匹配，无法直接执行';
+  }
+  if (text.includes('command_not_found') || text.includes('command not found')) {
+    return '当前环境缺少必要命令，相关检查无法继续完成';
+  }
+  if (text.includes('module_not_found') || text.includes('modulenotfounderror') || text.includes('no module named')) {
+    return '当前项目存在缺失模块，依赖环境尚未满足';
+  }
+  return cleanReason((finishCheck || {}).reason);
+}
+
+function finalConclusionForReport(finishCheck, state) {
+  if ((finishCheck || {}).finishMode !== 'blocked') {
+    return finalConclusion(finishCheck);
+  }
+  return `当前项目运行检查已完成，但发现明确阻塞问题：${localizedBlockedReason(finishCheck, state)}。`;
+}
+
 function evidenceByCriteria(state, criteria) {
   return (state.evidence || []).filter((item) => (item.criteria || []).includes(criteria));
 }
@@ -313,7 +360,7 @@ function renderCaseReport(item) {
   return [
     `## ${item.caseName}：${CASE_TITLES[item.caseName] || item.caseName}`,
     '',
-    `会话文件：\`${item.sessionPath}\``,
+    `会话文件：\`${displaySessionPath(item.sessionPath)}\``,
     `用户目标：${item.goal}`,
     `识别出的项目类型：${projectTypes}`,
     `识别出的入口命令：${entrypoints}`,
@@ -331,7 +378,7 @@ function renderCaseReport(item) {
     observationLines,
     '',
     `完成判定：canFinish=${Boolean(finish.canFinish)}，finishMode=${finishMode}（${finishLabel}），缺失条件=${missingCriteriaText(finish.missingCriteria || [])}`,
-    `最终结论：${finalConclusion(finish)}`,
+    `最终结论：${finalConclusionForReport(finish, state)}`,
     '',
     '证据链：',
     evidenceLines,

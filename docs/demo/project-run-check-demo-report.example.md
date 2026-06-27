@@ -1,10 +1,10 @@
 # 项目运行检查演示报告
 
-生成时间：2026-06-27T09:58:58.651Z
+生成时间：2026-06-27T11:32:23.920Z
 
 ## node-ok：Node.js 正常项目
 
-会话文件：`E:\Projects\loong-pi-agent\loong-agent\examples\project-run-check\node-ok\runs\20260627-175858-dc79e1.jsonl`
+会话文件：`examples/project-run-check/node-ok/runs/20260627-193223-103168.jsonl`
 用户目标：check project runtime on Loongson board for demo case node-ok
 识别出的项目类型：project_type:node
 识别出的入口命令：entrypoint:npm start、entrypoint:readme_run_command
@@ -35,7 +35,7 @@
 
 ## python-missing-module：Python 缺失模块项目
 
-会话文件：`E:\Projects\loong-pi-agent\loong-agent\examples\project-run-check\python-missing-module\runs\20260627-175858-fec906.jsonl`
+会话文件：`examples/project-run-check/python-missing-module/runs/20260627-193223-64faa9.jsonl`
 用户目标：check project runtime on Loongson board for demo case python-missing-module
 识别出的项目类型：project_type:python
 识别出的入口命令：未识别到明确入口
@@ -63,7 +63,7 @@
 
 ## cpp-makefile：C/C++ Makefile 项目
 
-会话文件：`E:\Projects\loong-pi-agent\loong-agent\examples\project-run-check\cpp-makefile\runs\20260627-175858-929b42.jsonl`
+会话文件：`examples/project-run-check/cpp-makefile/runs/20260627-193223-b7aafd.jsonl`
 用户目标：check project runtime on Loongson board for demo case cpp-makefile
 识别出的项目类型：project_type:cpp
 识别出的入口命令：entrypoint:make all
@@ -93,7 +93,7 @@
 
 ## arch-mismatch：架构不匹配项目
 
-会话文件：`E:\Projects\loong-pi-agent\loong-agent\examples\project-run-check\arch-mismatch\runs\20260627-175858-d8d7a7.jsonl`
+会话文件：`examples/project-run-check/arch-mismatch/runs/20260627-193223-c854d7.jsonl`
 用户目标：check project runtime on Loongson board for demo case arch-mismatch
 识别出的项目类型：project_type:cpp
 识别出的入口命令：entrypoint:readme_run_command、entrypoint:make run
@@ -112,7 +112,7 @@
 - 可执行文件格式/架构不匹配(exec_format_error)：exec_format_error architecture；Binary cannot run on the current architecture or executable format.
 
 完成判定：canFinish=true，finishMode=blocked（阻塞），缺失条件=无
-最终结论：当前项目运行检查已完成，但发现明确阻塞问题：Project run check can finish as blocked: Binary cannot run on the current architecture or executable format。
+最终结论：当前项目运行检查已完成，但发现明确阻塞问题：目标二进制文件与当前 LoongArch 运行环境架构或可执行格式不匹配，无法直接执行。
 
 证据链：
 - file README.md：条件=项目结构(project_structure)、入口命令(entrypoint)；criteria=project_structure,entrypoint；signals=entrypoint:readme_run_command

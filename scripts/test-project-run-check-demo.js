@@ -13,10 +13,13 @@ const EXAMPLE_REPORT_PATH = path.join(PROJECT_ROOT, 'docs', 'demo', 'project-run
 const CASES = ['node-ok', 'python-missing-module', 'cpp-makefile', 'arch-mismatch'];
 
 async function runDemoScript() {
-  await runDemo();
+  const result = await runDemo();
   assert(fs.existsSync(REPORT_PATH), 'demo report was not generated');
   assert(fs.existsSync(EXAMPLE_REPORT_PATH), 'example demo report was not generated');
-  return fs.readFileSync(REPORT_PATH, 'utf8');
+  return {
+    report: fs.readFileSync(REPORT_PATH, 'utf8'),
+    results: result.results || [],
+  };
 }
 
 function sessionPathsFromReport(report) {
@@ -41,7 +44,7 @@ function latestFinishCheck(session) {
 }
 
 runDemoScript()
-  .then((report) => {
+  .then(({ report, results }) => {
     CASES.forEach((name) => {
       assert(report.includes(`## ${name}`), `report missing case ${name}`);
     });
@@ -50,8 +53,14 @@ runDemoScript()
     assert(report.includes('证据链'), 'report missing Chinese evidence chain label');
     assert(report.includes('架构不匹配'), 'report missing Chinese architecture mismatch text');
     assert(report.includes('finishMode=blocked'), 'report should keep raw blocked finishMode');
+    assert(!report.includes('E:\\Projects'), 'report should not expose local Windows project root');
+    assert(!report.includes('/home/loongson/loong-agent'), 'report should not expose board project root');
+    assert(
+      report.includes('架构') || report.includes('可执行格式不匹配'),
+      'arch-mismatch conclusion should include localized architecture reason'
+    );
 
-    const sessionPaths = sessionPathsFromReport(report);
+    const sessionPaths = results.map((item) => item.sessionPath).filter(Boolean);
     assert.strictEqual(sessionPaths.length, CASES.length, 'report should contain one session per case');
 
     const sessions = {};
