@@ -304,5 +304,14 @@
     "stage": "phase5",
     "sourceType": "summary",
     "defaultSearch": true
+  },
+  {
+    "id": "playbook.project_run_check_loong_agent",
+    "kind": "playbook",
+    "path": "kb/playbooks/project-run-check-loong-agent.md",
+    "title": "loong-agent 项目运行检查",
+    "stage": "file-skills-phase1",
+    "sourceType": "summary",
+    "defaultSearch": true
   }
 ]
