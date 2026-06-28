@@ -3,8 +3,34 @@
 
 const fs = require('fs');
 const path = require('path');
+const { loadSkillSummary } = require('../src/skills/file-skills');
+const { createTaskState } = require('../src/agent/task-state');
+const {
+  buildMessagesWithAuditMetadata,
+  buildTurnContext,
+} = require('../src/prompts');
 
 const ROOT = path.resolve(__dirname, '..');
+
+const FORBIDDEN_RUNTIME_SKILL_TERMS = [
+  'dist',
+  'Sub-Agent',
+  'MCP',
+  'sudo',
+  '自动安装',
+  'Skill Engine',
+  'Memory Runtime',
+  'Vector DB',
+];
+
+const RUNTIME_REQUIRED_SECTIONS = [
+  '适用场景',
+  '禁止操作',
+  '检查步骤',
+  '证据要求',
+  '完成标准',
+  '输出格式',
+];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -116,4 +142,161 @@ test('loong-agent project run playbook is indexed as workspace-local knowledge',
   assert(entry.defaultSearch === true, 'playbook entry must be default searchable');
   assert(entry.path.indexOf('..') < 0, 'playbook index path must not escape workspace');
   assertFileExists(entry.path);
+});
+
+test('file skill loader returns controlled project-run-check summary', () => {
+  const summary = loadSkillSummary('project-run-check');
+  assert(summary.id === 'skill.project_run_check', 'unexpected skill id');
+  assert(summary.path === 'skills/project-run-check.md', 'unexpected skill path');
+  assert(summary.title === 'project-run-check 文件化技能', 'unexpected skill title');
+  RUNTIME_REQUIRED_SECTIONS.forEach((section) => {
+    assert(
+      summary.content.includes(section),
+      `runtime skill summary is missing section: ${section}`
+    );
+  });
+  FORBIDDEN_RUNTIME_SKILL_TERMS.forEach((term) => {
+    assert(
+      !summary.content.includes(term),
+      `runtime skill summary must not contain forbidden term: ${term}`
+    );
+  });
+});
+
+test('file skill loader rejects unknown names and path escape attempts', () => {
+  [
+    'missing-skill',
+    '../project-run-check',
+    'project-run-check/../x',
+    '..\\project-run-check',
+  ].forEach((name) => {
+    let failed = false;
+    try {
+      loadSkillSummary(name);
+    } catch (error) {
+      failed = true;
+    }
+    assert(failed, `loadSkillSummary should reject invalid skill name: ${name}`);
+  });
+});
+
+test('project_run_check prompt injects file skill controlled context', () => {
+  const taskState = createTaskState({
+    goal: '检查项目是否能在龙芯板端运行',
+    taskType: 'project_run_check',
+  });
+  const turnContext = buildTurnContext({
+    config: {},
+    state: {
+      taskState,
+      messages: [],
+      observations: [],
+      tools: [],
+    },
+    userPrompt: '检查当前项目是否能在龙芯板端运行',
+  });
+  assert(
+    turnContext.contextAdditions.some((item) =>
+      String(item.content || '').includes('skill.project_run_check')
+    ),
+    'project_run_check context should include file skill summary'
+  );
+  assert(
+    turnContext.kbSummary.includes('project-run-check 文件化技能'),
+    'controlled context should include file skill title'
+  );
+  RUNTIME_REQUIRED_SECTIONS.forEach((section) => {
+    assert(
+      turnContext.kbSummary.includes(section),
+      `controlled context is missing runtime skill section: ${section}`
+    );
+  });
+  FORBIDDEN_RUNTIME_SKILL_TERMS.forEach((term) => {
+    assert(
+      !turnContext.kbSummary.includes(term),
+      `controlled context must not contain forbidden term: ${term}`
+    );
+  });
+});
+
+test('non project_run_check prompt does not inject file skill context', () => {
+  const turnContext = buildTurnContext({
+    config: {},
+    state: {
+      taskState: { taskType: 'general' },
+      messages: [],
+      observations: [],
+      tools: [],
+    },
+    userPrompt: '普通问答',
+  });
+  assert(
+    !turnContext.contextAdditions.some((item) =>
+      String(item.content || '').includes('skill.project_run_check')
+    ),
+    'non project_run_check context should not include file skill summary'
+  );
+  assert(
+    !turnContext.kbSummary.includes('project-run-check 文件化技能'),
+    'non project_run_check controlled context should not include skill title'
+  );
+});
+
+test('model request audit observes controlled context increase', () => {
+  const taskState = createTaskState({
+    goal: '检查项目是否能在龙芯板端运行',
+    taskType: 'project_run_check',
+  });
+  const projectTurnContext = buildTurnContext({
+    config: {},
+    state: {
+      taskState,
+      messages: [],
+      observations: [],
+      tools: [],
+    },
+    userPrompt: '检查当前项目是否能在龙芯板端运行',
+  });
+  const normalTurnContext = buildTurnContext({
+    config: {},
+    state: {
+      taskState: { taskType: 'general' },
+      messages: [],
+      observations: [],
+      tools: [],
+    },
+    userPrompt: '普通问答',
+  });
+  const projectAudit = buildMessagesWithAuditMetadata(projectTurnContext).metadata;
+  const normalAudit = buildMessagesWithAuditMetadata(normalTurnContext).metadata;
+  assert(
+    projectAudit.charStats.controlledContextChars >
+      normalAudit.charStats.controlledContextChars,
+    'project_run_check audit should observe additional controlled context'
+  );
+});
+
+test('file skill prompt injection stays within existing turn context shape', () => {
+  const taskState = createTaskState({
+    goal: '检查项目是否能在龙芯板端运行',
+    taskType: 'project_run_check',
+  });
+  const turnContext = buildTurnContext({
+    config: {},
+    state: {
+      taskState,
+      messages: [],
+      observations: [],
+      tools: [],
+    },
+    userPrompt: '检查当前项目是否能在龙芯板端运行',
+  });
+  assert(
+    !Object.prototype.hasOwnProperty.call(turnContext, 'sessionSchemaVersion'),
+    'turn context should not introduce session schema version fields'
+  );
+  assert(
+    !Object.prototype.hasOwnProperty.call(turnContext, 'fileSkillEvents'),
+    'turn context should not introduce new file skill event schema'
+  );
 });

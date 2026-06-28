@@ -5,6 +5,7 @@ const { resolveProviderCapabilities } = require('./provider-registry');
 const { convertToLlm } = require('./messages');
 const { classifyRequestContext, selectContextMessageGroups } = require('./context-selector');
 const { createDefaultExtensionRuntime } = require('./extensions');
+const { loadSkillSummary } = require('./skills/file-skills');
 
 const CORE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
 
@@ -135,6 +136,29 @@ function buildKbSummary(contextAdditions, knowledgeEvidence, warnings, budget) {
   return truncateText(parts.join('\n\n'), limit);
 }
 
+function applyTaskSkillContext(taskState, contextAdditions, knowledgeEvidence, warnings) {
+  if (!taskState || taskState.taskType !== 'project_run_check') return;
+  try {
+    const skill = loadSkillSummary('project-run-check');
+    contextAdditions.push({
+      source: 'file_skill',
+      title: skill.title,
+      content: skill.content,
+    });
+    knowledgeEvidence.push({
+      topic: skill.id,
+      path: skill.path,
+      status: 'file_skill',
+      confidence: 'high',
+    });
+    (skill.warnings || []).forEach((warning) => {
+      warnings.push(warning);
+    });
+  } catch (error) {
+    warnings.push(`文件化技能上下文不可用: ${error.message}`);
+  }
+}
+
 function buildTurnContext(options) {
   options = options || {};
   const config = options.config || {};
@@ -144,6 +168,7 @@ function buildTurnContext(options) {
   const contextAdditions = (state.contextAdditions || []).slice();
   const knowledgeEvidence = (state.knowledgeEvidence || []).slice();
   const warnings = (state.contextWarnings || []).slice();
+  applyTaskSkillContext(state.taskState, contextAdditions, knowledgeEvidence, warnings);
   const kbSummary = buildKbSummary(contextAdditions, knowledgeEvidence, warnings, budget);
   const extensionGuidelines = state.extensionRuntime && typeof state.extensionRuntime.getPromptGuidelines === 'function'
     ? state.extensionRuntime.getPromptGuidelines()
