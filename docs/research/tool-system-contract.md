@@ -2,6 +2,12 @@
 
 本文档定义 `loong-agent` 的阶段 2 工具契约。
 
+## 文档定位
+
+工具定义、结果 envelope、evidence 和 safety 是长期抽象契约；bash、process 和 file tools 是当前内置工具规范。
+
+后续可以新增 SSH、board deployment、package manager、systemd、patch、AST edit、git-aware edit 或 workspace transaction 等工具类型。新增工具不得破坏统一 envelope、证据记录、安全声明和 session 审计语义。
+
 ## 工具定义
 
 每个通过 `ToolRegistry` 暴露的工具都必须包含：

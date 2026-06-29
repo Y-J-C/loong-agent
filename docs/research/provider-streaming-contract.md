@@ -2,6 +2,12 @@
 
 本文档定义 Node 14 / CommonJS 运行时的 provider 契约。
 
+## 文档定位
+
+本文档定义 `loong-agent` 的 provider 抽象契约，并记录当前 Node 14 / CommonJS 运行时的 provider profile。
+
+Node 14、CommonJS、严格 JSON 工具动作、OpenAI-compatible 和 DeepSeek 细节都是当前实现限制。它们不得被理解为长期架构边界；未来 provider 可以支持 native tool calling、JSON schema mode、结构化输出或其他模型协议，只要 Agent Loop、Session、工具结果和安全审计契约保持兼容。
+
 ## Provider 方法
 
 Provider 必须保留：
@@ -51,9 +57,11 @@ streamChatCompletion(config, messages, options)
 - `usage: true`
 - `toolCalling: false`
 
-`toolCalling: false` 表示 Loong-Agent 仍使用严格 JSON 工具动作，不使用原生 OpenAI `tool_calls`。
+`toolCalling: false` 表示当前内置 profile 仍使用严格 JSON 工具动作，不使用原生 OpenAI `tool_calls`。未来 provider 可以声明 `toolCalling: true`，但必须明确工具调用事件如何映射到 `agent-loop-contract.md` 和 `tool-system-contract.md`。
 
 ## Profiles
+
+本节是当前实现 profile，不是 provider 抽象层的长期限制。
 
 `LOONG_AGENT_PROVIDER_PROFILE` 选择默认 provider 设置：
 

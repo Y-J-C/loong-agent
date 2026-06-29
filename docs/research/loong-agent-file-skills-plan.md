@@ -1,5 +1,11 @@
 # loong-agent 文件化技能第一阶段计划
 
+## 文档定位
+
+本文档是第一阶段计划和当时决策记录，不是长期架构契约。文中的“不做”只约束第一阶段，不限制后续阶段引入 Skill Engine、Memory Runtime、Vector DB、MCP、多 Agent 调度、自动 KB 候选沉淀或 Agent Loop/工具协议演进。
+
+阶段完成后，本文应迁移到 `docs/archive/` 或转写为 ADR，并明确记录当时的背景、取舍和验收结果。
+
 ## 第一阶段目标
 
 第一阶段只建立可审计的文件协议，不改变 runtime 行为，不新增工具，不修改公开 API。

@@ -2,6 +2,10 @@
 
 本文档固定 `loong-agent` Agent Loop 消费者需要遵循的运行时契约。
 
+## 执行模式边界
+
+当前 runtime 默认按顺序执行工具。未来允许新增 `parallel`、`batch` 或 `delegated` 等执行模式；消费者必须优先按 `toolCallId` 关联 start/update/end 事件，不得依赖工具事件的绝对线性顺序。
+
 ## 事件顺序
 
 一次正常运行会发出：

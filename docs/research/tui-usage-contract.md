@@ -2,11 +2,17 @@
 
 本文档定义 Node 14 版 Loong-Agent 子集的稳定 TUI 行为。
 
+## 文档定位
+
+本文档定义 Node 14 版 Loong-Agent 子集的稳定 TUI v0 行为。v0 以查看、恢复、导出、审计和安全展示为主。
+
+当前“TUI 不执行写入工具”是 v0 安全边界，不是长期产品限制。未来可以新增 `tui-approval-workflow.md`，在展示 diff、风险、证据、回滚提示和用户确认后支持写文件、配置修改、部署或其他开发任务。
+
 ## 入口
 
 - 使用 `node src/index.js tui` 启动 TUI。
 - TUI 继续使用相同的 Agent Loop 事件和 Session JSONL 格式。
-- TUI 不执行写入工具，也不绕过默认安全策略。
+- TUI v0 不执行写入工具，也不绕过默认安全策略。
 
 ## 命令目标
 
@@ -76,4 +82,4 @@ TUI 绝不能渲染以下明文值：
 - Agent Loop 事件名保持不变。
 - Session JSONL v2 格式保持不变。
 - 工具结果 envelope 保持不变。
-- Node 14、CommonJS、无 npm 运行时依赖这些约束继续有效。
+- Node 14、CommonJS、无 npm 运行时依赖是当前 TUI v0 profile 约束；未来 profile 可以单独定义新的运行时要求。

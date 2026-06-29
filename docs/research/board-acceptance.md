@@ -2,6 +2,14 @@
 
 本文档定义 `loong-agent` 的板端发布验收流程。
 
+## 文档定位
+
+本文档是 LS2K1000 PAI UDB v1.5 + Node.js v14.16.1 的离线发布验收 profile，保留用于理解历史验收口径和特定离线演示场景。
+
+当前仓库维护规则要求后续不要再处理 `dist`、不要运行 `scripts/pack-release.js` 或 `scripts/pack-release.ps1`，也不要基于 `dist` 包做部署。当前板端验证应优先直接同步源码到 `/home/loongson/loong-agent`，再运行与本次修改相关的最小验证。
+
+因此，下文“发布包”和 `dist` 流程只适用于历史离线验收，不是当前默认部署规则。
+
 ## 目标板
 
 - 板卡：Loongson LS2K1000 PAI UDB v1.5
@@ -10,9 +18,9 @@
 
 验收过程不得修改系统软件包。
 
-## 发布包
+## 历史离线发布包
 
-在开发机上构建：
+以下流程只适用于历史离线发布验收。当前维护任务不得默认执行这些命令。
 
 ```bash
 node scripts/create-offline-demo.js

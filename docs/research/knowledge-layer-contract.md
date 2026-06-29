@@ -2,6 +2,20 @@
 
 本文档定义 `loong-agent` 的最小知识层。
 
+## 文档定位
+
+本文档是最小知识层 v0 契约。它描述当前阶段的安全、只读、可审计知识模式，不是长期知识系统总纲。
+
+v0 中“不使用 RAG、embeddings、向量数据库、外部搜索或自动来源摄取”是当前实现 profile，不是长期架构边界。后续版本可以在保持来源、confidence、unknowns、evidence 和人工审核边界的前提下，引入结构化事实、索引、检索增强、embedding、hybrid retrieval 或候选知识沉淀。
+
+## 版本边界
+
+- v0：手工维护 Markdown、结构化 fact、playbook 和 `kb/index.json`，只读优先。
+- v1：允许更完整的结构化 facts、playbooks、维护检查和来源校验。
+- v2：可以引入 session、日志、代码和命令输出的轻量索引，但不得把未验证内容当作事实。
+- v3：可以评估 embedding、RAG 或 hybrid retrieval，必须保留来源引用、置信度和未知项。
+- v4：可以沉淀候选知识，但写入 KB 前必须经过显式审核或可追踪的维护流程。
+
 ## 目标
 
 知识层是一个本地、只读、带来源意识的参考层。它帮助 agent 引用板卡知识、环境约束、风险、命令参考和未知项。

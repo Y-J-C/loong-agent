@@ -4,6 +4,8 @@
 
 来自 `loong_full_report_20260605_180636.txt`，生成时间：2026-06-05 18:06:36 CST。
 
+本文是历史环境快照，不是当前事实源。使用前必须通过当前文件、工具输出或板端命令重新确认。本文不得默认注入 runtime prompt、session export 或公开演示材料。
+
 ```text
 Architecture: loongarch64
 System: Loongnix-Embedded GNU/Linux 20 (DaoXiangHu)
@@ -28,7 +30,7 @@ wget: 1.20.1 installed
 APT source: DaoXiangHu-stable main contrib non-free
 Network: DeepSeek reachable, npmmirror reachable, Gitee reachable
 Project path on board: /home/loongson/loong-agent
-SSH access from Windows: C:\Windows\System32\OpenSSH\ssh.exe -i C:\Users\22826\.ssh\id_ed25519 -p 52101 loongson@10.18.52.130
+SSH access from Windows: configured, details redacted from this public note
 ```
 
 ## 开发判断
@@ -58,13 +60,13 @@ SSH access from Windows: C:\Windows\System32\OpenSSH\ssh.exe -i C:\Users\22826\.
 
 ## 远程访问
 
-Windows 侧已配置 ED25519 免密 SSH，可直接访问龙芯派：
+Windows 侧曾配置 ED25519 免密 SSH。访问方式属于私有运维信息，不应写入公开 KB、runtime prompt、session export 或演示材料。
 
 ```powershell
-C:\Windows\System32\OpenSSH\ssh.exe -i C:\Users\22826\.ssh\id_ed25519 -p 52101 loongson@10.18.52.130
+ssh -i <private-key-path> -p <port> <user>@<board-host>
 ```
 
-已验证连接输出包含：
+2026-06-05 已验证连接输出包含：
 
 ```text
 connected
