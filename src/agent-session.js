@@ -8,8 +8,8 @@ const { createProjectRunCheckSteps } = require('./agent/planners/project-run-che
 const {
   advanceProjectRunCheckSteps,
   inspectProjectFiles,
-  ingestToolExecutionEnd,
 } = require('./agent/project-run-check-runtime');
+const { ingestTaskRuntimeEvent } = require('./agent/task-state-ingestion');
 const {
   addBlocker,
   addEvidence,
@@ -232,13 +232,8 @@ function createAgentSession(config, options) {
     await appendSessionEvent(event);
     await bus.emit(event);
     const agentState = agent.getState();
-    if (
-      agentState.taskState &&
-      agentState.taskState.taskType === 'project_run_check' &&
-      event &&
-      event.type === 'tool_execution_end'
-    ) {
-      const nextTaskState = ingestToolExecutionEnd(agentState.taskState, event);
+    if (agentState.taskState && event && event.type !== 'task_state_update') {
+      const nextTaskState = ingestTaskRuntimeEvent(agentState.taskState, event);
       if (nextTaskState !== agentState.taskState) {
         agentState.taskState = nextTaskState;
         await emitTaskStateUpdate(agentState.taskState);
