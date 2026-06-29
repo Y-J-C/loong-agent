@@ -6,6 +6,7 @@ const { convertToLlm } = require('./messages');
 const { classifyRequestContext, selectContextMessageGroups } = require('./context-selector');
 const { createDefaultExtensionRuntime } = require('./extensions');
 const { loadSkillSummary } = require('./skills/file-skills');
+const { createTaskMemorySnapshot, renderTaskMemoryPromptBlock } = require('./agent/task-memory');
 
 const CORE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
 
@@ -170,6 +171,17 @@ function buildTurnContext(options) {
   const warnings = (state.contextWarnings || []).slice();
   applyTaskSkillContext(state.taskState, contextAdditions, knowledgeEvidence, warnings);
   const kbSummary = buildKbSummary(contextAdditions, knowledgeEvidence, warnings, budget);
+  const taskMemorySnapshot = state.taskState
+    ? createTaskMemorySnapshot({
+      taskState: state.taskState,
+      messages: state.messages || [],
+      observations: state.observations || [],
+      userPrompt: options.userPrompt || state.userPrompt || '',
+    })
+    : null;
+  const taskMemoryPromptBlock = taskMemorySnapshot
+    ? renderTaskMemoryPromptBlock(taskMemorySnapshot, { maxChars: 1200 })
+    : '';
   const extensionGuidelines = state.extensionRuntime && typeof state.extensionRuntime.getPromptGuidelines === 'function'
     ? state.extensionRuntime.getPromptGuidelines()
     : '';
@@ -182,6 +194,8 @@ function buildTurnContext(options) {
     config: safeConfigSummary(config),
     cwd: config.workspace || '',
     observations: (state.observations || []).slice(),
+    taskMemorySnapshot,
+    taskMemoryPromptBlock,
     contextAdditions,
     knowledgeEvidence,
     warnings,
@@ -210,6 +224,12 @@ function buildMessagesWithAuditMetadata(turnContext) {
     name: 'currentRequest',
     content: `Current user request:\n${turnContext.userPrompt || 'Continue from current context.'}`,
   }];
+  if (turnContext.taskMemoryPromptBlock) {
+    parts.push({
+      name: 'taskMemory',
+      content: turnContext.taskMemoryPromptBlock,
+    });
+  }
   if (transcriptText) {
     parts.push({
       name: 'recentConversation',
@@ -278,6 +298,7 @@ function buildMessagesWithAuditMetadata(turnContext) {
         userChars: userContent.length,
         totalChars,
         currentRequestChars: namedPartChars.currentRequestChars || 0,
+        taskMemoryChars: namedPartChars.taskMemoryChars || 0,
         recentConversationChars: namedPartChars.recentConversationChars || 0,
         kbSummaryChars: turnContext.kbSummary ? turnContext.kbSummary.length : 0,
         controlledContextChars,
@@ -294,6 +315,13 @@ function buildMessagesWithAuditMetadata(turnContext) {
         selectedConversationMessageCount: (selectedGroups.conversation || []).length,
         selectedObservationMessageCount: (selectedGroups.observations || []).length,
         selectedBashFallbackMessageCount: (selectedGroups.bashFallback || []).length,
+        hasTaskMemorySnapshot: Boolean(turnContext.taskMemorySnapshot || turnContext.taskMemoryPromptBlock),
+        taskMemoryFailedAttemptCount: turnContext.taskMemorySnapshot && Array.isArray(turnContext.taskMemorySnapshot.failedAttempts)
+          ? turnContext.taskMemorySnapshot.failedAttempts.length
+          : 0,
+        taskMemoryVerifiedFactCount: turnContext.taskMemorySnapshot && Array.isArray(turnContext.taskMemorySnapshot.verifiedFacts)
+          ? turnContext.taskMemorySnapshot.verifiedFacts.length
+          : 0,
       },
       tokenEstimate: {
         approxPromptTokens: Math.ceil(totalChars / 4),
