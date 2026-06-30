@@ -11,6 +11,11 @@ const {
 } = require('./agent/project-run-check-runtime');
 const { ingestTaskRuntimeEvent } = require('./agent/task-state-ingestion');
 const {
+  createSessionMemorySnapshot,
+  detectSessionMemoryIntent,
+  resolveSessionMemorySource,
+} = require('./agent/session-memory');
+const {
   addBlocker,
   addEvidence,
   createTaskState,
@@ -228,6 +233,43 @@ function createAgentSession(config, options) {
     }
   }
 
+  function applySessionMemory(state, text) {
+    const intent = detectSessionMemoryIntent(text);
+    state.sessionMemorySnapshot = null;
+    if (!intent.shouldRead) return;
+    try {
+      const resolved = resolveSessionMemorySource(config, {
+        id: session && session.id,
+        filePath: session && session.filePath,
+        parentSession: options.parentSession,
+      }, text);
+      if (resolved.session) {
+        state.sessionMemorySnapshot = createSessionMemorySnapshot({
+          session: resolved.session,
+          userPrompt: text,
+          selectedBy: resolved.selectedBy,
+        });
+      } else {
+        state.sessionMemorySnapshot = createSessionMemorySnapshot({
+          session: null,
+          userPrompt: text,
+          selectedBy: resolved.selectedBy,
+        });
+        state.sessionMemorySnapshot.warnings = (state.sessionMemorySnapshot.warnings || [])
+          .concat(resolved.warnings || []);
+      }
+    } catch (error) {
+      state.sessionMemorySnapshot = createSessionMemorySnapshot({
+        session: null,
+        userPrompt: text,
+        selectedBy: 'error',
+      });
+      state.sessionMemorySnapshot.warnings = [
+        error && error.message ? error.message : String(error),
+      ];
+    }
+  }
+
   agent.subscribe(async (event) => {
     const agentState = agent.getState();
     if (agentState.taskState && event && event.type !== 'task_state_update') {
@@ -244,6 +286,7 @@ function createAgentSession(config, options) {
   async function prompt(text) {
     const state = agent.getState();
     state.taskState = applyProjectInspection(createPromptTaskState(text));
+    applySessionMemory(state, text);
     await emitTaskStateUpdate(state.taskState);
     try {
       const result = await agent.prompt(text);

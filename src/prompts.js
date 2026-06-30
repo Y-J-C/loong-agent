@@ -7,6 +7,7 @@ const { classifyRequestContext, selectContextMessageGroups } = require('./contex
 const { createDefaultExtensionRuntime } = require('./extensions');
 const { loadSkillSummary } = require('./skills/file-skills');
 const { createTaskMemorySnapshot, renderTaskMemoryPromptBlock } = require('./agent/task-memory');
+const { renderSessionMemoryPromptBlock } = require('./agent/session-memory');
 
 const CORE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
 
@@ -182,6 +183,10 @@ function buildTurnContext(options) {
   const taskMemoryPromptBlock = taskMemorySnapshot
     ? renderTaskMemoryPromptBlock(taskMemorySnapshot, { maxChars: 1200 })
     : '';
+  const sessionMemorySnapshot = state.sessionMemorySnapshot || null;
+  const sessionMemoryPromptBlock = sessionMemorySnapshot
+    ? renderSessionMemoryPromptBlock(sessionMemorySnapshot, { maxChars: 800 })
+    : '';
   const extensionGuidelines = state.extensionRuntime && typeof state.extensionRuntime.getPromptGuidelines === 'function'
     ? state.extensionRuntime.getPromptGuidelines()
     : '';
@@ -196,6 +201,8 @@ function buildTurnContext(options) {
     observations: (state.observations || []).slice(),
     taskMemorySnapshot,
     taskMemoryPromptBlock,
+    sessionMemorySnapshot,
+    sessionMemoryPromptBlock,
     contextAdditions,
     knowledgeEvidence,
     warnings,
@@ -228,6 +235,12 @@ function buildMessagesWithAuditMetadata(turnContext) {
     parts.push({
       name: 'taskMemory',
       content: turnContext.taskMemoryPromptBlock,
+    });
+  }
+  if (turnContext.sessionMemoryPromptBlock) {
+    parts.push({
+      name: 'sessionMemory',
+      content: turnContext.sessionMemoryPromptBlock,
     });
   }
   if (transcriptText) {
@@ -299,6 +312,7 @@ function buildMessagesWithAuditMetadata(turnContext) {
         totalChars,
         currentRequestChars: namedPartChars.currentRequestChars || 0,
         taskMemoryChars: namedPartChars.taskMemoryChars || 0,
+        sessionMemoryChars: namedPartChars.sessionMemoryChars || 0,
         recentConversationChars: namedPartChars.recentConversationChars || 0,
         kbSummaryChars: turnContext.kbSummary ? turnContext.kbSummary.length : 0,
         controlledContextChars,
@@ -322,6 +336,22 @@ function buildMessagesWithAuditMetadata(turnContext) {
         taskMemoryVerifiedFactCount: turnContext.taskMemorySnapshot && Array.isArray(turnContext.taskMemorySnapshot.verifiedFacts)
           ? turnContext.taskMemorySnapshot.verifiedFacts.length
           : 0,
+        hasSessionMemorySnapshot: Boolean(turnContext.sessionMemorySnapshot || turnContext.sessionMemoryPromptBlock),
+        sessionMemorySourceSessionId: turnContext.sessionMemorySnapshot &&
+          turnContext.sessionMemorySnapshot.sourceSession
+          ? turnContext.sessionMemorySnapshot.sourceSession.id || ''
+          : '',
+        sessionMemorySourceRefCount: turnContext.sessionMemorySnapshot &&
+          Array.isArray(turnContext.sessionMemorySnapshot.sourceRefs)
+          ? turnContext.sessionMemorySnapshot.sourceRefs.length
+          : 0,
+        sessionMemoryWarningCount: turnContext.sessionMemorySnapshot &&
+          Array.isArray(turnContext.sessionMemorySnapshot.warnings)
+          ? turnContext.sessionMemorySnapshot.warnings.length
+          : 0,
+        sessionMemoryTrigger: turnContext.sessionMemorySnapshot
+          ? turnContext.sessionMemorySnapshot.trigger || ''
+          : '',
       },
       tokenEstimate: {
         approxPromptTokens: Math.ceil(totalChars / 4),
