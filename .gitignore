@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 runs/
+memory/session-index.jsonl
 dist/
 upstream/
 node_modules/

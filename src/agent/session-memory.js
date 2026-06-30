@@ -4,6 +4,7 @@ const path = require('path');
 const { classifyRequestContext } = require('../context-selector');
 const { classifyFailureType } = require('./task-memory');
 const { createSessionManager } = require('../session-manager');
+const { readSessionIndex, searchSessionIndex } = require('./session-memory-index');
 
 function compactWhitespace(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -279,6 +280,24 @@ function resolveSessionMemorySource(config, currentSession, userPrompt) {
       return { intent, session: manager.read(parentPath), selectedBy: 'parentSession', warnings: [] };
     } catch (error) {
       return { intent, session: null, selectedBy: 'parentSession', warnings: [error.message] };
+    }
+  }
+  const index = readSessionIndex(config || {});
+  if (index.entries && index.entries.length) {
+    const hit = searchSessionIndex(index.entries, userPrompt);
+    if (hit && hit.entry) {
+      try {
+        return {
+          intent,
+          session: manager.read(hit.entry.sessionId || hit.entry.sessionPath),
+          selectedBy: 'memory_index',
+          warnings: index.warnings || [],
+          indexHit: hit,
+        };
+      } catch (error) {
+        const warnings = (index.warnings || []).concat([`Failed to read indexed session: ${error.message}`]);
+        return { intent, session: null, selectedBy: 'memory_index', warnings };
+      }
     }
   }
   const sessions = manager.list({ limit: 20 });

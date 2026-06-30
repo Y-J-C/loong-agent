@@ -10,6 +10,7 @@ const {
   detectSessionMemoryIntent,
   renderSessionMemoryPromptBlock,
 } = require('../src/agent/session-memory');
+const { buildSessionIndex, writeSessionIndex } = require('../src/agent/session-memory-index');
 const { createAgentSession } = require('../src/agent-session');
 const { registerProvider } = require('../src/llm');
 const { readSessionFromPath } = require('../src/session');
@@ -70,6 +71,22 @@ function sampleSession(workspace) {
       },
     },
     { type: 'agent_end', status: 'ok', summary: 'previous run completed' },
+  ]));
+}
+
+function i2cSession(workspace) {
+  return readSessionFromPath(writeSession(workspace, 'i2c-previous', [
+    { type: 'session', version: 2, sessionId: 'i2c-previous', rootSessionId: 'i2c-previous', cwd: workspace },
+    { type: 'message_end', role: 'user', content: '检查 I2C 设备', loop: 1 },
+    {
+      type: 'bash_execution',
+      loop: 1,
+      toolCallId: 'bash-i2c',
+      command: 'i2cdetect -y 1',
+      output: '0x76',
+      exitCode: 0,
+    },
+    { type: 'agent_end', status: 'ok', summary: 'i2c previous run completed' },
   ]));
 }
 
@@ -166,6 +183,32 @@ test('agent session does not inject session memory for current-only prompt', asy
   await session.prompt('检查当前内存');
 
   assert(firstPrompt.indexOf('Session Memory Snapshot') < 0, 'current-only prompt should not include session memory');
+});
+
+test('agent session uses memory index hit before latest non-current session', async () => {
+  const workspace = tempWorkspace();
+  sampleSession(workspace);
+  i2cSession(workspace);
+  writeSessionIndex({ workspace }, buildSessionIndex({ workspace }, { limit: 20 }).entries);
+  let firstPrompt = '';
+  registerProvider({
+    name: 'session-memory-provider-index',
+    chatCompletion: async (cfg, messages) => {
+      firstPrompt = messages.map((message) => message.content).join('\n');
+      return JSON.stringify({ type: 'answer', answer: 'done', status: 'ok' });
+    },
+  });
+
+  const session = createAgentSession(config(workspace, 'session-memory-provider-index'));
+  const result = await session.prompt('继续上次 npm 缺失问题');
+  const loaded = readSessionFromPath(result.session.path);
+  const request = loaded.events.find((event) => event.type === 'model_request');
+
+  assert(firstPrompt.indexOf('Source session: previous selectedBy=memory_index') >= 0, 'index hit was not used');
+  assert(firstPrompt.indexOf('npm test') >= 0, 'prompt should use original indexed session content');
+  assert(firstPrompt.indexOf('keywords') < 0, 'index entry should not be injected directly');
+  assert(request && request.contextStats && request.contextStats.sessionMemorySourceSessionId === 'previous', 'metadata missing indexed source session');
+  assert(!loaded.events.some((event) => event.type === 'session_memory_snapshot'), 'must not add session_memory_snapshot event');
 });
 
 (async () => {
