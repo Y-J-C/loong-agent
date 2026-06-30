@@ -84,7 +84,8 @@ test('failed attempts are structured and classify missing dependency failures', 
 
   assert.strictEqual(snapshot.failedAttempts.length, 1);
   assert.strictEqual(snapshot.failedAttempts[0].failureType, 'missing_dependency');
-  assert.strictEqual(snapshot.failedAttempts[0].evidenceRef, 'turn:3:bash:tool-bash-missing');
+  assert.strictEqual(snapshot.failedAttempts[0].evidenceRef, 'evt:bash:tool-bash-missing');
+  assert.strictEqual(snapshot.failedAttempts[0].dedupKey, 'bash|npm test|missing_dependency');
   assert(snapshot.failedAttempts[0].retryAdvice.indexOf('依赖') >= 0, 'missing retry advice');
 });
 
@@ -134,8 +135,22 @@ test('verified facts require evidenceRef and ignore unreferenced evidence', () =
 
   const snapshot = createTaskMemorySnapshot({ taskState });
 
-  assert(snapshot.verifiedFacts.some((item) => item.evidenceRef === 'task:evidence:ev-node'), 'missing referenced verified fact');
+  const fact = snapshot.verifiedFacts.find((item) => item.evidenceRef === 'evt:task-evidence:ev-node');
+  assert(fact, 'missing referenced verified fact');
+  assert.strictEqual(fact.confidence, 'high');
   assert(!snapshot.verifiedFacts.some((item) => item.fact.indexOf('This should not become verified') >= 0), 'unreferenced fact leaked into verifiedFacts');
+});
+
+test('verified facts from bash messages use medium confidence and evt refs', () => {
+  const snapshot = createTaskMemorySnapshot({
+    taskState: createTaskState({ goal: 'check node' }),
+    messages: [bashMessage({ turn: 8, toolCallId: 'bash-node', command: 'node --version' })],
+  });
+  const fact = snapshot.verifiedFacts.find((item) => item.command === 'node --version');
+
+  assert(fact, 'missing bash verified fact');
+  assert.strictEqual(fact.evidenceRef, 'evt:bash:bash-node');
+  assert.strictEqual(fact.confidence, 'medium');
 });
 
 test('blockers and next actions come from blockers before generic pending steps', () => {
@@ -168,12 +183,12 @@ test('prompt block truncates long content but preserves evidence references', ()
       command: 'node huge.js',
       resultSummary: 'y'.repeat(1000),
       failureType: 'command_error',
-      evidenceRef: 'turn:9:bash:huge',
+      evidenceRef: 'evt:bash:huge',
       retryAdvice: '修正命令后可重试。',
     }],
     verifiedFacts: [{
       fact: 'node --version succeeded',
-      evidenceRef: 'turn:8:bash:node',
+      evidenceRef: 'evt:bash:node',
       command: 'node --version',
       exitCode: 0,
       summary: 'v20.0.0',
@@ -185,8 +200,8 @@ test('prompt block truncates long content but preserves evidence references', ()
   const block = renderTaskMemoryPromptBlock(snapshot, { maxChars: 500 });
 
   assert(block.length <= 500, `block too long: ${block.length}`);
-  assert(block.indexOf('turn:9:bash:huge') >= 0, 'failed attempt evidenceRef was dropped');
-  assert(block.indexOf('turn:8:bash:node') >= 0, 'verified fact evidenceRef was dropped');
+  assert(block.indexOf('evt:bash:huge') >= 0, 'failed attempt evidenceRef was dropped');
+  assert(block.indexOf('evt:bash:node') >= 0, 'verified fact evidenceRef was dropped');
 });
 
 test('prompt builder injects task memory without changing message shape', () => {

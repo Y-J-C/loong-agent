@@ -229,8 +229,6 @@ function createAgentSession(config, options) {
   }
 
   agent.subscribe(async (event) => {
-    await appendSessionEvent(event);
-    await bus.emit(event);
     const agentState = agent.getState();
     if (agentState.taskState && event && event.type !== 'task_state_update') {
       const nextTaskState = ingestTaskRuntimeEvent(agentState.taskState, event);
@@ -239,6 +237,8 @@ function createAgentSession(config, options) {
         await emitTaskStateUpdate(agentState.taskState);
       }
     }
+    await appendSessionEvent(event);
+    await bus.emit(event);
   });
 
   async function prompt(text) {

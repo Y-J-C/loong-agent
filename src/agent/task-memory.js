@@ -78,16 +78,20 @@ function evidenceRef(prefix, id) {
   return value ? `${prefix}:${value}` : '';
 }
 
+function normalizeEvidenceRef(eventType, id) {
+  const type = compactWhitespace(eventType || 'unknown').replace(/:+/g, '-');
+  const value = compactWhitespace(id || 'unknown').replace(/^evt:/, '');
+  return `evt:${type}:${value || 'unknown'}`;
+}
+
 function bashEvidenceRef(message) {
-  const turn = message && message.turn !== undefined ? message.turn : message && message.loop !== undefined ? message.loop : 'unknown';
-  const id = message && message.toolCallId ? message.toolCallId : 'no-tool-call';
-  return `turn:${turn}:bash:${id}`;
+  const id = message && message.toolCallId ? message.toolCallId : message && message.command ? message.command : 'no-tool-call';
+  return normalizeEvidenceRef('bash', id);
 }
 
 function toolEvidenceRef(message) {
-  const turn = message && message.turn !== undefined ? message.turn : message && message.loop !== undefined ? message.loop : 'unknown';
   const id = message && message.toolCallId ? message.toolCallId : message && message.tool ? message.tool : message && message.toolName ? message.toolName : 'unknown';
-  return `turn:${turn}:tool:${id}`;
+  return normalizeEvidenceRef('tool', id);
 }
 
 function classifyFailureType(input) {
@@ -223,7 +227,8 @@ function failedAttemptsFromTaskState(taskState) {
         command: '',
         resultSummary: truncate(step.failureReason || '', 180),
         failureType,
-        evidenceRef: step.id ? `task:step:${step.id}` : '',
+        evidenceRef: step.id ? normalizeEvidenceRef('task-step', step.id) : '',
+        dedupKey: [step.toolName || 'step', step.id || step.title || 'unknown', failureType].join('|'),
         retryAdvice: retryAdviceForFailureType(failureType),
       });
     });
@@ -247,6 +252,7 @@ function failedAttemptsFromMessages(messages) {
         resultSummary: truncate(message.output || '', 180),
         failureType,
         evidenceRef: bashEvidenceRef(message),
+        dedupKey: ['bash', message.command || message.toolCallId || 'unknown', failureType].join('|'),
         retryAdvice: retryAdviceForFailureType(failureType),
       });
     } else if (isToolResultMessage(message)) {
@@ -265,6 +271,7 @@ function failedAttemptsFromMessages(messages) {
           resultSummary: truncate(contentSummary(message), 180),
           failureType,
           evidenceRef: toolEvidenceRef(message),
+          dedupKey: [message.tool || message.toolName || 'tool', message.toolCallId || 'unknown', failureType].join('|'),
           retryAdvice: retryAdviceForFailureType(failureType),
         });
       }
@@ -279,10 +286,11 @@ function verifiedFactsFromTaskState(taskState) {
     .filter((item) => item && item.id && item.kind !== 'manual')
     .map((item) => ({
       fact: truncate(item.summary || item.title || '', 180),
-      evidenceRef: evidenceRef('task:evidence', item.id),
+      evidenceRef: normalizeEvidenceRef('task-evidence', item.id),
       command: item.command || '',
       exitCode: item.exitCode,
       summary: truncate(item.summary || item.excerpt || '', 180),
+      confidence: item.source === 'bash_execution' ? 'medium' : 'high',
     }))
     .filter((item) => item.fact && item.evidenceRef);
 }
@@ -297,6 +305,7 @@ function verifiedFactsFromMessages(messages) {
         command: message.command || '',
         exitCode: Number(message.exitCode || 0),
         summary: truncate(message.output || '', 180),
+        confidence: 'medium',
       });
     } else if (isToolResultMessage(message)) {
       const result = resultObject(message);
@@ -306,10 +315,11 @@ function verifiedFactsFromMessages(messages) {
         evidence.forEach((item, index) => {
           facts.push({
             fact: truncate(item.summary || item.title || contentSummary(message), 180),
-            evidenceRef: `${toolEvidenceRef(message)}:evidence:${item.id || index}`,
+            evidenceRef: normalizeEvidenceRef('tool', `${message.toolCallId || message.tool || message.toolName || 'unknown'}:evidence:${item.id || index}`),
             command: item.command || '',
             exitCode: item.exitCode,
             summary: truncate(item.summary || item.output || item.stdout || item.stderr || '', 180),
+            confidence: 'high',
           });
         });
       }
@@ -324,18 +334,41 @@ function blockersFromTaskState(taskState) {
     category: item.category || 'unknown',
     summary: truncate(item.summary || '', 180),
     suggestedMinimalNextStep: truncate(item.suggestedMinimalNextStep || '', 180),
-    evidenceRef: item.id ? `task:blocker:${item.id}` : '',
+    evidenceRef: item.evidenceRef || (item.id ? normalizeEvidenceRef('task-blocker', item.id) : ''),
+    source: item.source || '',
+    toolCallId: item.toolCallId || '',
   }));
 }
 
-function blockersFromFailures(failedAttempts) {
+function blockersFromFailures(failedAttempts, taskBlockers) {
+  const runtimeKeys = new Set((taskBlockers || [])
+    .filter((item) => item && item.source === 'runtime_ingestion')
+    .map((item) => [
+      item.toolCallId || '',
+      item.evidenceRef || '',
+      item.category || '',
+    ].join('|')));
   return (failedAttempts || [])
     .filter((item) => ['policy_blocked', 'permission_denied', 'missing_dependency', 'arch_incompatible'].includes(item.failureType))
+    .filter((item) => {
+      const key = [
+        item.toolCallId || '',
+        item.evidenceRef || '',
+        item.failureType || '',
+      ].join('|');
+      if (runtimeKeys.has(key)) return false;
+      return !(taskBlockers || []).some((blocker) => {
+        return blocker &&
+          blocker.source === 'runtime_ingestion' &&
+          (blocker.evidenceRef && blocker.evidenceRef === item.evidenceRef);
+      });
+    })
     .map((item) => ({
       category: item.failureType,
       summary: item.resultSummary || item.action || '',
       suggestedMinimalNextStep: item.retryAdvice || '',
       evidenceRef: item.evidenceRef || '',
+      source: 'derived_from_failed_attempt',
     }));
 }
 
@@ -376,7 +409,7 @@ function createTaskMemorySnapshot(input) {
   ).reverse();
   snapshot.failedAttempts = uniqueBy(
     failedAttemptsFromTaskState(taskState).concat(failedAttemptsFromMessages(messages)).reverse(),
-    (item) => `${item.action}|${item.command}|${item.failureType}|${item.evidenceRef}`,
+    (item) => item.dedupKey || `${item.action}|${item.command}|${item.failureType}|${item.evidenceRef}`,
     6
   ).reverse();
   snapshot.verifiedFacts = uniqueBy(
@@ -384,8 +417,9 @@ function createTaskMemorySnapshot(input) {
     (item) => `${item.fact}|${item.evidenceRef}`,
     6
   ).reverse();
+  const taskBlockers = blockersFromTaskState(taskState);
   snapshot.blockers = uniqueBy(
-    blockersFromTaskState(taskState).concat(blockersFromFailures(snapshot.failedAttempts)).reverse(),
+    taskBlockers.concat(blockersFromFailures(snapshot.failedAttempts, taskBlockers)).reverse(),
     (item) => `${item.category}|${item.summary}|${item.evidenceRef}`,
     6
   ).reverse();
@@ -468,5 +502,6 @@ function renderTaskMemoryPromptBlock(snapshot, options) {
 module.exports = {
   classifyFailureType,
   createTaskMemorySnapshot,
+  normalizeEvidenceRef,
   renderTaskMemoryPromptBlock,
 };

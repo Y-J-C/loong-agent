@@ -72,10 +72,15 @@ export type Blocker = {
     | "architecture"
     | "missing_file"
     | "runtime"
+    | "unstable_execution"
     | "unsafe_operation"
     | "unknown";
   summary: string;
   evidenceIds?: string[];
+  evidenceRef?: string;
+  source?: string;
+  toolCallId?: string;
+  dedupKey?: string;
   suggestedMinimalNextStep?: string;
   createdAt: string;
 };

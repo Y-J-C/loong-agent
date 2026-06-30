@@ -29,6 +29,7 @@ export type TaskMemoryFailedAttempt = {
     | "timeout"
     | "unknown";
   evidenceRef: string;
+  dedupKey?: string;
   retryAdvice: string;
 };
 
@@ -38,6 +39,7 @@ export type TaskMemoryVerifiedFact = {
   command?: string;
   exitCode?: number;
   summary?: string;
+  confidence?: "high" | "medium" | "low";
 };
 
 export type TaskMemoryBlocker = {
@@ -45,6 +47,8 @@ export type TaskMemoryBlocker = {
   summary: string;
   suggestedMinimalNextStep?: string;
   evidenceRef?: string;
+  source?: string;
+  toolCallId?: string;
 };
 
 export type TaskMemorySnapshot = {
@@ -59,6 +63,8 @@ export type TaskMemorySnapshot = {
 };
 
 export function classifyFailureType(input: unknown): TaskMemoryFailedAttempt["failureType"];
+
+export function normalizeEvidenceRef(eventType: string, id: string): string;
 
 export function createTaskMemorySnapshot(input: {
   taskState?: unknown;

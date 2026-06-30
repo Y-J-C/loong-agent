@@ -128,7 +128,7 @@ test('agent_run successful tool result appends structured non-manual evidence', 
   assert.strictEqual(state.evidence[0].command, 'node --version');
   assert.strictEqual(state.evidence[0].exitCode, 0);
   assert.strictEqual(state.evidence[0].toolName, 'loong_env_check');
-  assert.strictEqual(state.evidence[0].ref, 'tool:tool-1:evidence:0');
+  assert.strictEqual(state.evidence[0].ref, 'evt:tool:tool-1:evidence:0');
   assert(!state.evidence.some((item) => item.kind === 'manual'));
 });
 
@@ -174,6 +174,8 @@ test('agent_run failed policy tool result maps to unsafe_operation blocker', () 
 
   assert.strictEqual(state.blockers.length, 1);
   assert.strictEqual(state.blockers[0].category, 'unsafe_operation');
+  assert.strictEqual(state.blockers[0].source, 'runtime_ingestion');
+  assert.strictEqual(state.blockers[0].evidenceRef, 'evt:tool:blocked-1');
   assert.match(state.blockers[0].summary, /Repeated tool call blocked/);
 });
 
@@ -192,6 +194,8 @@ test('agent_run failed bash maps selected failure types to blockers', () => {
 
   assert.strictEqual(state.blockers.length, 1);
   assert.strictEqual(state.blockers[0].category, 'missing_dependency');
+  assert.strictEqual(state.blockers[0].source, 'runtime_ingestion');
+  assert.strictEqual(state.blockers[0].evidenceRef, 'evt:bash:bash-missing');
   const snapshot = createTaskMemorySnapshot({
     taskState: state,
     messages: [fakeBash({
@@ -202,6 +206,27 @@ test('agent_run failed bash maps selected failure types to blockers', () => {
     })],
   });
   assert(snapshot.failedAttempts.some((item) => item.failureType === 'missing_dependency'));
+  assert(snapshot.failedAttempts.some((item) => item.dedupKey === 'bash|npm -v|missing_dependency'));
+  assert.strictEqual(snapshot.blockers.filter((item) => item.category === 'missing_dependency').length, 1);
+});
+
+test('agent_run timeout and command errors map to unstable_execution blocker', () => {
+  let state = ingestTaskRuntimeEvent(agentRunState(), {
+    type: 'message_end',
+    role: 'user',
+    content: 'start',
+  });
+  state = ingestTaskRuntimeEvent(state, fakeBash({
+    toolCallId: 'bash-timeout',
+    command: 'node slow.js',
+    output: 'Command timed out',
+    exitCode: 124,
+    cancelled: true,
+  }));
+
+  assert.strictEqual(state.blockers.length, 1);
+  assert.strictEqual(state.blockers[0].category, 'unstable_execution');
+  assert.strictEqual(state.blockers[0].source, 'runtime_ingestion');
 });
 
 test('agent_run duplicate toolCallId does not duplicate evidence or blockers', () => {
@@ -243,6 +268,8 @@ test('agent_run agent_end completes act and leaves finish for conclusion handlin
 
   assert.strictEqual(step(state, 'act').status, 'done');
   assert.strictEqual(step(state, 'finish').status, 'pending');
+  assert.strictEqual(state.conclusion, undefined);
+  assert.notStrictEqual(state.phase, 'finish');
 });
 
 test('project_run_check still uses project-specific ingestion rules', () => {
@@ -307,10 +334,17 @@ test('session prompt injects ingested act step into first model request without 
   const result = await session.prompt('inspect current runtime');
   const loaded = readSessionFromPath(result.session.path);
   const updates = loaded.events.filter((event) => event.type === 'task_state_update');
+  const rawUserIndex = loaded.events.findIndex((event) => event.type === 'message_end' && event.role === 'user');
+  const actUpdateIndex = loaded.events.findIndex((event) =>
+    event.type === 'task_state_update' &&
+    event.state &&
+    event.state.currentStepId === 'act'
+  );
 
   assert(firstPrompt.indexOf('Task Memory Snapshot:') >= 0, 'missing task memory prompt block');
   assert(firstPrompt.indexOf('Current step: act Run necessary tools status=running') >= 0, 'first model prompt did not see act step');
   assert(updates.some((event) => event.state && event.state.currentStepId === 'act'), 'missing act task state update');
+  assert(actUpdateIndex >= 0 && rawUserIndex >= 0 && actUpdateIndex < rawUserIndex, 'task state must update before raw user event is emitted');
   assert(!loaded.events.some((event) => event.type === 'task_memory_snapshot'), 'must not add new session event type');
 });
 

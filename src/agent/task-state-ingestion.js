@@ -13,7 +13,7 @@ const {
   ingestToolExecutionEnd,
 } = require('./project-run-check-runtime');
 const { normalizeAgentEvents } = require('../agent-events');
-const { classifyFailureType } = require('./task-memory');
+const { classifyFailureType, normalizeEvidenceRef } = require('./task-memory');
 
 function textOf(value) {
   if (value === undefined || value === null) return '';
@@ -90,6 +90,7 @@ function resultSummary(event) {
 function evidenceKey(item) {
   return [
     item && item.ref,
+    item && item.dedupKey,
     item && item.toolCallId,
     item && item.command,
     item && item.title,
@@ -105,6 +106,7 @@ function hasEvidence(state, candidate) {
 
 function hasBlocker(state, candidate) {
   const key = [
+    candidate && candidate.dedupKey,
     candidate && candidate.category,
     candidate && candidate.summary,
     candidate && candidate.toolCallId,
@@ -112,6 +114,7 @@ function hasBlocker(state, candidate) {
   ].filter(Boolean).join('|');
   if (!key) return false;
   return (state.blockers || []).some((item) => [
+    item.dedupKey,
     item.category,
     item.summary,
     item.toolCallId,
@@ -157,7 +160,7 @@ function evidenceFromToolEvidence(item, event, index) {
     kind,
     title: truncate(value.title || command || `${event.toolName || 'tool'} evidence`, 160),
     summary: truncate(value.summary || value.output || value.stdout || value.stderr || event.resultSummary || '', 240),
-    ref: value.ref || value.path || value.file || `tool:${event.toolCallId || event.toolName || 'unknown'}:evidence:${index}`,
+    ref: value.ref || value.path || value.file || normalizeEvidenceRef('tool', `${event.toolCallId || event.toolName || 'unknown'}:evidence:${index}`),
     excerpt: truncate(value.excerpt || value.output || value.stdout || value.stderr || '', 240),
     toolName: value.toolName || event.toolName || '',
     command,
@@ -165,6 +168,7 @@ function evidenceFromToolEvidence(item, event, index) {
     status: value.status || event.status || (event.isError ? 'error' : 'ok'),
     source: value.source || '',
     toolCallId: event.toolCallId || '',
+    dedupKey: ['tool', event.toolCallId || event.toolName || 'unknown', index].join('|'),
   };
 }
 
@@ -175,7 +179,7 @@ function bashEvidence(event) {
     kind: 'command',
     title: truncate(event.command || 'bash command', 160),
     summary: truncate(event.output || '', 240),
-    ref: `bash:${event.toolCallId || event.command || 'no-tool-call'}`,
+    ref: normalizeEvidenceRef('bash', event.toolCallId || event.command || 'no-tool-call'),
     excerpt: truncate(event.output || '', 240),
     toolName: 'bash',
     command: event.command || '',
@@ -183,6 +187,7 @@ function bashEvidence(event) {
     status: 'ok',
     source: 'bash_execution',
     toolCallId: event.toolCallId || '',
+    dedupKey: ['bash', event.toolCallId || event.command || 'unknown', 'success'].join('|'),
   };
 }
 
@@ -193,6 +198,7 @@ function blockerCategoryForFailure(failureType, event, explicitBlocked) {
   if (failureType === 'missing_dependency') return 'missing_dependency';
   if (failureType === 'arch_incompatible') return 'architecture';
   if (failureType === 'path_not_found') return 'missing_file';
+  if (failureType === 'timeout' || failureType === 'command_error') return 'unstable_execution';
   if (explicitBlocked) return 'unsafe_operation';
   return '';
 }
@@ -204,6 +210,7 @@ function suggestedNextStep(category) {
   if (category === 'missing_dependency') return 'Confirm whether installing dependencies is allowed or choose a dependency-free validation.';
   if (category === 'architecture') return 'Check architecture and build target before retrying.';
   if (category === 'missing_file') return 'Locate the real path before retrying.';
+  if (category === 'unstable_execution') return 'Inspect the failure, then retry with a narrower command or safer timeout.';
   return 'Inspect the failed result before retrying.';
 }
 
@@ -261,7 +268,13 @@ function ingestFailureBlocker(state, event, input) {
     summary: input && input.summary ? input.summary : resultSummary(event),
     suggestedMinimalNextStep: suggestedNextStep(category),
     toolCallId: event.toolCallId || '',
-    evidenceRef: event.toolCallId ? `tool:${event.toolCallId}` : '',
+    evidenceRef: event.toolCallId ? normalizeEvidenceRef(event.type === 'bash_execution' ? 'bash' : 'tool', event.toolCallId) : '',
+    source: 'runtime_ingestion',
+    dedupKey: [
+      event.toolCallId || '',
+      input && input.command || '',
+      failureType,
+    ].filter(Boolean).join('|'),
   });
 }
 
