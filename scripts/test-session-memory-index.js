@@ -14,6 +14,7 @@ const {
 } = require('../src/agent/session-memory-index');
 const { resolveSessionMemorySource } = require('../src/agent/session-memory');
 const { readSessionFromPath } = require('../src/session');
+const { parseArgs } = require('./build-session-memory-index');
 
 const tests = [];
 
@@ -60,7 +61,7 @@ function npmSession(workspace) {
       toolName: 'loong_env_check',
       toolCallId: 'tool-env',
       status: 'ok',
-      resultSummary: 'node exists',
+      resultSummary: 'node exists API_KEY=hidden',
       result: {
         typedObservations: [{
           subject: 'system.runtime',
@@ -103,6 +104,7 @@ test('createSessionIndexEntry extracts compact sourced metadata', () => {
   assert(entry.failureTypes.indexOf('missing_dependency') >= 0, 'missing failure type');
   assert.strictEqual(entry.confidence, 'low');
   assert(serialized.indexOf('SECRET_TOKEN') < 0, 'indexed secret output');
+  assert(serialized.indexOf('API_KEY') < 0, 'indexed secret result summary');
   assert(serialized.indexOf('very long output') < 0, 'indexed full stdout');
 });
 
@@ -145,13 +147,32 @@ test('searchSessionIndex matches relevant historical session', () => {
   assert(result.score > 0, 'score should be positive');
 });
 
-test('resolveSessionMemorySource falls back without index and uses index when present', () => {
+test('parseArgs defaults build script to dry-run and requires explicit write', () => {
+  const defaultArgs = parseArgs([]);
+  const writeArgs = parseArgs(['--write', '--limit', '5']);
+  const dryRunArgs = parseArgs(['--write', '--dry-run']);
+
+  assert.strictEqual(defaultArgs.dryRun, true);
+  assert.strictEqual(defaultArgs.write, false);
+  assert.strictEqual(writeArgs.dryRun, false);
+  assert.strictEqual(writeArgs.write, true);
+  assert.strictEqual(writeArgs.limit, 5);
+  assert.strictEqual(dryRunArgs.dryRun, true);
+  assert.strictEqual(dryRunArgs.write, false);
+});
+
+test('resolveSessionMemorySource restricts specific fallback and uses index when present', () => {
   const workspace = tempWorkspace();
-  i2cSession(workspace);
   npmSession(workspace);
-  const fallback = resolveSessionMemorySource({ workspace }, null, '继续上次 npm 缺失问题');
-  assert(fallback.session, 'fallback should find a session');
-  assert.strictEqual(fallback.selectedBy, 'latest_non_current');
+  i2cSession(workspace);
+  const blocked = resolveSessionMemorySource({ workspace }, null, '继续上次 npm 缺失问题');
+  assert.strictEqual(blocked.session, null);
+  assert.strictEqual(blocked.selectedBy, '');
+  assert(blocked.warnings.some((item) => item.indexOf('specific topic') >= 0), 'missing specific topic warning');
+
+  const generic = resolveSessionMemorySource({ workspace }, null, '继续上次');
+  assert(generic.session, 'generic fallback should find a session');
+  assert.strictEqual(generic.selectedBy, 'latest_non_current');
 
   const built = buildSessionIndex({ workspace }, { limit: 20 });
   writeSessionIndex({ workspace }, built.entries);

@@ -115,7 +115,6 @@ function createSessionIndexEntry(session, options) {
       entry.command || '',
       entry.toolName || '',
       entry.subject || '',
-      entry.resultSummary || '',
     ].join(' ')).forEach((item) => keywords.push(item));
     const failureType = failureTypeForEntry(entry);
     if (failureType) failureTypes.push(failureType);

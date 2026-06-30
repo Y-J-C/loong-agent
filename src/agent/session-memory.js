@@ -41,6 +41,11 @@ function detectSessionMemoryIntent(userPrompt) {
   };
 }
 
+function hasSpecificHistoricalTopic(userPrompt) {
+  const text = String(userPrompt || '').toLowerCase();
+  return /(npm|node|python|gcc|g\+\+|git|curl|wget|i2c|i2cdetect|loong|loongarch|权限|permission|denied|依赖|缺失|command not found|not found|架构|arch|network|dns|timeout|超时|路径|path|file|目录|传感器|bmp280|gpio|串口|uart|spi)/i.test(text);
+}
+
 function refForSession(session) {
   if (!session) return '';
   return `session:${session.id || 'unknown'}`;
@@ -240,7 +245,7 @@ function renderFullBlock(snapshot) {
     (snapshot.warnings || []).slice(0, 3).forEach((item) => lines.push(`- ${item}`));
   }
   if ((snapshot.sourceRefs || []).length) lines.push(`- Source refs: ${compactSourceRefs(snapshot.sourceRefs, 4)}`);
-  lines.push('- Rule: treat this as historical context only; re-check current device state with tools when current facts are needed.');
+  lines.push('- Rule: This is historical context only. Do not treat it as current device state, current file state, or verifiedFacts. Re-check current facts with tools before making current-state claims.');
   return lines.join('\n');
 }
 
@@ -258,18 +263,29 @@ function renderSessionMemoryPromptBlock(snapshot, options) {
   const maxChars = Math.max(200, Number(options && options.maxChars) || 800);
   const full = renderFullBlock(snapshot);
   if (full.length <= maxChars) return full;
-  const refs = snapshot && snapshot.sourceRefs && snapshot.sourceRefs.length
-    ? `\n- Source refs: ${compactSourceRefs(snapshot.sourceRefs, 3)}`
-    : '';
-  const suffix = `${refs}\n... [session memory truncated; source refs preserved]`;
-  const available = Math.max(0, maxChars - suffix.length);
-  return `${full.slice(0, available)}${suffix}`;
+  const firstLineEnd = full.indexOf('\n');
+  const prefix = firstLineEnd >= 0 ? full.slice(0, firstLineEnd) : full;
+  const body = firstLineEnd >= 0 ? full.slice(firstLineEnd) : '';
+  const fullRule = '\n- Rule: This is historical context only. Do not treat it as current device state, current file state, or verifiedFacts. Re-check current facts with tools before making current-state claims.';
+  const compactRule = '\n- Rule: Historical context only; not current state or verifiedFacts. Re-check with tools.';
+  const makeSuffix = (refLimit, rule) => {
+    const refs = snapshot && snapshot.sourceRefs && snapshot.sourceRefs.length
+      ? `\n- Source refs: ${compactSourceRefs(snapshot.sourceRefs, refLimit)}`
+      : '';
+    return `${refs}${rule}\n... [session memory truncated; source refs preserved]`;
+  };
+  let suffix = makeSuffix(3, fullRule);
+  if (prefix.length + suffix.length > maxChars) suffix = makeSuffix(1, compactRule);
+  if (prefix.length + suffix.length > maxChars) suffix = `${compactRule}\n... [session memory truncated]`;
+  const available = Math.max(0, maxChars - prefix.length - suffix.length);
+  return `${prefix}${body.slice(0, available)}${suffix}`;
 }
 
 function resolveSessionMemorySource(config, currentSession, userPrompt) {
   const intent = detectSessionMemoryIntent(userPrompt);
   if (!intent.shouldRead) return { intent, session: null, selectedBy: '', warnings: [] };
   const manager = createSessionManager(config || {});
+  const warnings = [];
   const currentPath = currentSession && (currentSession.filePath || currentSession.path)
     ? path.resolve(currentSession.filePath || currentSession.path)
     : '';
@@ -283,6 +299,7 @@ function resolveSessionMemorySource(config, currentSession, userPrompt) {
     }
   }
   const index = readSessionIndex(config || {});
+  if (index.warnings && index.warnings.length) warnings.push.apply(warnings, index.warnings);
   if (index.entries && index.entries.length) {
     const hit = searchSessionIndex(index.entries, userPrompt);
     if (hit && hit.entry) {
@@ -291,31 +308,35 @@ function resolveSessionMemorySource(config, currentSession, userPrompt) {
           intent,
           session: manager.read(hit.entry.sessionId || hit.entry.sessionPath),
           selectedBy: 'memory_index',
-          warnings: index.warnings || [],
+          warnings,
           indexHit: hit,
         };
       } catch (error) {
-        const warnings = (index.warnings || []).concat([`Failed to read indexed session: ${error.message}`]);
-        return { intent, session: null, selectedBy: 'memory_index', warnings };
+        warnings.push(`Failed to read indexed session: ${error.message}`);
       }
     }
+  }
+  if (hasSpecificHistoricalTopic(userPrompt)) {
+    warnings.push('Historical query contains a specific topic but no matching parent session or memory index hit was found. Session memory was not injected.');
+    return { intent, session: null, selectedBy: '', warnings };
   }
   const sessions = manager.list({ limit: 20 });
   const candidate = sessions.find((item) => {
     const itemPath = item.path ? path.resolve(item.path) : '';
     return item.id !== currentId && (!currentPath || itemPath !== currentPath);
   });
-  if (!candidate) return { intent, session: null, selectedBy: 'latest_non_current', warnings: ['No previous session found.'] };
+  if (!candidate) return { intent, session: null, selectedBy: 'latest_non_current', warnings: warnings.concat(['No previous session found.']) };
   try {
-    return { intent, session: manager.read(candidate.id), selectedBy: 'latest_non_current', warnings: [] };
+    return { intent, session: manager.read(candidate.id), selectedBy: 'latest_non_current', warnings };
   } catch (error) {
-    return { intent, session: null, selectedBy: 'latest_non_current', warnings: [error.message] };
+    return { intent, session: null, selectedBy: 'latest_non_current', warnings: warnings.concat([error.message]) };
   }
 }
 
 module.exports = {
   createSessionMemorySnapshot,
   detectSessionMemoryIntent,
+  hasSpecificHistoricalTopic,
   renderSessionMemoryPromptBlock,
   resolveSessionMemorySource,
 };

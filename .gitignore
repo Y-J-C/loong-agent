@@ -3,6 +3,9 @@
 !.env.example
 runs/
 memory/session-index.jsonl
+memory/*.tmp
+memory/*.jsonl.tmp
+memory/candidates/
 dist/
 upstream/
 node_modules/

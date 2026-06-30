@@ -136,10 +136,11 @@ test('renderSessionMemoryPromptBlock labels context as historical and preserves 
     userPrompt: '继续上次的问题',
     selectedBy: 'latest_non_current',
   });
-  const block = renderSessionMemoryPromptBlock(snapshot, { maxChars: 420 });
+  const block = renderSessionMemoryPromptBlock(snapshot, { maxChars: 800 });
 
-  assert(block.length <= 420, `block too long: ${block.length}`);
+  assert(block.length <= 800, `block too long: ${block.length}`);
   assert(block.indexOf('Session Memory Snapshot (historical context, not current verification):') >= 0, 'missing historical label');
+  assert(block.indexOf('Do not treat it as current device state') >= 0, 'missing strict historical rule');
   assert(block.indexOf('session:previous') >= 0, 'missing source ref');
   assert(block.indexOf('npm test') >= 0, 'missing failed command');
 });
