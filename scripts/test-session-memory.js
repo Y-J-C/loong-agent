@@ -209,6 +209,8 @@ test('agent session uses memory index hit before latest non-current session', as
   assert(firstPrompt.indexOf('npm test') >= 0, 'prompt should use original indexed session content');
   assert(firstPrompt.indexOf('keywords') < 0, 'index entry should not be injected directly');
   assert(request && request.contextStats && request.contextStats.sessionMemorySourceSessionId === 'previous', 'metadata missing indexed source session');
+  assert.strictEqual(request.contextStats.sessionMemorySelectedBy, 'memory_index');
+  assert(Number(request.contextStats.sessionMemoryIndexScore) > 0, 'metadata missing memory index score');
   assert(!loaded.events.some((event) => event.type === 'session_memory_snapshot'), 'must not add session_memory_snapshot event');
 });
 

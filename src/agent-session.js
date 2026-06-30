@@ -248,12 +248,18 @@ function createAgentSession(config, options) {
           session: resolved.session,
           userPrompt: text,
           selectedBy: resolved.selectedBy,
+          indexScore: resolved.indexHit && typeof resolved.indexHit.score === 'number'
+            ? resolved.indexHit.score
+            : undefined,
         });
       } else {
         state.sessionMemorySnapshot = createSessionMemorySnapshot({
           session: null,
           userPrompt: text,
           selectedBy: resolved.selectedBy,
+          indexScore: resolved.indexHit && typeof resolved.indexHit.score === 'number'
+            ? resolved.indexHit.score
+            : undefined,
         });
         state.sessionMemorySnapshot.warnings = (state.sessionMemorySnapshot.warnings || [])
           .concat(resolved.warnings || []);

@@ -341,6 +341,14 @@ function buildMessagesWithAuditMetadata(turnContext) {
           turnContext.sessionMemorySnapshot.sourceSession
           ? turnContext.sessionMemorySnapshot.sourceSession.id || ''
           : '',
+        sessionMemorySelectedBy: turnContext.sessionMemorySnapshot &&
+          turnContext.sessionMemorySnapshot.sourceSession
+          ? turnContext.sessionMemorySnapshot.sourceSession.selectedBy || ''
+          : '',
+        sessionMemoryIndexScore: turnContext.sessionMemorySnapshot &&
+          typeof turnContext.sessionMemorySnapshot.indexScore === 'number'
+          ? turnContext.sessionMemorySnapshot.indexScore
+          : null,
         sessionMemorySourceRefCount: turnContext.sessionMemorySnapshot &&
           Array.isArray(turnContext.sessionMemorySnapshot.sourceRefs)
           ? turnContext.sessionMemorySnapshot.sourceRefs.length

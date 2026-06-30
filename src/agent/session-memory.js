@@ -168,6 +168,7 @@ function createSessionMemorySnapshot(input) {
       relevantFacts: [],
       failedAttempts: [],
       blockers: [],
+      indexScore: typeof input.indexScore === 'number' ? input.indexScore : null,
       warnings: ['Session memory source is unavailable.'],
     };
   }
@@ -207,6 +208,7 @@ function createSessionMemorySnapshot(input) {
     relevantFacts,
     failedAttempts,
     blockers: [],
+    indexScore: typeof input.indexScore === 'number' ? input.indexScore : null,
     warnings: resumeContext.summary ? [] : ['Session has no final summary.'],
   };
 }
