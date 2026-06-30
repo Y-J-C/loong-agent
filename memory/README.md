@@ -5,10 +5,12 @@
 ## Boundary
 
 - `memory/session-index.jsonl` is a generated search index.
+- `memory/candidates/` stores generated draft knowledge candidates for human review.
 - The source of truth remains `runs/*.jsonl`.
 - The index may be deleted and rebuilt at any time.
 - Index entries are historical context only and must not be treated as current verification.
 - Index entries must not be copied into `verifiedFacts`.
+- Candidate files are not formal knowledge base content and must not be promoted automatically.
 
 ## Safety Rules
 
@@ -56,3 +58,24 @@ node scripts/build-session-memory-index.js --write
 ```
 
 The generated file is ignored by Git by default.
+
+## Candidate Files
+
+Draft knowledge candidates are previewed by default with:
+
+```powershell
+node scripts/build-knowledge-candidates.js
+```
+
+To write draft files under `memory/candidates/`, run:
+
+```powershell
+node scripts/build-knowledge-candidates.js --write
+```
+
+Candidate files are local review material only:
+
+- They are ignored by Git by default.
+- They must not enter `verifiedFacts`.
+- They must not write or update `kb/`.
+- Human maintainers must review and manually rewrite any accepted knowledge into the formal knowledge base.

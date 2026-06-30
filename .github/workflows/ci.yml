@@ -22,6 +22,7 @@ jobs:
 
       - name: Run key regression scripts
         run: |
+          node scripts/test-knowledge-candidates.js
           node scripts/test-session-memory-index.js
           node scripts/test-session-memory.js
           node scripts/test-task-memory.js
