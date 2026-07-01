@@ -1,88 +1,88 @@
 # memory/
 
-`memory/` stores local, rebuildable indexes that help the agent find relevant historical sessions.
+`memory/` 用于保存本地可重建的记忆辅助文件，帮助 Agent 查找相关历史 session 或生成待审长期知识候选。
 
-## Boundary
+## 边界
 
-- `memory/session-index.jsonl` is a generated search index.
-- `memory/candidates/` stores generated draft knowledge candidates for human review.
-- The source of truth remains `runs/*.jsonl`.
-- The index may be deleted and rebuilt at any time.
-- Index entries are historical context only and must not be treated as current verification.
-- Index entries must not be copied into `verifiedFacts`.
-- Candidate files are not formal knowledge base content and must not be promoted automatically.
+- `memory/session-index.jsonl` 是生成的检索索引。
+- `memory/candidates/` 用于保存生成的长期知识候选草稿，供人工审查。
+- 原始事实源始终是 `runs/*.jsonl`。
+- 索引和候选文件都可以删除后重建。
+- 索引条目只是历史上下文线索，不能当作当前验证结果。
+- 索引条目不能复制进 `verifiedFacts`。
+- 候选文件不是正式知识库内容，不能自动晋升。
 
-## Safety Rules
+## 安全规则
 
-Do not store:
+不得保存：
 
-- Secrets, tokens, credentials, or `.env` values.
-- Full conversations.
-- Full stdout or stderr.
-- Full tool results.
-- Formal knowledge base content.
+- 密钥、token、凭据或 `.env` 内容。
+- 完整对话。
+- 完整 stdout 或 stderr。
+- 完整 tool result。
+- 正式知识库内容。
 
-Allowed content:
+允许保存：
 
-- Short summaries.
-- Session ids and paths.
-- Entry/source references.
-- Topics, keywords, command names, and failure types.
-- Low-confidence historical hints.
+- 短摘要。
+- session id 和路径。
+- entry/source 引用。
+- 主题、关键词、命令名和失败类型。
+- 低信任历史线索。
 
-## Read Rules
+## 读取规则
 
-Session memory may be injected only when:
+只有在以下情况中才允许注入 Session Memory：
 
-- The user explicitly asks for historical context, such as `上次`, `之前`, `继续`, `类似问题`, `last time`, `previous`, `resume`, or `similar issue`.
-- The current session is a resume/fork with a parent session.
+- 用户明确请求历史上下文，例如 `上次`、`之前`、`继续`、`类似问题`、`last time`、`previous`、`resume` 或 `similar issue`。
+- 当前 session 是 resume/fork，并且存在 parent session。
 
-Session memory must not be injected for current-state questions.
+当前状态问题不得注入 Session Memory。
 
-If the historical query contains a specific topic, command, tool, device name, dependency name, or failure type, `latest_non_current` fallback is not allowed unless the selected session matches the query through `parentSession` or `memory/session-index.jsonl`.
+如果历史请求包含明确主题、命令、工具、设备名、依赖名或失败类型，除非通过 `parentSession` 或 `memory/session-index.jsonl` 命中匹配 session，否则不允许使用 `latest_non_current` 兜底。
 
-Index entries are retrieval hints only. They must not be copied into `verifiedFacts`, and current device state must still be re-checked with tools.
+索引条目只是检索提示。它们不能复制进 `verifiedFacts`，当前设备状态仍必须通过工具重新验证。
 
-## Generated Files
+## 生成文件
 
-`session-index.jsonl` is previewed by default with:
+默认只预览 `session-index.jsonl`：
 
 ```powershell
 node scripts/build-session-memory-index.js
 ```
 
-To write the generated index, run:
+显式写入索引：
 
 ```powershell
 node scripts/build-session-memory-index.js --write
 ```
 
-The generated file is ignored by Git by default.
+生成的索引文件默认被 Git 忽略。
 
-## Candidate Files
+## 候选文件
 
-Draft knowledge candidates are previewed by default with:
+默认只预览长期知识候选：
 
 ```powershell
 node scripts/build-knowledge-candidates.js
 ```
 
-To write draft files under `memory/candidates/`, run:
+显式写入 `memory/candidates/`：
 
 ```powershell
 node scripts/build-knowledge-candidates.js --write
 ```
 
-Candidate files are local review material only:
+候选文件只作为本地审查材料：
 
-- They are ignored by Git by default.
-- They must not enter `verifiedFacts`.
-- They must not write or update `kb/`.
-- Human maintainers must review and manually rewrite any accepted knowledge into the formal knowledge base.
+- 默认被 Git 忽略。
+- 不能进入 `verifiedFacts`。
+- 不能写入或更新 `kb/`。
+- 维护者必须人工审查，并手动改写后才可进入正式知识库。
 
-Candidate quality rules:
+候选质量规则：
 
-- Ordinary successful commands such as `pwd`, `ls`, `git status`, or plain version checks do not become candidates by default.
-- Diagnostic commands require board, runtime, dependency, compatibility, or LoongArch context.
-- Candidates include a `category`, such as `diagnostic_command`, `historical_evidence`, `observation_hint`, or `resolution_pattern`.
-- Candidates include a `promotionGuard` that requires review, requires current revalidation, forbids automatic `kb/` writes, and forbids entering `verifiedFacts`.
+- `pwd`、`ls`、`git status` 或普通版本检查等普通成功命令默认不生成候选。
+- 诊断命令必须具备板端、运行时、依赖、兼容性或 LoongArch 上下文。
+- 候选包含 `category`，例如 `diagnostic_command`、`historical_evidence`、`observation_hint` 或 `resolution_pattern`。
+- 候选包含 `promotionGuard`，要求人工 review、当前环境重新验证，禁止自动写入 `kb/`，也禁止进入 `verifiedFacts`。
