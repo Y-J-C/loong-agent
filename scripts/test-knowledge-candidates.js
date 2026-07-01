@@ -32,10 +32,10 @@ function writeSession(workspace, name, events) {
   return readSessionFromPath(file);
 }
 
-function sessionEvents(id, extraEvents) {
+function sessionEvents(id, extraEvents, userContent) {
   return [
     { type: 'session', version: 2, sessionId: id, rootSessionId: id, command: 'ask', cwd: '/tmp/project', createdAt: '2026-01-02T03:04:05.000Z' },
-    { type: 'message_end', role: 'user', content: '检查 node 环境', loop: 1 },
+    { type: 'message_end', role: 'user', content: userContent || '检查 node 环境', loop: 1 },
   ].concat(extraEvents || [], [
     { type: 'agent_end', status: 'ok', summary: 'assistant summary must not create candidates by itself', timestamp: '2026-01-02T03:05:00.000Z' },
   ]);
@@ -72,7 +72,85 @@ function usefulSession(workspace) {
       },
       timestamp: '2026-01-02T03:04:20.000Z',
     },
-  ]));
+  ], '检查龙芯板端运行环境'));
+}
+
+function plainSuccessSession(workspace) {
+  return writeSession(workspace, 'plain-success', sessionEvents('plain-success', [
+    {
+      type: 'bash_execution',
+      loop: 1,
+      entryId: 'entry-node',
+      command: 'node --version',
+      output: 'v20.11.1',
+      exitCode: 0,
+    },
+  ], '检查普通项目'));
+}
+
+function toolEvidenceOnlySession(workspace) {
+  return writeSession(workspace, 'tool-only', sessionEvents('tool-only', [
+    {
+      type: 'tool_execution_end',
+      loop: 1,
+      entryId: 'entry-tool',
+      toolName: 'loong_env_check',
+      toolCallId: 'tool-env',
+      status: 'ok',
+      resultSummary: 'runtime detected',
+      result: {
+        evidence: [{ command: 'node --version', summary: 'node ok' }],
+      },
+    },
+  ], '检查龙芯板端运行环境'));
+}
+
+function observationOnlySession(workspace) {
+  return writeSession(workspace, 'observation-only', sessionEvents('observation-only', [
+    {
+      type: 'message_end',
+      role: 'observation',
+      loop: 1,
+      entryId: 'entry-observation',
+      subject: 'system.runtime',
+      kind: 'runtime',
+      freshness: 'current',
+      command: 'node --version',
+      raw: 'node observed',
+      evidence: [{ command: 'node --version', summary: 'node ok' }],
+    },
+  ], '检查龙芯板端运行环境'));
+}
+
+function resolutionSession(workspace) {
+  return writeSession(workspace, 'resolution-session', sessionEvents('resolution-session', [
+    {
+      type: 'bash_execution',
+      loop: 1,
+      entryId: 'entry-fail',
+      command: 'npm test',
+      output: 'npm: command not found',
+      exitCode: 127,
+    },
+    {
+      type: 'tool_execution_end',
+      loop: 2,
+      entryId: 'entry-runtime',
+      toolName: 'loong_env_check',
+      toolCallId: 'tool-runtime',
+      status: 'ok',
+      resultSummary: 'runtime dependency evidence',
+      result: {
+        typedObservations: [{
+          subject: 'system.runtime',
+          freshness: 'current',
+          summary: 'runtime observed',
+          command: 'node --version',
+          evidence: [{ command: 'node --version', summary: 'runtime ok' }],
+        }],
+      },
+    },
+  ], '排查龙芯板端 npm 缺失后的运行时验证'));
 }
 
 function failedSession(workspace) {
@@ -110,10 +188,19 @@ test('createKnowledgeCandidate generates draft markdown candidate with source re
   assert.strictEqual(candidate.kind, 'knowledge_candidate');
   assert.strictEqual(candidate.status, 'draft');
   assert.strictEqual(candidate.confidence, 'low');
+  assert.strictEqual(candidate.category, 'diagnostic_command');
+  assert.strictEqual(candidate.promotionGuard.requiredReview, true);
+  assert.strictEqual(candidate.promotionGuard.requiresCurrentRevalidation, true);
+  assert.strictEqual(candidate.promotionGuard.mayEnterVerifiedFacts, false);
+  assert.strictEqual(candidate.promotionGuard.mayAutoWriteKb, false);
   assert.strictEqual(candidate.sourceSessionId, 'useful-session');
   assert(candidate.sourceSessionPath.indexOf('runs') >= 0, 'missing relative source session path');
   assert(candidate.sourceRefs.some((item) => item.indexOf('entry-node') >= 0), 'missing source ref');
   assert(markdown.indexOf('kind: knowledge_candidate') >= 0, 'missing frontmatter kind');
+  assert(markdown.indexOf('category: "diagnostic_command"') >= 0, 'missing candidate category');
+  assert(markdown.indexOf('promotionGuard:') >= 0, 'missing promotion guard');
+  assert(markdown.indexOf('mayEnterVerifiedFacts: false') >= 0, 'missing verifiedFacts guard');
+  assert(markdown.indexOf('mayAutoWriteKb: false') >= 0, 'missing kb guard');
   assert(markdown.indexOf('status: draft') >= 0, 'missing draft status');
   assert(markdown.indexOf('confidence: low') >= 0, 'missing low confidence');
   assert(markdown.indexOf('# Candidate:') >= 0, 'missing title');
@@ -131,6 +218,9 @@ test('candidate rendering redacts secrets and avoids full stdout or tool results
   assert(markdown.indexOf('hidden') < 0, 'leaked api key value');
   assert(markdown.indexOf('very long stdout line') < 0, 'copied full stdout');
   assert(markdown.indexOf('typedObservations') < 0, 'copied full tool result');
+  assert(markdown.indexOf('confirmed knowledge') < 0, 'candidate claimed confirmed knowledge');
+  assert(markdown.indexOf('current device state') < 0 || markdown.indexOf('not current device state') >= 0, 'candidate claimed current state');
+  assert(markdown.indexOf('verified fact') < 0, 'candidate claimed verified fact');
 });
 
 test('failed or summary-only sessions do not generate candidates', () => {
@@ -139,6 +229,32 @@ test('failed or summary-only sessions do not generate candidates', () => {
 
   assert.strictEqual(createKnowledgeCandidate(failedSession(workspace), { workspace }), null);
   assert.strictEqual(createKnowledgeCandidate(summaryOnly, { workspace }), null);
+});
+
+test('plain successful commands are ignored unless diagnostic context is present', () => {
+  const workspace = tempWorkspace();
+
+  assert.strictEqual(createKnowledgeCandidate(plainSuccessSession(workspace), { workspace }), null);
+  const candidate = createKnowledgeCandidate(usefulSession(workspace), { workspace });
+  assert(candidate, 'missing diagnostic candidate');
+  assert.strictEqual(candidate.category, 'diagnostic_command');
+});
+
+test('tool evidence observation and resolution patterns use distinct categories', () => {
+  const workspace = tempWorkspace();
+  const toolCandidate = createKnowledgeCandidate(toolEvidenceOnlySession(workspace), { workspace });
+  const observationCandidate = createKnowledgeCandidate(observationOnlySession(workspace), { workspace });
+  const resolutionCandidate = createKnowledgeCandidate(resolutionSession(workspace), { workspace });
+
+  assert(toolCandidate, 'missing tool evidence candidate');
+  assert.strictEqual(toolCandidate.category, 'historical_evidence');
+  assert(observationCandidate, 'missing observation candidate');
+  assert.strictEqual(observationCandidate.category, 'observation_hint');
+  assert(resolutionCandidate, 'missing resolution candidate');
+  assert.strictEqual(resolutionCandidate.category, 'resolution_pattern');
+  assert(resolutionCandidate.proposedKnowledge.some((item) => item.indexOf('Historical resolution candidate') >= 0), 'missing resolution wording');
+  assert.strictEqual(resolutionCandidate.promotionGuard.mayAutoWriteKb, false);
+  assert.strictEqual(resolutionCandidate.promotionGuard.mayEnterVerifiedFacts, false);
 });
 
 test('buildKnowledgeCandidates scans sessions without writing kb or events', () => {

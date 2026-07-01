@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { buildSessionLedger } = require('../session-ledger');
 const { createSessionManager } = require('../session-manager');
+const { classifyFailureType } = require('./task-memory');
 
 const CANDIDATE_VERSION = 1;
 const CANDIDATE_KIND = 'knowledge_candidate';
@@ -98,14 +99,56 @@ function hasStructuredEvidence(entry) {
   return typed.some((item) => item && Array.isArray(item.evidence) && item.evidence.length);
 }
 
+function sessionContextText(session, entry) {
+  const messages = (session && session.events || [])
+    .filter((event) => event.type === 'message_end' && event.role === 'user')
+    .map((event) => event.content || '')
+    .join(' ');
+  return [
+    JSON.stringify(headerOf(session) || {}),
+    messages,
+    entry && entry.command,
+    entry && entry.resultSummary,
+    entry && entry.subject,
+    entry && entry.toolName,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function isReusableDiagnosticCommand(command) {
+  const text = String(command || '').toLowerCase();
+  return /(^|\s)(uname|lscpu|cat\s+\/etc\/os-release|node\s+--version|node\s+-v|npm\s+--version|npm\s+-v|gcc\s+--version|g\+\+\s+--version|python3?\s+--version|i2cdetect|lsusb|lspci|dmesg|df\s+-h|free\s+-h|ip\s+a|ip\s+addr|ip\s+route|systemctl|journalctl)\b/.test(text);
+}
+
+function hasBoardOrCompatibilityContext(session, entry) {
+  return /(loong|loongarch|loongnix|龙芯|板端|board|arch|architecture|compat|compatibility|runtime|dependency|依赖|兼容|架构|环境|系统诊断|硬件|i2c|gpio|spi|uart)/i.test(sessionContextText(session, entry));
+}
+
+function isUsefulSuccessEvidence(entry) {
+  if (!entry) return false;
+  if (entry.type === 'toolResult') return !entry.isError && entry.status !== 'error' && hasStructuredEvidence(entry);
+  if (entry.type === 'observation') return ['current', 'historical'].includes(entry.freshness || '') && (entry.subject || entry.command);
+  if (entry.type === 'bashExecution') return Number(entry.exitCode) === 0 && !entry.cancelled && isReusableDiagnosticCommand(entry.command);
+  return false;
+}
+
+function commandOfEntry(entry) {
+  if (!entry) return '';
+  if (entry.command) return entry.command;
+  const evidence = Array.isArray(entry.evidence) ? entry.evidence : [];
+  const found = evidence.find((item) => item && item.command);
+  return found ? found.command : '';
+}
+
 function candidateFromBash(session, entry, options) {
   if (!entry || entry.type !== 'bashExecution') return null;
   if (Number(entry.exitCode) !== 0 || entry.cancelled || !entry.command || !entry.entryId) return null;
+  if (!isReusableDiagnosticCommand(entry.command) || !hasBoardOrCompatibilityContext(session, entry)) return null;
   const ref = sourceRef(session, entry);
   if (!ref) return null;
   return makeCandidate(session, {
-    title: `Command succeeded: ${entry.command}`,
-    proposedKnowledge: [`Command \`${entry.command}\` completed successfully in the source session.`],
+    category: 'diagnostic_command',
+    title: `Diagnostic command evidence: ${entry.command}`,
+    proposedKnowledge: [`Historical evidence: command \`${entry.command}\` succeeded in one source session. Treat this as a review candidate only; re-check on the current device before promoting it to knowledge.`],
     sourceRefs: [ref],
     topics: [],
     commands: [entry.command],
@@ -121,8 +164,9 @@ function candidateFromObservation(session, entry, options) {
   if (!ref) return null;
   const command = entry.command || '';
   return makeCandidate(session, {
+    category: 'observation_hint',
     title: `Observation: ${entry.subject}`,
-    proposedKnowledge: [`Observation \`${entry.subject}\` was recorded with ${entry.freshness || 'unknown'} freshness.`],
+    proposedKnowledge: [`Historical evidence: observation \`${entry.subject}\` was recorded in one source session with ${entry.freshness || 'unknown'} freshness at that time. It is not current device state.`],
     sourceRefs: [ref],
     topics: [entry.subject],
     commands: command ? [command] : [],
@@ -137,13 +181,46 @@ function candidateFromTool(session, entry, options) {
   if (!ref) return null;
   const command = (entry.evidence || []).find((item) => item && item.command);
   return makeCandidate(session, {
+    category: 'historical_evidence',
     title: `Tool evidence: ${entry.toolName || 'tool'}`,
-    proposedKnowledge: [`Tool \`${entry.toolName || 'tool'}\` produced structured evidence in the source session.`],
+    proposedKnowledge: [`Historical evidence: tool \`${entry.toolName || 'tool'}\` produced structured evidence in one source session. Review the source refs and re-validate before promoting.`],
     sourceRefs: [ref],
     topics: [],
     commands: command && command.command ? [command.command] : [],
     resultSummary: truncate(entry.resultSummary || entry.toolName || 'structured evidence', 120),
   }, options);
+}
+
+function candidateFromResolutionPattern(session, ledger, options) {
+  const entries = ledger && Array.isArray(ledger.entries) ? ledger.entries : [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const failed = entries[index];
+    const failureType = classifyFailureType({
+      command: failed && failed.command,
+      output: failed && failed.output,
+      resultSummary: failed && failed.resultSummary,
+      errorType: failed && failed.errorType,
+      exitCode: failed && failed.exitCode,
+    });
+    if (failureType !== 'missing_dependency') continue;
+    if (!failed.entryId) continue;
+    const success = entries.slice(index + 1).find((entry) => isUsefulSuccessEvidence(entry) && hasBoardOrCompatibilityContext(session, entry));
+    if (!success || !success.entryId) continue;
+    const refs = [sourceRef(session, failed), sourceRef(session, success)].filter(Boolean);
+    if (!refs.length) continue;
+    const failedCommand = commandOfEntry(failed);
+    const successCommand = commandOfEntry(success);
+    return makeCandidate(session, {
+      category: 'resolution_pattern',
+      title: `Resolution pattern: ${failedCommand || failureType}`,
+      proposedKnowledge: [`Historical resolution candidate: one source session recorded failure \`[${failureType}] ${failedCommand || 'unknown action'}\` and later recorded successful runtime or dependency evidence. Review whether this represents a reusable dependency-handling pattern before promoting.`],
+      sourceRefs: refs,
+      topics: success.subject ? [success.subject] : [],
+      commands: [failedCommand, successCommand].filter(Boolean),
+      resultSummary: truncate(`${failureType}; later evidence: ${success.resultSummary || success.raw || successCommand || success.toolName || 'success'}`, 160),
+    }, options);
+  }
+  return null;
 }
 
 function makeCandidate(session, data, options) {
@@ -154,6 +231,7 @@ function makeCandidate(session, data, options) {
   return {
     version: CANDIDATE_VERSION,
     kind: CANDIDATE_KIND,
+    category: data.category || 'historical_evidence',
     status: 'draft',
     confidence: 'low',
     title: truncate(data.title || 'Knowledge candidate', 80),
@@ -168,6 +246,12 @@ function makeCandidate(session, data, options) {
       level: 'review_required',
       reasons: ['historical_context_only', 'requires_human_confirmation'],
     },
+    promotionGuard: {
+      requiredReview: true,
+      requiresCurrentRevalidation: true,
+      mayEnterVerifiedFacts: false,
+      mayAutoWriteKb: false,
+    },
     createdAt: createdAtOf(session, options || {}),
   };
 }
@@ -177,6 +261,8 @@ function createKnowledgeCandidatesForSession(session, options) {
   if (!session || !Array.isArray(session.events)) return [];
   const ledger = buildSessionLedger(session);
   const out = [];
+  const resolution = candidateFromResolutionPattern(session, ledger, options);
+  if (resolution) out.push(resolution);
   (ledger.entries || []).forEach((entry) => {
     if (out.length >= (Number(options.maxPerSession) || 5)) return;
     const candidate = candidateFromBash(session, entry, options)
@@ -236,6 +322,7 @@ function renderKnowledgeCandidateMarkdown(candidate) {
     '---',
     `version: ${candidate.version}`,
     `kind: ${candidate.kind}`,
+    `category: ${yamlScalar(candidate.category)}`,
     `status: ${candidate.status}`,
     `confidence: ${candidate.confidence}`,
     `sourceSessionId: ${yamlScalar(candidate.sourceSessionId)}`,
@@ -247,6 +334,11 @@ function renderKnowledgeCandidateMarkdown(candidate) {
     `  level: ${candidate.risk.level}`,
     '  reasons:',
   ].concat((candidate.risk.reasons || []).map((item) => `    - ${yamlScalar(item)}`)).concat([
+    'promotionGuard:',
+    `  requiredReview: ${candidate.promotionGuard.requiredReview ? 'true' : 'false'}`,
+    `  requiresCurrentRevalidation: ${candidate.promotionGuard.requiresCurrentRevalidation ? 'true' : 'false'}`,
+    `  mayEnterVerifiedFacts: ${candidate.promotionGuard.mayEnterVerifiedFacts ? 'true' : 'false'}`,
+    `  mayAutoWriteKb: ${candidate.promotionGuard.mayAutoWriteKb ? 'true' : 'false'}`,
     `createdAt: ${yamlScalar(candidate.createdAt)}`,
     '---',
     '',

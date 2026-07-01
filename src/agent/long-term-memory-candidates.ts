@@ -1,6 +1,7 @@
 export type KnowledgeCandidate = {
   version: 1;
   kind: 'knowledge_candidate';
+  category: 'historical_evidence' | 'resolution_pattern' | 'diagnostic_command' | 'observation_hint';
   status: 'draft';
   confidence: 'low';
   title: string;
@@ -14,6 +15,12 @@ export type KnowledgeCandidate = {
   risk: {
     level: 'review_required';
     reasons: string[];
+  };
+  promotionGuard: {
+    requiredReview: true;
+    requiresCurrentRevalidation: true;
+    mayEnterVerifiedFacts: false;
+    mayAutoWriteKb: false;
   };
   createdAt: string;
 };

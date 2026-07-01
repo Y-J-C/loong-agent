@@ -79,3 +79,10 @@ Candidate files are local review material only:
 - They must not enter `verifiedFacts`.
 - They must not write or update `kb/`.
 - Human maintainers must review and manually rewrite any accepted knowledge into the formal knowledge base.
+
+Candidate quality rules:
+
+- Ordinary successful commands such as `pwd`, `ls`, `git status`, or plain version checks do not become candidates by default.
+- Diagnostic commands require board, runtime, dependency, compatibility, or LoongArch context.
+- Candidates include a `category`, such as `diagnostic_command`, `historical_evidence`, `observation_hint`, or `resolution_pattern`.
+- Candidates include a `promotionGuard` that requires review, requires current revalidation, forbids automatic `kb/` writes, and forbids entering `verifiedFacts`.
