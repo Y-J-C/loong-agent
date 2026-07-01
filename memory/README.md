@@ -30,6 +30,25 @@
 - 主题、关键词、命令名和失败类型。
 - 低信任历史线索。
 
+## 架构位置
+
+`memory/` 位于原始 session 事实和正式知识库之间：
+
+```text
+runs/*.jsonl
+→ session ledger
+→ Task Memory / Session Memory / memory index / candidates
+→ prompt context 或人工 review
+→ kb/ 仅人工维护
+```
+
+- `runs/*.jsonl` 是原始事实源。
+- `session ledger` 负责把历史事件整理成可引用条目。
+- `Task Memory` 和 `Session Memory` 可以进入 prompt，但必须标明来源和信任边界。
+- `memory/session-index.jsonl` 只帮助选择历史 session，不直接进入 prompt facts。
+- `memory/candidates/` 只提供人工审查材料。
+- `kb/` 是正式知识库，不能由 `memory/` 自动写入。
+
 ## 读取规则
 
 只有在以下情况中才允许注入 Session Memory：
@@ -86,3 +105,33 @@ node scripts/build-knowledge-candidates.js --write
 - 诊断命令必须具备板端、运行时、依赖、兼容性或 LoongArch 上下文。
 - 候选包含 `category`，例如 `diagnostic_command`、`historical_evidence`、`observation_hint` 或 `resolution_pattern`。
 - 候选包含 `promotionGuard`，要求人工 review、当前环境重新验证，禁止自动写入 `kb/`，也禁止进入 `verifiedFacts`。
+
+## 当前冻结状态
+
+当前 `memory/` 基础架构已进入收尾冻结状态：
+
+- `session-index.jsonl`：可以生成，但默认 dry-run；只有 `--write` 才落盘。
+- `candidates/`：可以生成，但默认 dry-run；只供人工 review。
+- `kb/`：不由 `memory/` 自动写入。
+- candidate promotion：暂停，不在当前阶段实现。
+- embedding / 向量库 / RAG / 后台长期记忆任务：暂停，不在当前阶段实现。
+
+## 推荐验证命令
+
+快速验证：
+
+```powershell
+node scripts/test-session-memory-index.js
+node scripts/test-session-memory.js
+node scripts/test-knowledge-candidates.js
+```
+
+完整 memory 回归：
+
+```powershell
+node scripts/test-task-memory.js
+node scripts/test-task-state-ingestion.js
+node scripts/test-runtime.js
+node scripts/test-knowledge-layer.js
+node scripts/test-session-audit.js
+```
