@@ -276,6 +276,10 @@ async function main() {
 
 Usage:
   node src/index.js tui
+  node src/index.js tui --runtime-next
+
+Options:
+  --runtime-next  Use the new runtime-backed TUI preview
 
 Keys:
   Enter send
@@ -292,7 +296,9 @@ Commands:
 `);
       return;
     }
-    await require('./tui').runTui(config);
+    await require('./tui').runTui(config, {
+      runtimeNext: args.includes('--runtime-next'),
+    });
     return;
   }
 

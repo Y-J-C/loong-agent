@@ -21,6 +21,9 @@ const DISABLE_BRACKETED_PASTE = '\x1b[?2004l';
 
 async function runTui(config, options) {
   options = options || {};
+  if (options.runtimeNext) {
+    return require('./runtime/app/runner').runRuntimeNextTui(config, options);
+  }
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
   if (!input.isTTY || !output.isTTY) {
