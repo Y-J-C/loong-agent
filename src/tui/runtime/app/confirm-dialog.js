@@ -13,7 +13,7 @@ function ConfirmDialog(options) {
   this.approval = options.approval || {};
 }
 
-ConfirmDialog.prototype.render = function(width) {
+ConfirmDialog.prototype.render = function(width, context) {
   var inner = Math.max(1, Number(width) || 60);
   var approval = this.approval || {};
   var lines = [
@@ -33,7 +33,7 @@ ConfirmDialog.prototype.render = function(width) {
       fitted.push(line(wrapped[wrapIndex], Math.max(1, inner - 4)));
     }
   }
-  return new Box({ title: this.title, lines: fitted, paddingX: 1, paddingY: 0 }).render(inner);
+  return new Box({ title: this.title, lines: fitted, paddingX: 1, paddingY: 0 }).render(inner, context || {});
 };
 
 ConfirmDialog.prototype.invalidate = function() {};

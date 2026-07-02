@@ -1,6 +1,11 @@
 'use strict';
 
 var utils = require('../utils');
+var themeMod = require('../theme');
+var Markdown = require('../components/markdown').Markdown;
+var cacheMod = require('../render-cache');
+
+var markdownCache = cacheMod.createRenderCache(200);
 
 function messageLabel(message) {
   if (!message) return 'msg';
@@ -24,20 +29,49 @@ function fit(line, width) {
   return utils.truncateToWidth(String(line || ''), width);
 }
 
-function renderRuntimeMessageList(state, width, height) {
+function themedLabel(label, message, theme) {
+  var token = 'system';
+  if (message && message.type === 'user') token = 'user';
+  else if (message && message.type === 'assistant_final') token = 'finalAnswer';
+  else if (message && message.type === 'assistant') token = 'assistant';
+  else if (message && message.type === 'tool') token = message.done ? 'toolOk' : 'toolRunning';
+  else if (message && message.type === 'error') token = 'error';
+  return themeMod.paint(theme, token, label);
+}
+
+function renderMarkdownMessage(message, maxWidth, context) {
+  var key = cacheMod.messageCacheKey(message, maxWidth, context, { component: 'runtime-markdown-v1' });
+  var cached = markdownCache.get(key);
+  if (cached) return cached;
+  var lines = new Markdown({ text: messageText(message), token: message.type === 'assistant_final' ? 'finalAnswer' : 'assistant' })
+    .render(maxWidth, context);
+  markdownCache.set(key, lines);
+  return lines;
+}
+
+function clearRuntimeMessageCaches() {
+  markdownCache.clear();
+}
+
+function renderRuntimeMessageList(state, width, height, context) {
   var messages = state && Array.isArray(state.messages) ? state.messages : [];
   var lines = [];
   var maxWidth = Math.max(1, Number(width) || 80);
+  var theme = context && context.theme ? context.theme : themeMod.getTheme(state && state.theme);
+  var renderContext = Object.assign({}, context || {}, { state: state, theme: theme });
 
   for (var index = 0; index < messages.length; index += 1) {
     var message = messages[index] || {};
     var label = messageLabel(message);
     var text = messageText(message);
     var prefix = '[' + label + '] ';
-    var wrapped = utils.wrapTextWithAnsi(String(text || ''), Math.max(1, maxWidth - utils.visibleWidth(prefix)));
+    var prefixText = themedLabel(prefix, message, theme);
+    var wrapped = message.type === 'assistant' || message.type === 'assistant_final'
+      ? renderMarkdownMessage(message, Math.max(1, maxWidth - utils.visibleWidth(prefix)), renderContext)
+      : utils.wrapTextWithAnsi(String(text || ''), Math.max(1, maxWidth - utils.visibleWidth(prefix)));
     if (!wrapped.length) wrapped = [''];
     for (var lineIndex = 0; lineIndex < wrapped.length; lineIndex += 1) {
-      lines.push(fit((lineIndex === 0 ? prefix : ' '.repeat(utils.visibleWidth(prefix))) + wrapped[lineIndex], maxWidth));
+      lines.push(fit((lineIndex === 0 ? prefixText : ' '.repeat(utils.visibleWidth(prefix))) + wrapped[lineIndex], maxWidth));
     }
   }
 
@@ -49,5 +83,6 @@ function renderRuntimeMessageList(state, width, height) {
 }
 
 module.exports = {
+  clearRuntimeMessageCaches: clearRuntimeMessageCaches,
   renderRuntimeMessageList: renderRuntimeMessageList,
 };

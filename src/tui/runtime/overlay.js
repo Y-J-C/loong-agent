@@ -57,8 +57,23 @@ function resolveOverlayLayout(options, overlayHeight, termWidth, termHeight) {
     ? Math.min(Math.max(0, requestedHeight), maxHeight)
     : Math.max(0, requestedHeight);
   effectiveHeight = clamp(effectiveHeight, 0, availHeight);
-  var row = margin.top + Math.floor(Math.max(0, availHeight - effectiveHeight) / 2);
-  var col = margin.left + Math.floor(Math.max(0, availWidth - overlayWidth) / 2);
+  var anchor = opt.anchor || 'center';
+  var horizontal = anchor.indexOf('left') >= 0 ? 'left' : anchor.indexOf('right') >= 0 ? 'right' : 'center';
+  var vertical = anchor.indexOf('top') >= 0 ? 'top' : anchor.indexOf('bottom') >= 0 ? 'bottom' : 'center';
+  var row = vertical === 'top'
+    ? margin.top
+    : vertical === 'bottom'
+      ? margin.top + Math.max(0, availHeight - effectiveHeight)
+      : margin.top + Math.floor(Math.max(0, availHeight - effectiveHeight) / 2);
+  var col = horizontal === 'left'
+    ? margin.left
+    : horizontal === 'right'
+      ? margin.left + Math.max(0, availWidth - overlayWidth)
+      : margin.left + Math.floor(Math.max(0, availWidth - overlayWidth) / 2);
+  row += Math.floor(numberOr(opt.offsetY, 0));
+  col += Math.floor(numberOr(opt.offsetX, 0));
+  row = clamp(row, margin.top, margin.top + Math.max(0, availHeight - effectiveHeight));
+  col = clamp(col, margin.left, margin.left + Math.max(0, availWidth - overlayWidth));
   return {
     width: overlayWidth,
     row: row,

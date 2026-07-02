@@ -4,6 +4,7 @@ var interactions = require('../../interactions');
 var utils = require('../utils');
 var Box = require('../components/box').Box;
 var SelectList = require('../components/select-list').SelectList;
+var SettingsList = require('../components/settings-list').SettingsList;
 var ConfirmDialog = require('./confirm-dialog').ConfirmDialog;
 
 function activePanel(state) {
@@ -49,7 +50,7 @@ function selectorItems(state) {
   });
 }
 
-function renderResumePrompt(state, width) {
+function renderResumePrompt(state, width, context) {
   var selector = state.selector || {};
   var selected = selector.selectedItem || {};
   var lines = [
@@ -60,10 +61,10 @@ function renderResumePrompt(state, width) {
   if (selector.resumePromptError) lines.push(selector.resumePromptError);
   return new Box({ title: 'Resume Session', lines: lines.map(function(item) {
     return utils.truncateToWidth(item, Math.max(1, width - 4));
-  }) }).render(width);
+  }) }).render(width, context || {});
 }
 
-function buildPanelOverlay(state, width, rows) {
+function buildPanelOverlay(state, width, rows, context) {
   var panel = activePanel(state);
   if (!panel) return null;
   if (panel.lines) {
@@ -75,12 +76,13 @@ function buildPanelOverlay(state, width, rows) {
       lines: new Box({
         title: panel.title || 'Panel',
         lines: [panel.hint || 'Up/Down scroll - Esc close'].concat(content),
-      }).render(width),
+      }).render(width, context || {}),
       options: { width: width, maxHeight: rows - 2, margin: 1 },
     };
   }
   var items = panelItems(state, panel);
-  var list = new SelectList({
+  var ListComponent = panel.type === 'settings' || panel.title === 'Settings' ? SettingsList : SelectList;
+  var list = new ListComponent({
     items: items,
     selectedIndex: Math.max(0, Number(panel.selectedIndex) || 0),
     maxVisible: Math.max(3, rows - 8),
@@ -89,19 +91,19 @@ function buildPanelOverlay(state, width, rows) {
   var lines = [];
   if (panel.hint) lines.push(panel.hint);
   if (panel.query !== undefined) lines.push('filter: ' + (panel.query || ''));
-  lines = lines.concat(list.render(Math.max(1, width - 4)));
+  lines = lines.concat(list.render(Math.max(1, width - 4), context || {}));
   return {
-    lines: new Box({ title: title, lines: lines }).render(width),
+    lines: new Box({ title: title, lines: lines }).render(width, context || {}),
     options: { width: width, maxHeight: rows - 2, margin: 1 },
   };
 }
 
-function buildSelectorOverlay(state, width, rows) {
+function buildSelectorOverlay(state, width, rows, context) {
   var selector = state.selector;
   if (!selector) return null;
   if (selector.subMode === 'resume_prompt') {
     return {
-      lines: renderResumePrompt(state, width),
+      lines: renderResumePrompt(state, width, context),
       options: { width: width, maxHeight: rows - 2, margin: 1 },
     };
   }
@@ -119,14 +121,14 @@ function buildSelectorOverlay(state, width, rows) {
     selector.subMode === 'actions' ? 'Enter confirm - Esc back' : 'Type filter - Up/Down select - Enter actions - Esc close',
   ];
   if (selector.query) lines.push('filter: ' + selector.query);
-  lines = lines.concat(list.render(Math.max(1, width - 4)));
+  lines = lines.concat(list.render(Math.max(1, width - 4), context || {}));
   return {
-    lines: new Box({ title: title, lines: lines }).render(width),
+    lines: new Box({ title: title, lines: lines }).render(width, context || {}),
     options: { width: width, maxHeight: rows - 2, margin: 1 },
   };
 }
 
-function renderRuntimeOverlays(state, width, rows) {
+function renderRuntimeOverlays(state, width, rows, context) {
   var overlayWidth = Math.max(30, Math.min(width - 2, Math.floor(width * 0.82)));
   var maxRows = Math.max(6, rows - 2);
   if (state && state.pendingToolApproval) {
@@ -135,14 +137,15 @@ function renderRuntimeOverlays(state, width, rows) {
         title: 'Tool Approval',
         approval: state.pendingToolApproval.approval || {},
       }),
+      context: context || {},
       options: { width: overlayWidth, maxHeight: maxRows, margin: 1 },
     }];
   }
   if (state && state.selector) {
-    return [buildSelectorOverlay(state, overlayWidth, rows)];
+    return [buildSelectorOverlay(state, overlayWidth, rows, context)];
   }
   if (state && activePanel(state)) {
-    return [buildPanelOverlay(state, overlayWidth, rows)];
+    return [buildPanelOverlay(state, overlayWidth, rows, context)];
   }
   return [];
 }

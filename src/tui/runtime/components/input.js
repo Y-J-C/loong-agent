@@ -2,9 +2,7 @@
 
 var CURSOR_MARKER = require('../cursor').CURSOR_MARKER;
 var utils = require('../utils');
-
-var INVERSE = '\x1b[7m';
-var RESET_INVERSE = '\x1b[27m';
+var themeMod = require('../theme');
 
 function chars(text) {
   return Array.from(String(text || ''));
@@ -109,8 +107,9 @@ function sliceByWidthFrom(text, startCol, maxWidth) {
   return output;
 }
 
-Input.prototype.render = function render(width) {
+Input.prototype.render = function render(width, context) {
   var totalWidth = Math.max(1, Number(width) || 80);
+  var theme = context && context.theme ? context.theme : themeMod.getTheme();
   var promptWidth = utils.visibleWidth(this.prompt);
   var available = Math.max(1, totalWidth - promptWidth);
   var list = chars(this.value);
@@ -133,7 +132,7 @@ Input.prototype.render = function render(width) {
   var atCursor = chars(afterVisible)[0] || ' ';
   var afterCursor = chars(afterVisible).slice(atCursor === ' ' && cursorCol >= totalValueWidth ? 0 : 1).join('');
   var marker = this.focused ? CURSOR_MARKER : '';
-  var cursorText = this.focused ? INVERSE + atCursor + RESET_INVERSE : atCursor;
+  var cursorText = this.focused ? themeMod.paint(theme, 'cursor', atCursor) : atCursor;
   var text = beforeVisible + marker + cursorText + afterCursor;
   var line = this.prompt + text;
   var missing = Math.max(0, totalWidth - utils.visibleWidth(line));

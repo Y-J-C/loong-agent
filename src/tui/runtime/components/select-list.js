@@ -1,9 +1,7 @@
 'use strict';
 
 var utils = require('../utils');
-
-var INVERSE = '\x1b[7m';
-var RESET = '\x1b[0m';
+var themeMod = require('../theme');
 
 function normalize(text) {
   return String(text || '').replace(/[\r\n]+/g, ' ').trim();
@@ -21,8 +19,9 @@ function SelectList(options) {
   this.emptyText = options.emptyText || 'No matching items.';
 }
 
-SelectList.prototype.render = function(width) {
+SelectList.prototype.render = function(width, context) {
   var maxWidth = Math.max(1, Number(width) || 40);
+  var theme = context && context.theme ? context.theme : themeMod.getTheme();
   var items = this.items;
   if (!items.length) return ['  ' + fit(this.emptyText, Math.max(1, maxWidth - 2))];
   var selected = Math.max(0, Math.min(items.length - 1, this.selectedIndex));
@@ -38,7 +37,7 @@ SelectList.prototype.render = function(width) {
       ? prefix + fit(label, 24) + '  ' + desc
       : prefix + label;
     text = fit(text, maxWidth);
-    lines.push(index === selected ? INVERSE + text + RESET : text);
+    lines.push(index === selected ? themeMod.paint(theme, 'selectedBg', text) : text);
   }
   if (items.length > this.maxVisible) {
     lines.push(fit('  items ' + (selected + 1) + '/' + items.length, maxWidth));

@@ -1,6 +1,7 @@
 'use strict';
 
 var utils = require('../utils');
+var themeMod = require('../theme');
 
 function fit(line, width) {
   var text = utils.truncateToWidth(String(line || ''), width);
@@ -18,23 +19,24 @@ function Box(options) {
 
 Box.prototype.render = function(width, context) {
   var outerWidth = Math.max(4, Number(width) || 40);
+  var theme = context && context.theme ? context.theme : themeMod.getTheme();
   var innerWidth = Math.max(1, outerWidth - 2 - this.paddingX * 2);
   var content = this.lines ? this.lines.slice() : (this.child && this.child.render ? this.child.render(innerWidth, context || {}) : []);
   var result = [];
   var title = this.title ? ' ' + this.title + ' ' : '';
   var topFill = Math.max(0, outerWidth - 2 - utils.visibleWidth(title));
-  result.push('+' + title + '-'.repeat(topFill) + '+');
+  result.push(themeMod.paint(theme, 'borderMuted', '+' + title + '-'.repeat(topFill) + '+'));
   for (var y = 0; y < this.paddingY; y += 1) {
-    result.push('|' + fit('', outerWidth - 2) + '|');
+    result.push(themeMod.paint(theme, 'borderMuted', '|') + fit('', outerWidth - 2) + themeMod.paint(theme, 'borderMuted', '|'));
   }
   for (var index = 0; index < content.length; index += 1) {
     var line = ' '.repeat(this.paddingX) + fit(content[index], innerWidth) + ' '.repeat(this.paddingX);
-    result.push('|' + fit(line, outerWidth - 2) + '|');
+    result.push(themeMod.paint(theme, 'borderMuted', '|') + fit(line, outerWidth - 2) + themeMod.paint(theme, 'borderMuted', '|'));
   }
   for (var bottom = 0; bottom < this.paddingY; bottom += 1) {
-    result.push('|' + fit('', outerWidth - 2) + '|');
+    result.push(themeMod.paint(theme, 'borderMuted', '|') + fit('', outerWidth - 2) + themeMod.paint(theme, 'borderMuted', '|'));
   }
-  result.push('+' + '-'.repeat(Math.max(0, outerWidth - 2)) + '+');
+  result.push(themeMod.paint(theme, 'borderMuted', '+' + '-'.repeat(Math.max(0, outerWidth - 2)) + '+'));
   return result.map(function(line) { return fit(line, outerWidth); });
 };
 

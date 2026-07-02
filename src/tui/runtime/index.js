@@ -8,7 +8,13 @@ var component = require('./component');
 var focus = require('./focus');
 var tui = require('./tui');
 var cursor = require('./cursor');
+var theme = require('./theme');
+var renderCache = require('./render-cache');
 var inputComponent = require('./components/input');
+var editorComponent = require('./components/editor');
+var markdownComponent = require('./components/markdown');
+var settingsListComponent = require('./components/settings-list');
+var truncatedTextComponent = require('./components/truncated-text');
 
 module.exports = {
   visibleWidth: utils.visibleWidth,
@@ -28,6 +34,19 @@ module.exports = {
   CURSOR_MARKER: cursor.CURSOR_MARKER,
   extractCursorPosition: cursor.extractCursorPosition,
   stripCursorMarker: cursor.stripCursorMarker,
+  ANSI: theme.ANSI,
+  getTheme: theme.getTheme,
+  hasTheme: theme.hasTheme,
+  listThemes: theme.listThemes,
+  paint: theme.paint,
+  createRenderCache: renderCache.createRenderCache,
+  listCacheKey: renderCache.listCacheKey,
+  messageCacheKey: renderCache.messageCacheKey,
+  stableHash: renderCache.stableHash,
   Input: inputComponent.Input,
+  Editor: editorComponent.Editor,
+  Markdown: markdownComponent.Markdown,
+  SettingsList: settingsListComponent.SettingsList,
+  TruncatedText: truncatedTextComponent.TruncatedText,
   TUI: tui.TUI,
 };
