@@ -1026,6 +1026,15 @@ function safeProviderCapabilities(config) {
   }
 }
 
+function agentToolProtocolMetadata(config, tools) {
+  const capabilities = safeProviderCapabilities(config);
+  return {
+    nativeToolCalling: Boolean(capabilities.toolCalling),
+    agentToolProtocol: 'json_action',
+    availableToolCount: Array.isArray(tools) ? tools.length : 0,
+  };
+}
+
 function defaultUsage(capabilities) {
   if (!capabilities || !capabilities.usage) {
     return {
@@ -1199,6 +1208,8 @@ async function updateAssistantMessage(context, content, options) {
     sequence: options && options.sequence ? options.sequence : undefined,
     streaming: Boolean(options && options.streaming),
     isFinal: Boolean(options && options.isFinal),
+    coalesced: Boolean(options && options.coalesced),
+    coalescedDeltaCount: options && options.coalescedDeltaCount ? options.coalescedDeltaCount : undefined,
   });
 }
 
@@ -1224,25 +1235,57 @@ async function emitStreamingAssistantMessage(context, messages, chatCompletion) 
   let content = '';
   let sequence = 0;
   let emittedUpdate = false;
-  content = await chatCompletion(context.config, messages, {
-    isAborted: context.isAborted,
-    onDelta: async (delta) => {
-      content += delta;
-      sequence += 1;
-      if (!emittedUpdate) {
-        await startAssistantMessage(context, { streaming: true });
-        context.assistantMessageOpen = true;
-      }
-      emittedUpdate = true;
-      context.assistantStreamingContent = content;
-      await updateAssistantMessage(context, content, {
-        delta,
-        sequence,
-        streaming: true,
-        isFinal: false,
-      });
-    },
-  });
+  let pendingDelta = '';
+  let pendingDeltaCount = 0;
+  let lastFlushAt = Date.now();
+  const flushChars = 64;
+  const flushIntervalMs = 50;
+
+  async function flushDelta(isFinal) {
+    if (!pendingDelta) return;
+    sequence += 1;
+    if (!emittedUpdate) {
+      await startAssistantMessage(context, { streaming: true });
+      context.assistantMessageOpen = true;
+    }
+    emittedUpdate = true;
+    context.assistantStreamingContent = content;
+    await updateAssistantMessage(context, content, {
+      delta: pendingDelta,
+      sequence,
+      streaming: true,
+      isFinal: Boolean(isFinal),
+      coalesced: true,
+      coalescedDeltaCount: pendingDeltaCount,
+    });
+    pendingDelta = '';
+    pendingDeltaCount = 0;
+    lastFlushAt = Date.now();
+  }
+
+  try {
+    content = await chatCompletion(context.config, messages, {
+      isAborted: context.isAborted,
+      onDelta: async (delta) => {
+        delta = String(delta || '');
+        if (!delta) return;
+        content += delta;
+        context.assistantStreamingContent = content;
+        pendingDelta += delta;
+        pendingDeltaCount += 1;
+        const now = Date.now();
+        const shouldFlush =
+          pendingDelta.length >= flushChars ||
+          (lastFlushAt && now - lastFlushAt >= flushIntervalMs) ||
+          /\r|\n/.test(delta);
+        if (shouldFlush) await flushDelta(false);
+      },
+    });
+  } catch (error) {
+    await flushDelta(true);
+    throw error;
+  }
+  await flushDelta(true);
   if (!emittedUpdate) {
     return {
       content,
@@ -1311,7 +1354,12 @@ async function prepareForNextTurn(context, action, result, isError) {
       warnings: normalized.warnings,
       budget: {
         contextBudgetChars: context.config.contextBudgetChars || 1800,
+        contextBudgetSource: context.config.contextBudgetSource || '',
+        contextBudgetProfileDefault: context.config.contextBudgetProfileDefault || 0,
       },
+      nativeToolCalling: agentToolProtocolMetadata(context.config, context.state.tools).nativeToolCalling,
+      agentToolProtocol: 'json_action',
+      availableToolCount: Array.isArray(context.state.tools) ? context.state.tools.length : 0,
     });
   }
   return normalized;
@@ -1401,6 +1449,7 @@ async function runAgentLoop(options) {
   startRun(state);
   state.userPrompt = userPrompt || state.userPrompt || 'Continue from current observations.';
 
+  const protocolMetadata = agentToolProtocolMetadata(config, state.tools);
   await emit({
     type: 'agent_start',
     prompt: userPrompt,
@@ -1409,6 +1458,9 @@ async function runAgentLoop(options) {
     providerProfile: config.providerProfile || 'custom',
     model: config.model || '',
     providerCapabilities: safeProviderCapabilities(config),
+    nativeToolCalling: protocolMetadata.nativeToolCalling,
+    agentToolProtocol: protocolMetadata.agentToolProtocol,
+    availableToolCount: protocolMetadata.availableToolCount,
     thinkingLevel: config.thinkingLevel || 'off',
     startedAt: nowIso(),
     tools: state.tools.map((tool) => ({
@@ -1481,7 +1533,11 @@ async function runAgentLoop(options) {
       });
       const built = buildMessagesWithAuditMetadata(modelTurnContext);
       const messages = built.messages;
-      const modelRequestEvent = createModelRequestEvent(config, turn, messages, built.metadata);
+      const modelRequestEvent = createModelRequestEvent(Object.assign({}, config, {
+        nativeToolCalling: protocolMetadata.nativeToolCalling,
+        agentToolProtocol: protocolMetadata.agentToolProtocol,
+        availableToolCount: protocolMetadata.availableToolCount,
+      }), turn, messages, built.metadata);
       if (modelRequestEvent) await emit(modelRequestEvent);
       if (config.streaming === false) {
         content = await chatCompletion(config, messages, modelCallbacks);

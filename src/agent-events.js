@@ -28,6 +28,9 @@ function normalizeAgentStart(event) {
     providerProfile: event.providerProfile || '',
     model: event.model || '',
     maxLoops: event.maxLoops,
+    nativeToolCalling: Boolean(event.nativeToolCalling),
+    agentToolProtocol: event.agentToolProtocol || '',
+    availableToolCount: event.availableToolCount || 0,
     startedAt: event.startedAt || event.timestamp || '',
   });
 }
@@ -171,6 +174,9 @@ function normalizeModelRequest(event) {
     charStats: event.charStats || {},
     contextStats: event.contextStats || {},
     tokenEstimate: event.tokenEstimate || {},
+    nativeToolCalling: Boolean(event.nativeToolCalling),
+    agentToolProtocol: event.agentToolProtocol || '',
+    availableToolCount: event.availableToolCount || 0,
     truncated: Boolean(event.truncated),
   }), {
     subtype: 'request',

@@ -31,6 +31,30 @@ test('message_update updates same assistant item', () => {
   assert(assistants[0].text === 'hello world', 'assistant text not updated');
 });
 
+test('coalesced streaming update uses full content for assistant item', () => {
+  const state = createTuiState({});
+  handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '', streaming: true });
+  handleAgentEvent(state, {
+    type: 'message_update',
+    role: 'assistant',
+    content: '{"tool":"finish","input":{"summary":"coalesced tui"},"reason":"done"}',
+    delta: '{"tool":"finish","input":{"summary":"coalesced tui"},"reason":"done"}',
+    sequence: 1,
+    streaming: true,
+    coalesced: true,
+    coalescedDeltaCount: 64,
+  });
+  handleAgentEvent(state, {
+    type: 'message_end',
+    role: 'assistant',
+    content: '{"tool":"finish","input":{"summary":"coalesced tui"},"reason":"done"}',
+    streaming: true,
+  });
+  const assistants = state.messages.filter((message) => message.type === 'assistant');
+  assert(assistants.length === 1, `expected one assistant item, got ${assistants.length}`);
+  assert(assistants[0].text === 'assistant -> tool: finish', 'coalesced update did not parse full content');
+});
+
 test('v2 answer message_update hides raw json', () => {
   const state = createTuiState({});
   handleAgentEvent(state, { type: 'message_start', role: 'assistant', content: '' });

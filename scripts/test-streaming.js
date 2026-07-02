@@ -71,6 +71,7 @@ test('config supports provider profiles and thinking level', async () => {
     model: process.env.LOONG_AGENT_MODEL,
     thinking: process.env.LOONG_AGENT_THINKING_LEVEL,
     jsonMode: process.env.LOONG_AGENT_JSON_MODE,
+    contextBudget: process.env.LOONG_AGENT_CONTEXT_BUDGET,
   };
   delete process.env.LOONG_AGENT_PROVIDER_PROFILE;
   process.env.LOONG_AGENT_BASE_URL = '';
@@ -80,6 +81,9 @@ test('config supports provider profiles and thinking level', async () => {
   assert(deepseek.providerProfile === 'deepseek', 'default profile should be deepseek');
   assert(deepseek.baseUrl === 'https://api.deepseek.com', 'deepseek baseUrl mismatch');
   assert(deepseek.model === 'deepseek-v4-flash', 'deepseek model mismatch');
+  assert(deepseek.contextBudgetChars === 12000, 'deepseek context budget default mismatch');
+  assert(deepseek.contextBudgetSource === 'provider_profile', 'deepseek context budget source mismatch');
+  assert(deepseek.contextBudgetProfileDefault === 12000, 'deepseek context budget profile default mismatch');
   assert(deepseek.thinkingLevel === 'off', 'default thinking level mismatch');
   assert(deepseek.jsonMode === true, 'json mode should default true');
   process.env.LOONG_AGENT_PROVIDER_PROFILE = 'ollama';
@@ -87,7 +91,13 @@ test('config supports provider profiles and thinking level', async () => {
   const ollama = loadConfig();
   assert(ollama.baseUrl === 'http://127.0.0.1:11434/v1', 'ollama baseUrl mismatch');
   assert(ollama.model === 'llama3.1', 'ollama model mismatch');
+  assert(ollama.contextBudgetChars === 5000, 'ollama context budget default mismatch');
   assert(ollama.thinkingLevel === 'high', 'thinking env mismatch');
+  process.env.LOONG_AGENT_CONTEXT_BUDGET = '1800';
+  const overriddenBudget = loadConfig();
+  assert(overriddenBudget.contextBudgetChars === 1800, 'context budget env override failed');
+  assert(overriddenBudget.contextBudgetSource === 'env', 'context budget env source mismatch');
+  delete process.env.LOONG_AGENT_CONTEXT_BUDGET;
   process.env.LOONG_AGENT_THINKING_LEVEL = 'xhigh';
   assert(loadConfig().thinkingLevel === 'max', 'xhigh should map to max');
   process.env.LOONG_AGENT_THINKING_LEVEL = 'medium';
@@ -114,6 +124,7 @@ test('config supports provider profiles and thinking level', async () => {
       model: 'LOONG_AGENT_MODEL',
       thinking: 'LOONG_AGENT_THINKING_LEVEL',
       jsonMode: 'LOONG_AGENT_JSON_MODE',
+      contextBudget: 'LOONG_AGENT_CONTEXT_BUDGET',
     }[key];
     if (previous[key] === undefined) delete process.env[envKey];
     else process.env[envKey] = previous[key];
@@ -214,9 +225,37 @@ test('streaming provider emits multiple updates and final assistant JSON', async
   const updates = events.filter((event) => event.type === 'message_update' && event.role === 'assistant');
   const end = events.find((event) => event.type === 'message_end' && event.role === 'assistant');
   assert(result.summary === ' streamed', `unexpected summary: ${result.summary}`);
-  assert(updates.length === 3, `expected 3 updates, got ${updates.length}`);
+  assert(updates.length >= 1 && updates.length <= 3, `unexpected update count: ${updates.length}`);
   assert(updates[0].streaming === true && updates[0].delta, 'update missing streaming delta');
+  assert(updates[updates.length - 1].content === end.content, 'last update should carry full content before end');
   assert(end && end.content === '{"tool":"finish","input":{"summary":" streamed"},"reason":"done"}', 'message_end missing full content');
+});
+
+test('agent event bus coalesces single-character streaming deltas', async () => {
+  registerProvider({
+    name: 'test-streaming-bus-coalesce',
+    chatCompletion: async () => 'should not fallback',
+    streamChatCompletion: async (cfg, messages, options) => {
+      let content = '';
+      const full = JSON.stringify({ tool: 'finish', input: { summary: 'bus coalesced' }, reason: 'done' });
+      for (const char of Array.from(full)) {
+        content += char;
+        await options.onDelta(char);
+      }
+      return content;
+    },
+  });
+  const events = [];
+  const session = createAgentSession(config('test-streaming-bus-coalesce'), { session: null });
+  session.subscribe((event) => events.push(event));
+  const result = await session.prompt('bus coalesce');
+  const updates = events.filter((event) => event.type === 'message_update' && event.role === 'assistant');
+  const end = events.find((event) => event.type === 'message_end' && event.role === 'assistant');
+  assert(result.summary === 'bus coalesced', 'streaming run did not finish');
+  assert(updates.length < 20, `too many bus updates: ${updates.length}`);
+  assert(updates.some((event) => event.coalesced === true), 'coalesced marker missing');
+  assert(updates.some((event) => event.coalescedDeltaCount > 1), 'coalesced delta count missing');
+  assert(updates[updates.length - 1].content === end.content, 'message_end should match last coalesced update');
 });
 
 test('provider without streaming falls back to chatCompletion', async () => {

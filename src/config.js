@@ -51,16 +51,19 @@ const PROVIDER_PROFILES = {
     provider: 'openai-compatible',
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek-v4-flash',
+    contextBudgetChars: 12000,
   },
   ollama: {
     provider: 'openai-compatible',
     baseUrl: 'http://127.0.0.1:11434/v1',
     model: 'llama3.1',
+    contextBudgetChars: 5000,
   },
   custom: {
     provider: 'openai-compatible',
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek-v4-flash',
+    contextBudgetChars: 8000,
   },
 };
 
@@ -91,6 +94,15 @@ function loadConfig() {
   if (!profile) {
     throw new Error(`Unknown LOONG_AGENT_PROVIDER_PROFILE: ${providerProfile}`);
   }
+  const profileBudget = Number(profile.contextBudgetChars);
+  const contextBudgetProfileDefault = Number.isFinite(profileBudget) && profileBudget > 0
+    ? profileBudget
+    : 8000;
+  const hasContextBudgetEnv = process.env.LOONG_AGENT_CONTEXT_BUDGET !== undefined &&
+    process.env.LOONG_AGENT_CONTEXT_BUDGET !== '';
+  const contextBudgetChars = hasContextBudgetEnv
+    ? intEnv('LOONG_AGENT_CONTEXT_BUDGET', contextBudgetProfileDefault)
+    : contextBudgetProfileDefault;
 
   return {
     projectRoot,
@@ -103,7 +115,9 @@ function loadConfig() {
     thinkingLevel: normalizeThinkingLevel(process.env.LOONG_AGENT_THINKING_LEVEL || 'off'),
     jsonMode: boolEnv('LOONG_AGENT_JSON_MODE', true),
     maxLoops: intEnv('LOONG_AGENT_MAX_LOOPS', 6),
-    contextBudgetChars: intEnv('LOONG_AGENT_CONTEXT_BUDGET', 1800),
+    contextBudgetChars,
+    contextBudgetSource: hasContextBudgetEnv ? 'env' : 'provider_profile',
+    contextBudgetProfileDefault,
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),

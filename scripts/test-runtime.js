@@ -8,7 +8,7 @@ const path = require('path');
 const childProcess = require('child_process');
 const { createAgent } = require('../src/agent-runtime');
 const { createAgentState, recordToolResult } = require('../src/agent-state');
-const { normalizeRecordModelRequest } = require('../src/config');
+const { loadConfig, normalizeRecordModelRequest } = require('../src/config');
 const { parseAgentResponse, parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
@@ -1179,6 +1179,9 @@ test('model usage records reported tokens and provider capabilities', async () =
   assert(result.summary === 'usage ok', 'usage run did not finish');
   assert(start.providerProfile === 'deepseek', 'agent_start missing provider profile');
   assert(start.providerCapabilities && start.providerCapabilities.usage === true, 'agent_start missing provider capabilities');
+  assert(start.nativeToolCalling === false, 'agent_start native tool calling flag mismatch');
+  assert(start.agentToolProtocol === 'json_action', 'agent_start missing agent tool protocol');
+  assert(start.availableToolCount > 0, 'agent_start missing available tool count');
   assert(start.thinkingLevel === 'medium', 'agent_start missing thinking level');
   assert(usage && usage.usage.status === 'reported', 'model_usage missing reported status');
   assert(usage.usage.totalTokens === 15, 'model_usage total token mismatch');
@@ -1210,9 +1213,36 @@ test('model request summary is emitted by default before model usage', async () 
   assert(requestIndex >= 0, 'model_request should be emitted by default');
   assert(usageIndex > requestIndex, 'model_request should precede model_usage');
   assert(request.mode === 'summary', 'default model_request mode should be summary');
+  assert(request.nativeToolCalling === false, 'model_request missing native tool calling flag');
+  assert(request.agentToolProtocol === 'json_action', 'model_request missing agent tool protocol');
+  assert(request.availableToolCount > 0, 'model_request missing available tool count');
   assert(!request.messages, 'summary model_request should not include messages');
   assert(request.charStats && request.charStats.totalChars > 0, 'model_request missing char stats');
   assert(request.tokenEstimate && request.tokenEstimate.method === 'chars_div_4', 'model_request missing token estimate');
+});
+
+test('config uses profile context budget unless env overrides it', () => {
+  const previous = {
+    profile: process.env.LOONG_AGENT_PROVIDER_PROFILE,
+    budget: process.env.LOONG_AGENT_CONTEXT_BUDGET,
+  };
+  delete process.env.LOONG_AGENT_PROVIDER_PROFILE;
+  delete process.env.LOONG_AGENT_CONTEXT_BUDGET;
+  const deepseek = loadConfig();
+  assert(deepseek.contextBudgetChars === 12000, 'deepseek profile budget should default to 12000');
+  assert(deepseek.contextBudgetSource === 'provider_profile', 'profile budget source mismatch');
+  assert(deepseek.contextBudgetProfileDefault === 12000, 'profile budget default mismatch');
+  process.env.LOONG_AGENT_PROVIDER_PROFILE = 'ollama';
+  const ollama = loadConfig();
+  assert(ollama.contextBudgetChars === 5000, 'ollama profile budget should default to 5000');
+  process.env.LOONG_AGENT_CONTEXT_BUDGET = '1800';
+  const overridden = loadConfig();
+  assert(overridden.contextBudgetChars === 1800, 'env budget override should win');
+  assert(overridden.contextBudgetSource === 'env', 'env budget source mismatch');
+  if (previous.profile === undefined) delete process.env.LOONG_AGENT_PROVIDER_PROFILE;
+  else process.env.LOONG_AGENT_PROVIDER_PROFILE = previous.profile;
+  if (previous.budget === undefined) delete process.env.LOONG_AGENT_CONTEXT_BUDGET;
+  else process.env.LOONG_AGENT_CONTEXT_BUDGET = previous.budget;
 });
 
 test('model request off mode emits no model_request event', async () => {
