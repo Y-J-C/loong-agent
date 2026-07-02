@@ -2,6 +2,7 @@
 
 var eastAsianWidth = require('./vendor/east-asian-width').eastAsianWidth;
 
+var CURSOR_MARKER_RE = /\uE000/g;
 var ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b_[^\x07]*(?:\x07|\x1b\\)/g;
 var ZERO_WIDTH_RE = /^(?:\p{Default_Ignorable_Code_Point}|\p{Control}|\p{Mark}|\p{Surrogate})+$/u;
 
@@ -19,7 +20,7 @@ function getGraphemes(str) {
 }
 
 function stripAnsi(text) {
-  return String(text || '').replace(ANSI_RE, '');
+  return String(text || '').replace(CURSOR_MARKER_RE, '').replace(ANSI_RE, '');
 }
 
 function graphemeWidth(segment) {

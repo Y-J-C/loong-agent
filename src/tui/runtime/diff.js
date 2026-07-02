@@ -1,5 +1,6 @@
 'use strict';
 
+var extractCursorPosition = require('./cursor').extractCursorPosition;
 var visibleWidth = require('./utils').visibleWidth;
 
 var ANSI = {
@@ -38,24 +39,37 @@ function createRuntimeDiffRenderer(options) {
   var previousLines = [];
   var previousColumns = 0;
   var previousRows = 0;
+  var hardwareCursorRow = 0;
 
-  function fullRender(lines, size, clear) {
+  function moveToFramePosition(cursor) {
+    var row = Math.max(0, Number(cursor && cursor.row) || 0);
+    var column = Math.max(1, Number(cursor && cursor.column) || 1);
+    hardwareCursorRow = row;
+    return '\x1b[' + (row + 1) + ';' + column + 'H';
+  }
+
+  function fullRender(lines, size, clear, cursor) {
     var normalized = normalizeLines(lines, size);
     previousLines = normalized.padded;
     previousColumns = normalized.columns;
     previousRows = normalized.rows;
-    return ANSI.hideCursor + (clear ? ANSI.clear + ANSI.home : '') + normalized.padded.join('\n');
+    hardwareCursorRow = Math.max(0, normalized.padded.length - 1);
+    var output = ANSI.hideCursor + (clear ? ANSI.clear + ANSI.home : '') + normalized.padded.join('\n');
+    if (cursor) output += moveToFramePosition(cursor) + ANSI.showCursor;
+    return output;
   }
 
   function render(lines, size) {
-    var source = Array.isArray(lines) ? lines : [];
+    var extracted = extractCursorPosition(Array.isArray(lines) ? lines : []);
+    var source = extracted.lines;
+    var cursor = extracted.cursor;
     var normalized = normalizeLines(source, size);
     var first = previousLines.length === 0;
     var resized = previousColumns !== 0 &&
       (previousColumns !== normalized.columns || previousRows !== normalized.rows);
 
-    if (first) return fullRender(source, size, initialClear);
-    if (resized) return fullRender(source, size, true);
+    if (first) return fullRender(source, size, initialClear, cursor);
+    if (resized) return fullRender(source, size, true, cursor);
 
     var firstChanged = -1;
     var lastChanged = -1;
@@ -67,16 +81,21 @@ function createRuntimeDiffRenderer(options) {
       }
     }
 
-    if (firstChanged < 0) return ANSI.hideCursor;
+    if (firstChanged < 0) {
+      if (cursor) return ANSI.hideCursor + moveToFramePosition(cursor) + ANSI.showCursor;
+      return ANSI.hideCursor;
+    }
 
     var output = ANSI.hideCursor + '\x1b[' + (firstChanged + 1) + ';1H';
     for (var index = firstChanged; index <= lastChanged; index += 1) {
       if (index > firstChanged) output += '\n';
       output += '\x1b[2K' + (normalized.padded[index] || ' '.repeat(normalized.columns));
     }
+    hardwareCursorRow = lastChanged;
     previousLines = normalized.padded;
     previousColumns = normalized.columns;
     previousRows = normalized.rows;
+    if (cursor) output += moveToFramePosition(cursor) + ANSI.showCursor;
     return output;
   }
 
@@ -84,6 +103,7 @@ function createRuntimeDiffRenderer(options) {
     previousLines = [];
     previousColumns = 0;
     previousRows = 0;
+    hardwareCursorRow = 0;
   }
 
   return {

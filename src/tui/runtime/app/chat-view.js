@@ -16,14 +16,14 @@ function pad(line, width) {
 function renderRuntimeChatView(state, size) {
   var width = Math.max(40, Number(size && size.columns) || 80);
   var rows = Math.max(6, Number(size && size.rows) || 24);
-  var input = renderRuntimeInputLine(state, width);
+  var overlays = renderRuntimeOverlays(state, width, rows);
+  var input = renderRuntimeInputLine(state, width, { focused: overlays.length === 0 });
   var status = renderRuntimeStatusBar(state, width);
   var bodyHeight = Math.max(1, rows - 2);
   var body = renderRuntimeMessageList(state, width, bodyHeight);
   var lines = body.concat([input, status]).slice(0, rows);
   while (lines.length < rows) lines.push('');
   lines = lines.map(function(line) { return pad(line, width); });
-  var overlays = renderRuntimeOverlays(state, width, rows);
   if (overlays.length) {
     lines = compositeOverlays(lines, overlays, { columns: width, rows: rows });
   }

@@ -2,6 +2,7 @@
 'use strict';
 
 var createRuntimeDiffRenderer = require('../src/tui/runtime/diff').createRuntimeDiffRenderer;
+var CURSOR_MARKER = require('../src/tui/runtime/cursor').CURSOR_MARKER;
 var pass = 0;
 var fail = 0;
 
@@ -45,6 +46,16 @@ ok(afterReset.indexOf('again') >= 0, 'reset frame includes content');
 
 var noClear = createRuntimeDiffRenderer({ initialClear: false }).render(['x'], { columns: 5, rows: 2 });
 equal(noClear.indexOf('\x1b[2J\x1b[H'), -1, 'initialClear false skips clear sequence');
+
+var cursorRenderer = createRuntimeDiffRenderer();
+var cursorFirst = cursorRenderer.render(['> 你好' + CURSOR_MARKER + '龙芯'], { columns: 20, rows: 3 });
+ok(cursorFirst.indexOf(CURSOR_MARKER) < 0, 'cursor marker stripped from first frame');
+ok(cursorFirst.indexOf('\x1b[1;7H') >= 0, 'cursor first frame moves hardware cursor');
+ok(cursorFirst.indexOf('\x1b[?25h') >= 0, 'cursor first frame shows hardware cursor');
+
+var cursorMoveOnly = cursorRenderer.render(['> 你好龙' + CURSOR_MARKER + '芯'], { columns: 20, rows: 3 });
+ok(cursorMoveOnly.indexOf('\x1b[2K') < 0, 'cursor-only frame does not rewrite row');
+ok(cursorMoveOnly.indexOf('\x1b[1;9H') >= 0, 'cursor-only frame moves hardware cursor');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

@@ -7,6 +7,8 @@ var terminal = require('./terminal');
 var component = require('./component');
 var focus = require('./focus');
 var tui = require('./tui');
+var cursor = require('./cursor');
+var inputComponent = require('./components/input');
 
 module.exports = {
   visibleWidth: utils.visibleWidth,
@@ -23,5 +25,9 @@ module.exports = {
   Text: component.Text,
   Spacer: component.Spacer,
   isFocusable: focus.isFocusable,
+  CURSOR_MARKER: cursor.CURSOR_MARKER,
+  extractCursorPosition: cursor.extractCursorPosition,
+  stripCursorMarker: cursor.stripCursorMarker,
+  Input: inputComponent.Input,
   TUI: tui.TUI,
 };
