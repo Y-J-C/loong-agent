@@ -36,6 +36,10 @@ var line = overlay.compositeLineAt('hello world', '中文', 6, 4, 20);
 ok(line.indexOf('中文') >= 0, 'composite keeps CJK overlay');
 ok(visibleWidth(line) <= 20, 'composite line stays within width');
 
+var coloredComposite = overlay.compositeLineAt('\x1b[32mhello world\x1b[0m', 'XX', 6, 2, 20);
+ok(coloredComposite.indexOf('\x1b[32m') >= 0, 'composite preserves base ANSI outside overlay');
+ok(visibleWidth(coloredComposite) <= 20, 'colored composite fits width');
+
 var base = ['aaaaaaaaaa', 'bbbbbbbbbb', 'cccccccccc'];
 var result = overlay.compositeOverlays(base, [{
   lines: ['XX', 'YY'],

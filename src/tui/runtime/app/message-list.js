@@ -97,7 +97,21 @@ function renderRuntimeMessageList(state, width, height, context) {
 
   var visibleHeight = Math.max(0, Number(height) || 0);
   if (visibleHeight <= 0) return [];
-  if (lines.length > visibleHeight) lines = lines.slice(lines.length - visibleHeight);
+  var totalLines = lines.length;
+  var maxOffset = Math.max(0, totalLines - visibleHeight);
+  var scrollOffset = Math.max(0, Number(state && state.scrollOffset) || 0);
+  scrollOffset = Math.min(scrollOffset, maxOffset);
+  if (state) {
+    state.scrollOffset = scrollOffset;
+    state.scrollBodyLength = totalLines;
+    state.scrollVisibleRows = visibleHeight;
+    state.scrollMaxOffset = maxOffset;
+    state.viewingHistory = scrollOffset > 0;
+  }
+  if (lines.length > visibleHeight) {
+    var start = Math.max(0, totalLines - visibleHeight - scrollOffset);
+    lines = lines.slice(start, start + visibleHeight);
+  }
   while (lines.length < visibleHeight) lines.push('');
   return lines;
 }

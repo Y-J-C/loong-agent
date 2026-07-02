@@ -28,9 +28,11 @@ var renderer = createRuntimeDiffRenderer();
 var first = renderer.render(['hello'], { columns: 10, rows: 3 });
 ok(first.indexOf('\x1b[2J\x1b[H') >= 0, 'first frame does full clear');
 ok(first.indexOf('hello') >= 0, 'first frame includes content');
+ok(first.indexOf('\x1b[?2026h') >= 0 && first.indexOf('\x1b[?2026l') >= 0, 'first frame uses synchronized update');
 
 var same = renderer.render(['hello'], { columns: 10, rows: 3 });
 ok(same.indexOf('\x1b[2J\x1b[H') < 0, 'unchanged frame does not full clear');
+ok(same.indexOf('\x1b[?2026h') >= 0 && same.indexOf('\x1b[?2026l') >= 0, 'unchanged frame uses synchronized update');
 
 var changed = renderer.render(['hello', 'world'], { columns: 10, rows: 3 });
 ok(changed.indexOf('\x1b[2K') >= 0, 'changed frame clears changed line');

@@ -46,6 +46,35 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
   ok(typeof term.write === 'function', 'write method exists');
   ok(typeof term.start === 'function', 'start method exists');
   ok(typeof term.stop === 'function', 'stop method exists');
+
+  var drainCalled = false;
+  var writes = '';
+  var fakeInput = {
+    isRaw: false,
+    setRawMode: function() {},
+    setEncoding: function() {},
+    resume: function() {},
+    pause: function() {},
+    on: function() {},
+    removeListener: function() {},
+    read: function() { return null; },
+  };
+  var fakeOutput = {
+    columns: 20,
+    rows: 5,
+    write: function(data) { writes += String(data || ''); },
+    on: function() {},
+    removeListener: function() {},
+  };
+  var drainTerm = new runtime.ProcessTerminal({ input: fakeInput, output: fakeOutput });
+  drainTerm.drainInput = function() {
+    drainCalled = true;
+  };
+  drainTerm.start(function() {}, function() {});
+  drainTerm.stop();
+  ok(drainCalled, 'stop drains pending input');
+  ok(writes.indexOf('\x1b[?2004l') >= 0, 'stop disables bracketed paste');
+  ok(writes.indexOf('\x1b[?25h') >= 0, 'stop shows cursor');
   console.log(pass + '/' + (pass + fail) + ' passed');
   process.exit(fail > 0 ? 1 : 0);
 }

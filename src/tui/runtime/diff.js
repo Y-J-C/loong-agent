@@ -9,7 +9,13 @@ var ANSI = {
   hideCursor: '\x1b[?25l',
   showCursor: '\x1b[?25h',
   reset: '\x1b[0m',
+  syncStart: '\x1b[?2026h',
+  syncEnd: '\x1b[?2026l',
 };
+
+function synchronizedOutput(output) {
+  return ANSI.syncStart + String(output || '') + ANSI.syncEnd;
+}
 
 function padLine(line, columns) {
   var raw = String(line || '');
@@ -56,7 +62,7 @@ function createRuntimeDiffRenderer(options) {
     hardwareCursorRow = Math.max(0, normalized.padded.length - 1);
     var output = ANSI.hideCursor + (clear ? ANSI.clear + ANSI.home : '') + normalized.padded.join('\n');
     if (cursor) output += moveToFramePosition(cursor) + ANSI.showCursor;
-    return output;
+    return synchronizedOutput(output);
   }
 
   function render(lines, size) {
@@ -82,8 +88,8 @@ function createRuntimeDiffRenderer(options) {
     }
 
     if (firstChanged < 0) {
-      if (cursor) return ANSI.hideCursor + moveToFramePosition(cursor) + ANSI.showCursor;
-      return ANSI.hideCursor;
+      if (cursor) return synchronizedOutput(ANSI.hideCursor + moveToFramePosition(cursor) + ANSI.showCursor);
+      return synchronizedOutput(ANSI.hideCursor);
     }
 
     var output = ANSI.hideCursor + '\x1b[' + (firstChanged + 1) + ';1H';
@@ -96,7 +102,7 @@ function createRuntimeDiffRenderer(options) {
     previousColumns = normalized.columns;
     previousRows = normalized.rows;
     if (cursor) output += moveToFramePosition(cursor) + ANSI.showCursor;
-    return output;
+    return synchronizedOutput(output);
   }
 
   function reset() {

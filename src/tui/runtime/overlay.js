@@ -88,24 +88,46 @@ function fitLine(line, width) {
   return text + ' '.repeat(missing);
 }
 
-function slicePlainByWidth(text, startCol, width) {
-  var plain = utils.stripAnsi(String(text || ''));
+function updateActiveAnsi(active, token) {
+  if (!/^\x1b\[[0-9;?]*m$/.test(token)) return active;
+  if (/^\x1b\[(?:0)?m$/.test(token) || token === RESET) return '';
+  return active + token;
+}
+
+function sliceAnsiByWidth(text, startCol, width) {
   var output = '';
   var used = 0;
   var col = 0;
-  var chars = Array.from(plain);
-  for (var index = 0; index < chars.length; index += 1) {
-    var ch = chars[index];
-    var w = utils.visibleWidth(ch);
-    if (col + w <= startCol) {
-      col += w;
+  var activeAnsi = '';
+  var emitted = false;
+  var tokens = utils.ansiAwareTokens(String(text || ''));
+  var endCol = startCol + Math.max(0, width);
+
+  for (var tokenIndex = 0; tokenIndex < tokens.length; tokenIndex += 1) {
+    var token = tokens[tokenIndex];
+    if (token.ansi) {
+      activeAnsi = updateActiveAnsi(activeAnsi, token.value);
+      if (emitted) output += token.value;
       continue;
     }
-    if (used + w > width) break;
-    output += ch;
-    used += w;
-    col += w;
+    var chars = Array.from(token.value);
+    for (var index = 0; index < chars.length; index += 1) {
+      var ch = chars[index];
+      var w = utils.visibleWidth(ch);
+      if (col + w <= startCol) {
+        col += w;
+        continue;
+      }
+      if (col >= endCol || used + w > width) break;
+      if (!emitted && activeAnsi) output += activeAnsi;
+      output += ch;
+      emitted = true;
+      used += w;
+      col += w;
+    }
   }
+
+  if (emitted && activeAnsi) output += RESET;
   return output;
 }
 
@@ -113,8 +135,8 @@ function compositeLineAt(baseLine, overlayLine, startCol, overlayWidth, totalWid
   var width = Math.max(1, Math.floor(numberOr(totalWidth, 80)));
   var col = clamp(Math.floor(numberOr(startCol, 0)), 0, width - 1);
   var overWidth = clamp(Math.floor(numberOr(overlayWidth, width - col)), 1, width - col);
-  var before = slicePlainByWidth(baseLine, 0, col);
-  var after = slicePlainByWidth(baseLine, col + overWidth, Math.max(0, width - col - overWidth));
+  var before = sliceAnsiByWidth(baseLine, 0, col);
+  var after = sliceAnsiByWidth(baseLine, col + overWidth, Math.max(0, width - col - overWidth));
   var fittedOverlay = fitLine(overlayLine, overWidth);
   return fitLine(before, col) + RESET + fittedOverlay + RESET + fitLine(after, width - col - overWidth);
 }

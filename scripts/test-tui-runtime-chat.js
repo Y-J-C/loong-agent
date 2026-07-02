@@ -84,5 +84,26 @@ var panelState = Object.assign({}, state, {
 var panelLines = renderRuntimeChatView(panelState, { columns: 50, rows: 8 });
 ok(stripAnsi(panelLines.join('\n')).indexOf('Session Selector') >= 0, 'renders selector overlay');
 
+var scrollState = {
+  mode: 'idle',
+  status: 'idle',
+  agentStatus: 'idle',
+  provider: 'mock',
+  model: 'm',
+  cwd: '/tmp/workspace',
+  inputBuffer: '',
+  scrollOffset: 4,
+  messages: [],
+};
+for (var scrollIndex = 0; scrollIndex < 30; scrollIndex += 1) {
+  scrollState.messages.push({ type: 'system', text: 'message-' + scrollIndex });
+}
+var scrollLines = renderRuntimeChatView(scrollState, { columns: 50, rows: 8 });
+var scrollPlain = stripAnsi(scrollLines.join('\n'));
+ok(scrollPlain.indexOf('message-29') < 0, 'scroll offset moves away from latest message');
+ok(scrollPlain.indexOf('message-') >= 0, 'scroll view still renders history messages');
+ok(scrollState.scrollMaxOffset > 0, 'scroll metrics record max offset');
+equal(scrollState.viewingHistory, true, 'scroll metrics mark history view');
+
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

@@ -51,5 +51,11 @@ var longLine = longInput.render(16)[0];
 ok(longLine.indexOf(CURSOR_MARKER) >= 0, 'long input keeps marker visible');
 ok(visibleWidth(longLine) <= 16, 'long input horizontally scrolls within width');
 
+var endCjkInput = new Input({ value: '\u4f60\u597d\u9f99\u82af', cursor: 4, focused: true });
+var endCjkLine = endCjkInput.render(12)[0];
+ok(endCjkLine.indexOf(CURSOR_MARKER) >= 0, 'end CJK input renders marker');
+ok(visibleWidth(endCjkLine) <= 12, 'end CJK input fits width');
+ok(stripCursorMarker(endCjkLine).indexOf('\u9f99\u82af') >= 0, 'end CJK input keeps characters before cursor');
+
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

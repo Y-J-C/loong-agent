@@ -55,7 +55,7 @@ function includes(list, value) {
 function matchesKey(data, keyId) {
   var sequences = SEQUENCES[keyId] || [];
   if (includes(sequences, data)) return true;
-  if (keyId === Key.enter && /^\x1b\[(13|10)(;\d+)?u$/.test(data)) return true;
+  if (keyId === Key.enter && /^\x1b\[(13|10)(?:;1)?u$/.test(data)) return true;
   return false;
 }
 

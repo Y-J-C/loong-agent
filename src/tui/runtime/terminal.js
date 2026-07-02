@@ -56,6 +56,7 @@ ProcessTerminal.prototype.stop = function stop() {
   if (this.output.removeListener && this.resizeHandler) {
     this.output.removeListener('resize', this.resizeHandler);
   }
+  this.drainInput();
   if (this.stdinBuffer) this.stdinBuffer.clear();
   if (this.input.setRawMode) {
     try {
@@ -66,6 +67,20 @@ ProcessTerminal.prototype.stop = function stop() {
   }
   if (this.input.pause) this.input.pause();
   if (this.output.write) this.output.write(DISABLE_BRACKETED_PASTE + SHOW_CURSOR + RESET);
+};
+
+ProcessTerminal.prototype.drainInput = function drainInput(maxReads) {
+  if (!this.input || typeof this.input.read !== 'function') return;
+  var limit = Math.max(1, Number(maxReads) || 20);
+  for (var index = 0; index < limit; index += 1) {
+    var chunk;
+    try {
+      chunk = this.input.read();
+    } catch (error) {
+      break;
+    }
+    if (chunk === null || chunk === undefined) break;
+  }
 };
 
 ProcessTerminal.prototype.write = function write(data) {
