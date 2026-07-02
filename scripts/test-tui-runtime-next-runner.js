@@ -101,6 +101,7 @@ async function main() {
 
   terminal.inputHandler('h');
   terminal.inputHandler('i');
+  await new Promise(function(resolve) { setTimeout(resolve, 10); });
   ok(terminal.output.indexOf('> hi') >= 0, 'typed input renders');
   terminal.inputHandler('\r');
   await new Promise(function(resolve) { setTimeout(resolve, 10); });

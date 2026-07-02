@@ -1,9 +1,11 @@
 'use strict';
 
 var createAgentSession = require('../../../agent').createAgentSession;
+var loadConfig = require('../../../config').loadConfig;
 var createBoardStatusSnapshot = require('../../board-status').createBoardStatusSnapshot;
 var handleCommand = require('../../commands').handleCommand;
 var handleAgentEvent = require('../../event-adapter').handleAgentEvent;
+var interactions = require('../../interactions');
 var input = require('../../input');
 var stateModule = require('../../state');
 var ProcessTerminal = require('../terminal').ProcessTerminal;
@@ -57,22 +59,24 @@ async function runRuntimeNextTui(config, options) {
   var resolveDone = null;
 
   function requestToolApproval(approval) {
-    state.pendingToolApproval = {
-      approval: approval || {},
-      resolve: function(result) { return result; },
-    };
-    state.mode = 'approval';
-    state.status = 'approval';
-    render();
-    return Promise.resolve({ approved: false });
+    return new Promise(function(resolve) {
+      state.pendingToolApproval = {
+        approval: approval || {},
+        resolve: resolve,
+      };
+      state.mode = 'approval';
+      state.status = 'approval';
+      render();
+    });
   }
 
   function createSession(nextConfig) {
-    if (options.createAgentSession) return options.createAgentSession(nextConfig);
-    return createAgentSession(nextConfig, {
+    var sessionOptions = {
       command: 'tui',
       requestToolApproval: requestToolApproval,
-    });
+    };
+    if (options.createAgentSession) return options.createAgentSession(nextConfig, sessionOptions);
+    return createAgentSession(nextConfig, sessionOptions);
   }
 
   var agentSession = createSession(activeConfig);
@@ -173,6 +177,25 @@ async function runRuntimeNextTui(config, options) {
     render();
   }
 
+  async function runCommand(value) {
+    await handleCommand({
+      config: activeConfig,
+      state: state,
+      replaceAgentSession: replaceAgentSession,
+      createAgentSession: createSession,
+      requestToolApproval: requestToolApproval,
+      startPrompt: startPrompt,
+      reloadConfig: function(nextConfig) {
+        activeConfig = nextConfig || activeConfig;
+        state.provider = activeConfig.provider || state.provider;
+        state.model = activeConfig.model || state.model;
+        state.cwd = activeConfig.workspace || state.cwd;
+        refreshBoardStatus(activeConfig);
+      },
+      refreshBoardStatus: refreshBoardStatus,
+    }, value);
+  }
+
   async function submit(text) {
     var raw = String(text || '');
     var value = raw.trim();
@@ -187,18 +210,7 @@ async function runRuntimeNextTui(config, options) {
     }
 
     if (value.charAt(0) === '/' || value.charAt(0) === '!') {
-      await handleCommand({
-        config: activeConfig,
-        state: state,
-        replaceAgentSession: replaceAgentSession,
-        createAgentSession: createSession,
-        requestToolApproval: requestToolApproval,
-        startPrompt: startPrompt,
-        reloadConfig: function(nextConfig) {
-          activeConfig = nextConfig || activeConfig;
-        },
-        refreshBoardStatus: refreshBoardStatus,
-      }, value);
+      await runCommand(value);
       if (state.shouldExit) stop();
       render();
       return;
@@ -213,17 +225,120 @@ async function runRuntimeNextTui(config, options) {
     await startPrompt(value);
   }
 
+  async function executeSessionAction(action, selected) {
+    if (!selected) {
+      state.mode = 'idle';
+      state.selector = null;
+      return;
+    }
+    var id = selected.id;
+    if (action.action === 'resume') {
+      state.selectedSessionId = id;
+      if (state.selector) {
+        state.selector.selectedItem = selected;
+        state.selector.subMode = 'resume_prompt';
+        state.selector.resumePrompt = '';
+        state.selector.resumePromptError = '';
+      }
+      return;
+    }
+    if (action.action === 'resume_submit') {
+      var prompt = String(action.prompt || '').trim();
+      if (!prompt) {
+        if (state.selector) state.selector.resumePromptError = 'Enter a follow-up prompt before resuming.';
+        return;
+      }
+      state.mode = 'idle';
+      state.selector = null;
+      await runCommand('/resume ' + id + ' ' + prompt);
+      return;
+    }
+    state.mode = 'idle';
+    state.selector = null;
+    if (action.action === 'session') await runCommand('/session ' + id);
+    else if (action.action === 'audit') await runCommand('/audit ' + id);
+    else if (action.action === 'export') await runCommand('/export ' + id);
+    else if (action.action === 'lineage') await runCommand('/lineage ' + id);
+    else if (action.action === 'name') stateModule.addMessage(state, { type: 'system', text: 'set session name is not available in runtime-next P3' });
+  }
+
+  function applySettingsSelection() {
+    activeConfig = Object.assign({}, activeConfig, {
+      thinkingLevel: state.thinkingLevel || 'off',
+      streaming: state.settingsStreaming !== false,
+      contextBudgetChars: state.contextBudget || activeConfig.contextBudgetChars,
+    });
+    if (state.mode !== 'running') replaceAgentSession(createSession(activeConfig));
+    refreshBoardStatus(activeConfig);
+  }
+
+  function applyModelSelection(model) {
+    if (!model) return;
+    if (model.fromEnv) {
+      activeConfig = loadConfig();
+    } else {
+      activeConfig = Object.assign({}, activeConfig, {
+        model: model.id,
+        provider: model.provider || activeConfig.provider,
+        providerProfile: model.providerProfile || activeConfig.providerProfile,
+        baseUrl: model.baseUrl || activeConfig.baseUrl,
+      });
+    }
+    state.model = activeConfig.model || '';
+    state.provider = activeConfig.provider || state.provider;
+    state.cwd = activeConfig.workspace || state.cwd;
+    if (state.mode !== 'running') replaceAgentSession(createSession(activeConfig));
+    refreshBoardStatus(activeConfig);
+  }
+
+  function modalActions() {
+    return {
+      executeSessionAction: executeSessionAction,
+      switchSessionView: function(view) {
+        return runCommand(view === 'tree' ? '/sessions' : '/tree');
+      },
+      applySettingsSelection: applySettingsSelection,
+      applyModelSelection: applyModelSelection,
+    };
+  }
+
+  async function handleModalKey(key) {
+    if (state.pendingToolApproval) {
+      interactions.handleApprovalKey(state, key);
+      stateModule.updateAutocomplete(state);
+      render();
+      return true;
+    }
+    if (state.selector) {
+      await interactions.handleSelectorKey(state, key, modalActions());
+      stateModule.updateAutocomplete(state);
+      render();
+      return true;
+    }
+    if (interactions.activePanel(state)) {
+      interactions.handlePanelKey(state, key, modalActions());
+      stateModule.updateAutocomplete(state);
+      render();
+      return true;
+    }
+    return false;
+  }
+
   async function handleKey(key) {
     if (stopped || !key) return;
 
-    if (key.type === 'enter') {
-      await submit(state.inputBuffer);
+    if (key.type === 'ctrl_l') {
+      diffRenderer.reset();
       render();
       return;
     }
 
-    if (key.type === 'ctrl_l') {
-      diffRenderer.reset();
+    if (await handleModalKey(key)) {
+      return;
+    }
+
+    if (key.type === 'enter') {
+      await submit(state.inputBuffer);
       render();
       return;
     }

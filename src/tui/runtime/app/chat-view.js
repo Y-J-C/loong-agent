@@ -1,9 +1,11 @@
 'use strict';
 
 var utils = require('../utils');
+var compositeOverlays = require('../overlay').compositeOverlays;
 var renderRuntimeMessageList = require('./message-list').renderRuntimeMessageList;
 var renderRuntimeInputLine = require('./input-line').renderRuntimeInputLine;
 var renderRuntimeStatusBar = require('./status-bar').renderRuntimeStatusBar;
+var renderRuntimeOverlays = require('./overlay-view').renderRuntimeOverlays;
 
 function pad(line, width) {
   var raw = utils.truncateToWidth(String(line || ''), width);
@@ -20,6 +22,11 @@ function renderRuntimeChatView(state, size) {
   var body = renderRuntimeMessageList(state, width, bodyHeight);
   var lines = body.concat([input, status]).slice(0, rows);
   while (lines.length < rows) lines.push('');
+  lines = lines.map(function(line) { return pad(line, width); });
+  var overlays = renderRuntimeOverlays(state, width, rows);
+  if (overlays.length) {
+    lines = compositeOverlays(lines, overlays, { columns: width, rows: rows });
+  }
   return lines.map(function(line) { return pad(line, width); });
 }
 

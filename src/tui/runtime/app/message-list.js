@@ -41,10 +41,6 @@ function renderRuntimeMessageList(state, width, height) {
     }
   }
 
-  if (state && (state.selector || state.activePanel || state.settingsMenu || state.modelSelector || state.commandPanel)) {
-    lines.push(fit('[runtime-next placeholder] selector/panel UI will be implemented in later phases', maxWidth));
-  }
-
   var visibleHeight = Math.max(0, Number(height) || 0);
   if (visibleHeight <= 0) return [];
   if (lines.length > visibleHeight) lines = lines.slice(lines.length - visibleHeight);

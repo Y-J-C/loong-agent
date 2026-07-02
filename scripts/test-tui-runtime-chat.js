@@ -58,9 +58,15 @@ ok(plain.indexOf('mock/m') >= 0, 'renders provider model');
 ok(plain.indexOf('abcdef12') >= 0, 'renders session short id');
 ok(lines.every(function(line) { return visibleWidth(line) <= 60; }), 'all lines fit width');
 
-var panelState = Object.assign({}, state, { selector: { view: 'sessions' } });
+var panelState = Object.assign({}, state, {
+  selector: {
+    view: 'sessions',
+    selectedIndex: 0,
+    items: [{ id: 's1', command: 'tui', entryCount: 1 }],
+  },
+});
 var panelLines = renderRuntimeChatView(panelState, { columns: 50, rows: 8 });
-ok(stripAnsi(panelLines.join('\n')).indexOf('runtime-next placeholder') >= 0, 'renders selector placeholder');
+ok(stripAnsi(panelLines.join('\n')).indexOf('Session Selector') >= 0, 'renders selector overlay');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);
