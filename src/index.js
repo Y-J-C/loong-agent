@@ -277,16 +277,18 @@ async function main() {
 Usage:
   node src/index.js tui
   node src/index.js tui --runtime-next
+  node src/index.js tui --legacy-tui
 
 Options:
-  --runtime-next  Use the new runtime-backed TUI preview
+  --runtime-next  Use the runtime-backed TUI (default; kept for compatibility)
+  --legacy-tui    Use the legacy TUI fallback
 
 Keys:
   Enter send
   Ctrl+Enter newline if supported
   Alt+Enter newline
   \\ + Enter newline fallback
-  Esc abort/back, Ctrl+C/Ctrl+D exit, Ctrl+O expand tools
+  Esc abort/back, Ctrl+C/Ctrl+D exit, Ctrl+O tool detail
 
 Commands:
   /help /hotkeys /health /project /sessions /tree /lineage /fork /resume /export
@@ -297,7 +299,8 @@ Commands:
       return;
     }
     await require('./tui').runTui(config, {
-      runtimeNext: args.includes('--runtime-next'),
+      runtimeNext: !args.includes('--legacy-tui'),
+      legacyTui: args.includes('--legacy-tui'),
     });
     return;
   }

@@ -25,6 +25,16 @@ function messageText(message) {
   return message.text || message.summary || '';
 }
 
+function detailText(message) {
+  if (!message || message.detail === undefined || message.detail === null) return '';
+  if (typeof message.detail === 'string') return message.detail;
+  try {
+    return JSON.stringify(message.detail, null, 2);
+  } catch (error) {
+    return String(message.detail);
+  }
+}
+
 function fit(line, width) {
   return utils.truncateToWidth(String(line || ''), width);
 }
@@ -72,6 +82,16 @@ function renderRuntimeMessageList(state, width, height, context) {
     if (!wrapped.length) wrapped = [''];
     for (var lineIndex = 0; lineIndex < wrapped.length; lineIndex += 1) {
       lines.push(fit((lineIndex === 0 ? prefixText : ' '.repeat(utils.visibleWidth(prefix))) + wrapped[lineIndex], maxWidth));
+    }
+    if (message.type === 'tool' && state && state.expandedTools) {
+      var detail = detailText(message);
+      if (detail) {
+        var detailPrefix = '  detail: ';
+        var detailWrapped = utils.wrapTextWithAnsi(detail, Math.max(1, maxWidth - utils.visibleWidth(detailPrefix)));
+        for (var detailIndex = 0; detailIndex < detailWrapped.length; detailIndex += 1) {
+          lines.push(fit((detailIndex === 0 ? detailPrefix : ' '.repeat(utils.visibleWidth(detailPrefix))) + detailWrapped[detailIndex], maxWidth));
+        }
+      }
     }
   }
 

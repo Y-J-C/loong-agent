@@ -61,6 +61,19 @@ function createFakeSession() {
     },
     prompt: function(text) {
       session.prompts.push(text);
+      if (text === 'tool') {
+        subscribers.forEach(function(fn) {
+          fn({ type: 'tool_execution_start', toolName: 'bash', toolCallId: 'call-1', callSummary: 'run bash' });
+          fn({
+            type: 'tool_execution_end',
+            toolName: 'bash',
+            toolCallId: 'call-1',
+            resultSummary: 'tool summary',
+            result: { hiddenDetail: 'tool hidden detail' },
+          });
+        });
+        return Promise.resolve({ summary: 'tool done' });
+      }
       subscribers.forEach(function(fn) {
         fn({ type: 'user', text: text });
         fn({ type: 'assistant_final', text: 'reply: ' + text });
@@ -107,6 +120,24 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 10); });
   equal(fakeSession.prompts[0], 'hi', 'enter submits prompt');
   ok(terminal.output.indexOf('reply: hi') >= 0, 'agent event renders reply');
+
+  terminal.inputHandler('t');
+  terminal.inputHandler('o');
+  terminal.inputHandler('o');
+  terminal.inputHandler('l');
+  terminal.inputHandler('\r');
+  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  terminal.inputHandler('\x0f');
+  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  ok(terminal.output.indexOf('bash') >= 0 && terminal.output.indexOf('tool summary') >= 0, 'ctrl+o opens tool detail');
+  terminal.inputHandler('\x1b');
+  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  terminal.inputHandler('\x1b[15;6u');
+  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'shift+ctrl+o expands tool detail in message list');
+  terminal.inputHandler('\x0c');
+  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  ok(terminal.output.length > 0, 'ctrl+l redraw keeps output available');
 
   terminal.inputHandler('/exit');
   terminal.inputHandler('\r');

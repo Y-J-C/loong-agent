@@ -8,6 +8,9 @@ var handleAgentEvent = require('../../event-adapter').handleAgentEvent;
 var interactions = require('../../interactions');
 var input = require('../../input');
 var stateModule = require('../../state');
+var toolFocus = require('../../tool-focus');
+var openJsonlSession = require('../../../session').openJsonlSession;
+var createSessionManager = require('../../../session-manager').createSessionManager;
 var ProcessTerminal = require('../terminal').ProcessTerminal;
 var createRuntimeDiffRenderer = require('../diff').createRuntimeDiffRenderer;
 var renderRuntimeChatView = require('./chat-view').renderRuntimeChatView;
@@ -57,6 +60,7 @@ async function runRuntimeNextTui(config, options) {
   var stopped = false;
   var unsubscribe = null;
   var resolveDone = null;
+  var diffResetCount = 0;
 
   function requestToolApproval(approval) {
     return new Promise(function(resolve) {
@@ -122,6 +126,11 @@ async function runRuntimeNextTui(config, options) {
         frameLines: lines.length,
         mode: state.mode,
         runtime: 'next',
+        renderPath: 'runtime-next',
+        overlaySurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : '',
+        focusedSurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : 'input',
+        diffResetCount: diffResetCount,
+        lastRenderError: state.lastRenderError || null,
       };
       terminal.write(diffRenderer.render(lines, size));
     } catch (error) {
@@ -131,6 +140,7 @@ async function runRuntimeNextTui(config, options) {
       };
       try {
         diffRenderer.reset();
+        diffResetCount += 1;
         terminal.write(diffRenderer.render([
           '[runtime-next render error] ' + state.lastRenderError.message,
         ], terminalSize(terminal)));
@@ -259,7 +269,22 @@ async function runRuntimeNextTui(config, options) {
     else if (action.action === 'audit') await runCommand('/audit ' + id);
     else if (action.action === 'export') await runCommand('/export ' + id);
     else if (action.action === 'lineage') await runCommand('/lineage ' + id);
-    else if (action.action === 'name') stateModule.addMessage(state, { type: 'system', text: 'set session name is not available in runtime-next P3' });
+    else if (action.action === 'name') {
+      try {
+        var name = 'session-' + Date.now().toString().slice(-6);
+        var manager = createSessionManager(activeConfig);
+        var session = manager.read(id);
+        if (session && session.path) {
+          openJsonlSession(session.path, session.id || id).append({ type: 'session_name', name: name });
+          state.currentSessionName = name;
+          stateModule.addMessage(state, { type: 'system', text: 'Session name set: ' + name });
+        } else {
+          stateModule.addMessage(state, { type: 'error', text: 'Session not found: ' + id });
+        }
+      } catch (error) {
+        stateModule.addMessage(state, { type: 'error', text: error && error.message ? error.message : String(error) });
+      }
+    }
   }
 
   function applySettingsSelection() {
@@ -329,6 +354,7 @@ async function runRuntimeNextTui(config, options) {
 
     if (key.type === 'ctrl_l') {
       diffRenderer.reset();
+      diffResetCount += 1;
       render();
       return;
     }
@@ -340,6 +366,23 @@ async function runRuntimeNextTui(config, options) {
     if (key.type === 'enter') {
       await submit(state.inputBuffer);
       render();
+      return;
+    }
+
+    if (key.type === 'ctrl_o') {
+      toolFocus.toggleSelectedToolDetail(state);
+      render();
+      return;
+    }
+
+    if (key.type === 'shift_ctrl_o') {
+      toolFocus.toggleGlobalToolDetails(state);
+      render();
+      return;
+    }
+
+    if (key.type === 'ctrl_d') {
+      if (!state.inputBuffer) stop();
       return;
     }
 

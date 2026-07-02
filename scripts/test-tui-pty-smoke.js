@@ -9,7 +9,7 @@ const DEFAULTS = {
   host: '10.18.52.130',
   port: '52101',
   user: 'loongson',
-  workspace: '/home/loongson/loong-pi-agent',
+  workspace: '/home/loongson/loong-agent',
   sshBin: process.env.LOONG_AGENT_SSH_BIN || (process.platform === 'win32' ? 'C:\\Windows\\System32\\OpenSSH\\ssh.exe' : 'ssh'),
   timeoutSeconds: 30,
   logPath: path.join('runs', 'tui-pty-smoke-latest.log'),
@@ -31,10 +31,11 @@ function usage() {
     '  --user <user>          SSH user',
     '  --workspace <path>     Remote project directory',
     '  --ssh-bin <path>       SSH executable path',
-    '  --timeout <seconds>    Remote timeout seconds',
-    '  --log <path>           Local pty log path',
-    '  --json <path>          Local JSON report path',
-    '  --dry-run              Print plan without connecting',
+  '  --timeout <seconds>    Remote timeout seconds',
+  '  --log <path>           Local pty log path',
+  '  --json <path>          Local JSON report path',
+  '  --legacy-tui           Smoke the legacy TUI fallback',
+  '  --dry-run              Print plan without connecting',
     '  --help                 Show this help',
   ].join('\n');
 }
@@ -49,6 +50,7 @@ function parseArgs(argv) {
     timeoutSeconds: DEFAULTS.timeoutSeconds,
     logPath: DEFAULTS.logPath,
     jsonPath: DEFAULTS.jsonPath,
+    legacyTui: false,
     dryRun: false,
     help: false,
   };
@@ -56,6 +58,8 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--legacy-tui') {
+      options.legacyTui = true;
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
     } else if (arg === '--host') {
@@ -98,7 +102,8 @@ function shellQuote(value) {
 }
 
 function remoteTuiCommand(options) {
-  return `cd ${shellQuote(options.workspace)} && timeout ${options.timeoutSeconds}s node src/index.js tui`;
+  const suffix = options.legacyTui ? ' --legacy-tui' : '';
+  return `cd ${shellQuote(options.workspace)} && timeout ${options.timeoutSeconds}s node src/index.js tui${suffix}`;
 }
 
 function sshTarget(options) {
@@ -296,6 +301,7 @@ function dryRunPlan(options) {
     logPath: options.logPath,
     jsonPath: options.jsonPath,
     timeoutSeconds: options.timeoutSeconds,
+    legacyTui: options.legacyTui,
   };
 }
 
