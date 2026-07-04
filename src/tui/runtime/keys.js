@@ -12,6 +12,8 @@ var Key = {
   backspace: 'backspace',
   ctrlC: 'ctrlC',
   ctrlD: 'ctrlD',
+  ctrlL: 'ctrlL',
+  ctrlO: 'ctrlO',
   tab: 'tab',
   shiftTab: 'shiftTab',
   home: 'home',
@@ -30,6 +32,8 @@ SEQUENCES[Key.escape] = ['\x1b'];
 SEQUENCES[Key.backspace] = ['\x7f', '\b'];
 SEQUENCES[Key.ctrlC] = ['\x03'];
 SEQUENCES[Key.ctrlD] = ['\x04'];
+SEQUENCES[Key.ctrlL] = ['\x0c'];
+SEQUENCES[Key.ctrlO] = ['\x0f'];
 SEQUENCES[Key.tab] = ['\t'];
 SEQUENCES[Key.shiftTab] = ['\x1b[Z'];
 SEQUENCES[Key.home] = ['\x1b[H', '\x1b[1~'];

@@ -14,6 +14,7 @@ var createSessionManager = require('../../../session-manager').createSessionMana
 var ProcessTerminal = require('../terminal').ProcessTerminal;
 var TUI = require('../tui').TUI;
 var ChatView = require('./chat-view').ChatView;
+var createRuntimeInputDispatcher = require('./input-dispatcher').createRuntimeInputDispatcher;
 
 function terminalSize(terminal) {
   return {
@@ -59,6 +60,7 @@ async function runRuntimeNextTui(config, options) {
   var tui = new TUI(terminal, {
     onBeforeRender: updateLastRender,
     onRenderError: handleRenderError,
+    onInputError: handleInputError,
   });
   tui.addChild(chatView);
   if (typeof options.onState === 'function') options.onState(state);
@@ -157,6 +159,11 @@ async function runRuntimeNextTui(config, options) {
     diffResetCount += 1;
     updateLastRender(renderContext);
     return ['[runtime-next render error] ' + state.lastRenderError.message];
+  }
+
+  function handleInputError(error) {
+    stateModule.addMessage(state, { type: 'error', text: error && error.message ? error.message : String(error) });
+    requestRender();
   }
 
   async function refreshBoardStatus(nextConfig) {
@@ -432,22 +439,14 @@ async function runRuntimeNextTui(config, options) {
     requestRender();
   }
 
-  async function onInput(sequence) {
-    var keys = input.parseInputBuffer(state, sequence);
-    for (var index = 0; index < keys.length; index += 1) {
-      await handleKey(keys[index]);
-      if (stopped) break;
-    }
-  }
-
   subscribe(agentSession);
-  tui.addInputListener(function(sequence) {
-    onInput(sequence).catch(function(error) {
-      stateModule.addMessage(state, { type: 'error', text: error && error.message ? error.message : String(error) });
-      requestRender();
-    });
-    return { consume: true };
+  var inputDispatcher = createRuntimeInputDispatcher({
+    state: state,
+    handleKey: handleKey,
+    isStopped: function() { return stopped; },
+    onError: handleInputError,
   });
+  tui.addInputListener(inputDispatcher.dispatch);
   updateLastRender();
   tui.start();
   refreshBoardStatus(activeConfig);

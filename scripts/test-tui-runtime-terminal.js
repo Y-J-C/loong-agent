@@ -75,6 +75,7 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
     drainCalled = true;
   };
   drainTerm.start(function() {}, function() {});
+  ok(writes.indexOf('\x1b[?2004h') >= 0, 'start enables bracketed paste');
   drainTerm.stop();
   ok(drainCalled, 'stop drains pending input');
   ok(writes.indexOf('\x1b[?2004l') >= 0, 'stop disables bracketed paste');
@@ -88,8 +89,19 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
   inputDataHandler('\x1b[?7u');
   ok(writes.indexOf('\x1b[>7u') >= 0, 'Kitty response enables expected flags');
   equal(seenInput.length, 0, 'Kitty response is not forwarded as user input');
+  ok(kittyTerm.kittyProtocolTimer === null, 'Kitty response clears fallback timer');
   kittyTerm.stop();
 
-  console.log(pass + '/' + (pass + fail) + ' passed');
-  process.exit(fail > 0 ? 1 : 0);
+  writes = '';
+  var fallbackTerm = new runtime.ProcessTerminal({ input: fakeInput, output: fakeOutput });
+  fallbackTerm.queryAndEnableKittyProtocol();
+  setTimeout(function() {
+    ok(writes.indexOf('\x1b[>4;2m') >= 0, 'Kitty fallback timer writes modifyOtherKeys');
+    if (fallbackTerm.kittyProtocolTimer) {
+      clearTimeout(fallbackTerm.kittyProtocolTimer);
+      fallbackTerm.kittyProtocolTimer = null;
+    }
+    console.log(pass + '/' + (pass + fail) + ' passed');
+    process.exit(fail > 0 ? 1 : 0);
+  }, 230);
 }

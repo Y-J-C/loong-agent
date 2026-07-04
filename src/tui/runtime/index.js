@@ -29,6 +29,7 @@ module.exports = {
   parseKey: keys.parseKey,
   isKeyRelease: keys.isKeyRelease,
   isKeyRepeat: keys.isKeyRepeat,
+  decodeKittyPrintable: keys.decodeKittyPrintable,
   ProcessTerminal: terminal.ProcessTerminal,
   Container: component.Container,
   Text: component.Text,

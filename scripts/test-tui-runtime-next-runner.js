@@ -128,10 +128,34 @@ async function main() {
   terminal.inputHandler('i');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(terminal.output.indexOf('> hi') >= 0, 'typed input renders');
+
+  terminal.inputHandler('x');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.inputBuffer, 'hix', 'text input reaches runner through TUI dispatcher');
+  terminal.inputHandler('\x1b');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.inputBuffer, '', 'escape clears non-empty input through TUI dispatcher');
+
+  terminal.inputHandler('h');
+  terminal.inputHandler('i');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
   terminal.inputHandler('\r');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(fakeSession.prompts[0], 'hi', 'enter submits prompt');
   ok(terminal.output.indexOf('reply: hi') >= 0, 'agent event renders reply');
+
+  for (var msgIndex = 0; msgIndex < 20; msgIndex += 1) {
+    capturedState.messages.push({ type: 'system', text: 'scroll line ' + msgIndex });
+  }
+  terminal.inputHandler('\x0c');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.scrollMaxOffset > 0, 'long message list creates scrollable history');
+  terminal.inputHandler('\x1b[5~');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.scrollOffset > 0 && capturedState.viewingHistory, 'page up scrolls history through TUI dispatcher');
+  terminal.inputHandler('\x1b[6~');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.scrollOffset, 0, 'page down returns to bottom through TUI dispatcher');
 
   terminal.inputHandler('t');
   terminal.inputHandler('o');
@@ -151,10 +175,10 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 10); });
   ok(terminal.output.length > 0, 'ctrl+l redraw keeps output available');
 
-  terminal.inputHandler('/exit');
-  terminal.inputHandler('\r');
+  terminal.inputHandler('\x04');
   var result = await resultPromise;
   ok(terminal.stopped, 'terminal stops');
+  ok(capturedState.lastRender.diffResetCount > 0, 'ctrl+l redraw is recorded');
   equal(result.nonTty, false, 'runner resolves interactive result');
 
   console.log(pass + '/' + (pass + fail) + ' passed');

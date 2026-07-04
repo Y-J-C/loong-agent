@@ -17,6 +17,7 @@ function TUI(terminal, options) {
   this.terminal = terminal || new terminalModule.ProcessTerminal();
   this.onBeforeRender = typeof options.onBeforeRender === 'function' ? options.onBeforeRender : null;
   this.onRenderError = typeof options.onRenderError === 'function' ? options.onRenderError : null;
+  this.onInputError = typeof options.onInputError === 'function' ? options.onInputError : null;
 
   // Rendering state
   this.previousLines = [];
@@ -71,25 +72,27 @@ TUI.prototype.addInputListener = function addInputListener(listener) {
   }.bind(this);
 };
 
-TUI.prototype.handleInput = function handleInput(data) {
+TUI.prototype.handleInput = async function handleInput(data) {
+  var keys = require('./keys');
+  var wantsRelease = this.focusedComponent && this.focusedComponent.wantsKeyRelease;
+  if (!wantsRelease && typeof keys.isKeyRelease === 'function' && keys.isKeyRelease(data)) return { consume: true };
+
   // 1. Input listeners
   for (var i = 0; i < this.inputListeners.length; i++) {
-    var result = this.inputListeners[i](data);
-    if (result && result.consume) return;
+    var result = await this.inputListeners[i](data);
+    if (result && result.consume) return result;
     if (result && result.data !== undefined) data = result.data;
-    if (!data || data.length === 0) return;
+    if (!data || data.length === 0) return { consume: true };
   }
 
   // 2. Focused component
   if (this.focusedComponent && typeof this.focusedComponent.handleInput === 'function') {
-    var wantsRelease = this.focusedComponent.wantsKeyRelease;
-    if (!wantsRelease) {
-      var keys = require('./keys');
-      if (typeof keys.isKeyRelease === 'function' && keys.isKeyRelease(data)) return;
-    }
-    this.focusedComponent.handleInput(data);
+    await this.focusedComponent.handleInput(data);
     this.requestRender();
+    return { consume: true };
   }
+
+  return { consume: false, data: data };
 };
 
 // ─── Rendering pipeline ───────────────────────────────────────────────────────
@@ -358,7 +361,10 @@ TUI.prototype.start = function start() {
   var self = this;
   this.stopped = false;
   this.terminal.start(function(data) {
-    self.handleInput(data);
+    Promise.resolve(self.handleInput(data)).catch(function(error) {
+      if (self.onInputError) self.onInputError(error);
+      else throw error;
+    });
   }, function() {
     self.requestRender();
   });

@@ -1,19 +1,17 @@
 #!/usr/bin/env node
 'use strict';
 
-var StdinBuffer = require('../src/tui/runtime').StdinBuffer;
+var runtime = require('../src/tui/runtime');
 var pass = 0;
 var fail = 0;
 
-function deepEqual(actual, expected, msg) {
-  var a = JSON.stringify(actual);
-  var e = JSON.stringify(expected);
-  if (a === e) {
+function ok(value, msg) {
+  if (value) {
     pass += 1;
     return;
   }
   fail += 1;
-  console.error('FAIL: ' + msg + ' (want ' + e + ', got ' + a + ')');
+  console.error('FAIL: ' + msg);
 }
 
 function equal(actual, expected, msg) {
@@ -25,46 +23,81 @@ function equal(actual, expected, msg) {
   console.error('FAIL: ' + msg + ' (want ' + expected + ', got ' + actual + ')');
 }
 
-function wait(ms) {
-  return new Promise(function(resolve) {
-    setTimeout(resolve, ms);
-  });
+function FakeTerminal() {
+  this.columns = 20;
+  this.rows = 5;
+  this.onInput = null;
+  this.onResize = null;
 }
+FakeTerminal.prototype.start = function start(onInput, onResize) {
+  this.onInput = onInput;
+  this.onResize = onResize;
+};
+FakeTerminal.prototype.stop = function stop() {};
+FakeTerminal.prototype.write = function write() {};
+FakeTerminal.prototype.hideCursor = function hideCursor() {};
+FakeTerminal.prototype.showCursor = function showCursor() {};
 
 async function main() {
-  var emitted = [];
-  var pasted = [];
-  var buffer = new StdinBuffer({ timeout: 10 });
-  buffer.on('data', function(sequence) { emitted.push(sequence); });
-  buffer.on('paste', function(content) { pasted.push(content); });
+  var focusedData = [];
+  var tui = new runtime.TUI(new FakeTerminal());
+  tui.setFocus({
+    handleInput: function(data) {
+      focusedData.push(data);
+    },
+  });
 
-  buffer.process('abc');
-  deepEqual(emitted, ['a', 'b', 'c'], 'regular characters split');
+  tui.addInputListener(function(data) {
+    if (data === 'consume') return Promise.resolve({ consume: true });
+    if (data === 'rewrite') return Promise.resolve({ data: 'rewritten' });
+    return null;
+  });
 
-  emitted = [];
-  buffer.process('\x1b');
-  equal(buffer.getBuffer(), '\x1b', 'bare escape buffered');
-  buffer.process('[A');
-  deepEqual(emitted, ['\x1b[A'], 'split arrow sequence emitted');
-  equal(buffer.getBuffer(), '', 'buffer cleared after complete sequence');
+  await tui.handleInput('consume');
+  equal(focusedData.length, 0, 'async consumed input does not reach focus');
 
-  emitted = [];
-  buffer.process('\x1b[<35');
-  await wait(15);
-  deepEqual(emitted, ['\x1b[<35'], 'incomplete sequence flushed after timeout');
+  await tui.handleInput('rewrite');
+  equal(focusedData[0], 'rewritten', 'async listener can rewrite input data');
 
-  emitted = [];
-  buffer.process('x\x1b[Ay');
-  deepEqual(emitted, ['x', '\x1b[A', 'y'], 'mixed text and escape sequence');
+  var releaseSeen = false;
+  var releaseTui = new runtime.TUI(new FakeTerminal());
+  releaseTui.addInputListener(function() {
+    releaseSeen = true;
+    return null;
+  });
+  releaseTui.setFocus({
+    handleInput: function() {
+      releaseSeen = true;
+    },
+  });
+  await releaseTui.handleInput('\x1b[97;1:3u');
+  equal(releaseSeen, false, 'Kitty release is filtered before app listeners by default');
 
-  emitted = [];
-  pasted = [];
-  buffer.process('\x1b[200~hello\n世界\x1b[201~');
-  deepEqual(emitted, [], 'paste does not emit data events');
-  deepEqual(pasted, ['hello\n世界'], 'paste content emitted');
+  var wantedRelease = '';
+  var wantsReleaseTui = new runtime.TUI(new FakeTerminal());
+  wantsReleaseTui.setFocus({
+    wantsKeyRelease: true,
+    handleInput: function(data) {
+      wantedRelease = data;
+    },
+  });
+  await wantsReleaseTui.handleInput('\x1b[97;1:3u');
+  equal(wantedRelease, '\x1b[97;1:3u', 'focused component can opt into key release');
 
-  buffer.clear();
-  equal(buffer.getBuffer(), '', 'clear empties buffer');
+  var inputError = null;
+  var errorTerminal = new FakeTerminal();
+  var errorTui = new runtime.TUI(errorTerminal, {
+    onInputError: function(error) {
+      inputError = error;
+    },
+  });
+  errorTui.addInputListener(function() {
+    return Promise.reject(new Error('input failed'));
+  });
+  errorTui.start();
+  errorTerminal.onInput('x');
+  await new Promise(function(resolve) { setTimeout(resolve, 20); });
+  ok(inputError && inputError.message === 'input failed', 'TUI.start routes async input errors to onInputError');
 
   console.log(pass + '/' + (pass + fail) + ' passed');
   process.exit(fail > 0 ? 1 : 0);
