@@ -2,6 +2,7 @@
 'use strict';
 
 var runtime = require('../src/tui/runtime');
+var Box = require('../src/tui/runtime/components/box').Box;
 var pass = 0;
 var fail = 0;
 
@@ -39,6 +40,16 @@ var container = new runtime.Container([new runtime.Text('a', 0, 0), spacer, chil
 equal(container.render(10).map(function(line) { return line.trimRight(); }).join('|'), 'a|||child', 'Container stacks children');
 container.invalidate();
 equal(invalidated, 1, 'Container propagates invalidate');
+
+var boxInvalidated = 0;
+var box = new Box({
+  child: {
+    render: function() { return ['box child']; },
+    invalidate: function() { boxInvalidated += 1; },
+  },
+});
+box.invalidate();
+equal(boxInvalidated, 1, 'Box propagates invalidate');
 
 var focusA = { focused: false };
 var focusB = { focused: false };
