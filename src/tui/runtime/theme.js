@@ -15,6 +15,9 @@ var ANSI = {
   editorBorder: '\x1b[38;5;109m',
   editorActiveBorder: '\x1b[38;5;152m',
   selectedBg: '\x1b[38;5;255m\x1b[48;5;236m',
+  userBg: '\x1b[48;5;237m',
+  userFg: '\x1b[38;5;252m',
+  toolBg: '\x1b[48;5;235m',
   mdHeading: '\x1b[38;5;221m',
   mdLink: '\x1b[38;5;117m',
   mdListBullet: '\x1b[38;5;116m',
@@ -24,6 +27,11 @@ var ANSI = {
   mdQuote: '\x1b[38;5;250m',
   mdQuoteBorder: '\x1b[38;5;244m',
   inverse: '\x1b[7m',
+  syntaxComment: '\x1b[38;5;244m',
+  syntaxKeyword: '\x1b[38;5;221m',
+  syntaxString: '\x1b[38;5;150m',
+  syntaxNumber: '\x1b[38;5;140m',
+  syntaxFunction: '\x1b[38;5;117m',
 };
 
 var THEMES = {
@@ -31,14 +39,15 @@ var THEMES = {
     name: 'loong-dark',
     header: ANSI.cyan,
     dim: ANSI.dim,
-    user: ANSI.selectedBg,
+    user: ANSI.userFg + ANSI.userBg,
     assistant: '',
     finalAnswer: '\x1b[38;5;16m\x1b[48;5;250m',
     system: ANSI.dim,
     error: ANSI.red,
-    toolRunning: ANSI.yellow,
-    toolOk: ANSI.green,
-    toolError: ANSI.red,
+    toolRunning: ANSI.dim,  // subtle gray, status shown by icon
+    toolOk: ANSI.dim,
+    toolError: ANSI.dim,
+    toolBg: ANSI.toolBg,
     muted: ANSI.muted,
     accent: ANSI.accent,
     borderMuted: ANSI.borderMuted,
@@ -57,6 +66,11 @@ var THEMES = {
     cursor: ANSI.inverse,
     status: ANSI.dim,
     divider: ANSI.cyan,
+    syntaxComment: ANSI.syntaxComment,
+    syntaxKeyword: ANSI.syntaxKeyword,
+    syntaxString: ANSI.syntaxString,
+    syntaxNumber: ANSI.syntaxNumber,
+    syntaxFunction: ANSI.syntaxFunction,
   },
   plain: {
     name: 'plain',
@@ -70,6 +84,7 @@ var THEMES = {
     toolRunning: '',
     toolOk: '',
     toolError: '',
+    toolBg: '',
     muted: '',
     accent: '',
     borderMuted: '',
@@ -88,6 +103,11 @@ var THEMES = {
     cursor: '',
     status: '',
     divider: '',
+    syntaxComment: '',
+    syntaxKeyword: '',
+    syntaxString: '',
+    syntaxNumber: '',
+    syntaxFunction: '',
   },
 };
 
@@ -112,10 +132,21 @@ function paint(theme, token, text) {
   return color(code, text);
 }
 
+// pi-agent compatible fg/bg interface (delegates to paint)
+function fg(theme, token, text) {
+  return paint(theme, token, String(text || ''));
+}
+
+function bg(theme, token, text) {
+  return paint(theme, token, String(text || ''));
+}
+
 module.exports = {
   ANSI: ANSI,
   getTheme: getTheme,
   hasTheme: hasTheme,
   listThemes: listThemes,
   paint: paint,
+  fg: fg,
+  bg: bg,
 };

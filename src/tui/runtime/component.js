@@ -20,6 +20,17 @@ Container.prototype.add = function add(component) {
 
 Container.prototype.addChild = Container.prototype.add;
 
+Container.prototype.removeChild = function removeChild(component) {
+  var index = this.children.indexOf(component);
+  if (index !== -1) {
+    this.children.splice(index, 1);
+  }
+};
+
+Container.prototype.clear = function clear() {
+  this.children = [];
+};
+
 Container.prototype.invalidate = function invalidate() {
   for (var index = 0; index < this.children.length; index += 1) {
     var child = this.children[index];

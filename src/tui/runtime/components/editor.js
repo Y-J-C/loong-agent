@@ -124,6 +124,35 @@ Editor.prototype.handleKey = function handleKey(key) {
   return false;
 };
 
+Editor.prototype.handleInput = function handleInput(data) {
+  var keys = require('../keys');
+  var parsed = keys.parseKey(data);
+  if (parsed === undefined) return false;
+  var key = (typeof parsed === 'string' && parsed.length === 1 && parsed >= ' ')
+    ? { type: 'text', text: parsed }
+    : { type: parsed };
+  if (parsed === 'escape' && this.onEscape) { this.onEscape(); return true; }
+  if (parsed === 'enter' && this.onSubmit) { this.onSubmit(this.value); return true; }
+  if (parsed === 'ctrl_z') { this.undo(); return true; }
+  this._saveForUndo();
+  var handled = this.handleKey(key);
+  if (!handled) this._undoBuffer = null;
+  return handled;
+};
+
+Editor.prototype._saveForUndo = function _saveForUndo() {
+  this._undoBuffer = { value: this.value, cursor: this.cursor };
+};
+
+Editor.prototype.undo = function undo() {
+  if (!this._undoBuffer) return;
+  var saved = this._undoBuffer;
+  var current = { value: this.value, cursor: this.cursor };
+  this.value = saved.value;
+  this.cursor = saved.cursor;
+  this._undoBuffer = current;
+};
+
 Editor.prototype.render = function render(width, context) {
   context = context || {};
   var totalWidth = Math.max(1, Number(width) || 80);

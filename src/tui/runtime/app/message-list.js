@@ -5,15 +5,20 @@ var themeMod = require('../theme');
 var Markdown = require('../components/markdown').Markdown;
 var cacheMod = require('../render-cache');
 
+// No max width limit — content fills terminal left-aligned like pi-agent
+
 var markdownCache = cacheMod.createRenderCache(200);
 
 function messageLabel(message) {
   if (!message) return 'msg';
-  if (message.type === 'assistant_final') return 'final';
-  if (message.type === 'assistant') return 'assistant';
-  if (message.type === 'user') return 'user';
-  if (message.type === 'tool') return 'tool ' + (message.toolName || 'unknown');
-  if (message.type === 'error') return 'error';
+  if (message.type === 'assistant_final') return '◈ Assistant';
+  if (message.type === 'assistant') return '◈ Assistant';
+  if (message.type === 'user') return '▸ User';
+  if (message.type === 'tool') {
+    var toolIcon = message.isError || message.status === 'error' ? '❌' : message.done ? '✅' : '⏳';
+    return toolIcon + ' ' + (message.toolName || 'tool');
+  }
+  if (message.type === 'error') return '✗ Error';
   return message.type || 'system';
 }
 
@@ -72,16 +77,63 @@ function renderRuntimeMessageList(state, width, height, context) {
 
   for (var index = 0; index < messages.length; index += 1) {
     var message = messages[index] || {};
-    var label = messageLabel(message);
+    if (lines.length > 0) lines.push('');
     var text = messageText(message);
-    var prefix = '[' + label + '] ';
-    var prefixText = themedLabel(prefix, message, theme);
-    var wrapped = message.type === 'assistant' || message.type === 'assistant_final'
-      ? renderMarkdownMessage(message, Math.max(1, maxWidth - utils.visibleWidth(prefix)), renderContext)
-      : utils.wrapTextWithAnsi(String(text || ''), Math.max(1, maxWidth - utils.visibleWidth(prefix)));
-    if (!wrapped.length) wrapped = [''];
-    for (var lineIndex = 0; lineIndex < wrapped.length; lineIndex += 1) {
-      lines.push(fit((lineIndex === 0 ? prefixText : ' '.repeat(utils.visibleWidth(prefix))) + wrapped[lineIndex], maxWidth));
+
+    if (message.type === 'user') {
+      // User message: subtle background, no border, no label
+      var uContent = String(text || '');
+      var uwrapped = utils.wrapTextWithAnsi(uContent, Math.max(4, maxWidth - 2));
+      if (!uwrapped.length) uwrapped = [''];
+      var userFgBg = themeMod.paint(theme, 'user', '');
+      for (var ui = 0; ui < uwrapped.length; ui += 1) {
+        var uPadded = ' ' + uwrapped[ui] + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(' ' + uwrapped[ui])));
+        lines.push(userFgBg + uPadded + (userFgBg ? '\x1b[0m' : ''));
+      }
+
+    } else if (message.type === 'tool') {
+      // Tool message: subtle bg, icon + name on first line, dim output
+      var toolIcon = message.isError || message.status === 'error' ? '❌' : message.done ? '✅' : '⏳';
+      var toolTitle = (message.toolName || 'tool');
+      var MAX_TOOL_LINES = 8;
+      var toolContent = String(text || '');
+      var twrapped = utils.wrapTextWithAnsi(toolContent, Math.max(4, maxWidth - 4));
+      if (!twrapped.length) twrapped = [''];
+      var originalLength = twrapped.length;
+      if (twrapped.length > MAX_TOOL_LINES) {
+        twrapped = twrapped.slice(0, MAX_TOOL_LINES);
+        twrapped.push('... (' + (originalLength - MAX_TOOL_LINES) + ' more lines)');
+      }
+      var toolBgCode = (theme && theme.toolBg) || '';
+      var toolBgReset = toolBgCode ? '\x1b[0m' : '';
+      for (var ti = 0; ti < twrapped.length; ti += 1) {
+        var tLine = (ti === 0 ? (toolIcon + ' ' + toolTitle + '  ') : '   ') + twrapped[ti];
+        var tPadded = tLine + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(tLine)));
+        if (ti === 0) {
+          lines.push(toolBgCode + tPadded + toolBgReset);
+        } else {
+          lines.push(toolBgCode + themeMod.paint(theme, 'dim', tPadded) + toolBgReset);
+        }
+      }
+
+    } else if (message.type === 'assistant' || message.type === 'assistant_final') {
+      // Assistant: no label, no border, just Markdown content
+      var awrapped = renderMarkdownMessage(message, maxWidth, renderContext);
+      for (var ai = 0; ai < awrapped.length; ai += 1) {
+        lines.push(fit(awrapped[ai], maxWidth));
+      }
+
+    } else {
+      // system/error: keep label prefix
+      var label = messageLabel(message);
+      var prefix = label + ' ';
+      var prefixText = themedLabel(prefix, message, theme);
+      var prefixWidth = utils.visibleWidth(prefix);
+      var owrapped = utils.wrapTextWithAnsi(String(text || ''), Math.max(1, maxWidth - prefixWidth));
+      if (!owrapped.length) owrapped = [''];
+      for (var oi = 0; oi < owrapped.length; oi += 1) {
+        lines.push(fit((oi === 0 ? prefixText : ' '.repeat(prefixWidth)) + owrapped[oi], maxWidth));
+      }
     }
     if (message.type === 'tool' && state && state.expandedTools) {
       var detail = detailText(message);

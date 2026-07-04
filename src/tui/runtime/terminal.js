@@ -16,6 +16,7 @@ function ProcessTerminal(options) {
   this.resizeHandler = null;
   this.stdinBuffer = null;
   this.stdinDataHandler = null;
+  this.kittyProtocolTimer = null;
   this.started = false;
 }
 
@@ -31,7 +32,20 @@ ProcessTerminal.prototype.start = function start(onInput, onResize) {
   if (this.input.resume) this.input.resume();
   if (this.output.write) this.output.write(ENABLE_BRACKETED_PASTE);
 
+  var self = this;
   this.stdinBuffer = new StdinBuffer({ timeout: 10 });
+  this.stdinBuffer.on('kittyProtocolResponse', function(flags) {
+    clearTimeout(self.kittyProtocolTimer);
+    self.kittyProtocolTimer = null;
+    if (flags > 0) {
+      self._kittyProtocolActive = true;
+      self.write('\x1b[>7u');
+      var keys = require('./keys');
+      if (typeof keys.setKittyProtocolActive === 'function') {
+        keys.setKittyProtocolActive(true);
+      }
+    }
+  });
   this.stdinBuffer.on('data', function(sequence) {
     if (onInput) onInput(sequence);
   });
@@ -39,12 +53,13 @@ ProcessTerminal.prototype.start = function start(onInput, onResize) {
     if (onInput) onInput('\x1b[200~' + content + '\x1b[201~');
   });
 
-  var self = this;
   this.stdinDataHandler = function(data) {
     self.stdinBuffer.process(data);
   };
   if (this.input.on) this.input.on('data', this.stdinDataHandler);
   if (this.output.on && onResize) this.output.on('resize', onResize);
+
+  this.queryAndEnableKittyProtocol();
 };
 
 ProcessTerminal.prototype.stop = function stop() {
@@ -58,6 +73,10 @@ ProcessTerminal.prototype.stop = function stop() {
   }
   this.drainInput();
   if (this.stdinBuffer) this.stdinBuffer.clear();
+  if (this.kittyProtocolTimer) {
+    clearTimeout(this.kittyProtocolTimer);
+    this.kittyProtocolTimer = null;
+  }
   if (this.input.setRawMode) {
     try {
       this.input.setRawMode(this.wasRaw);
@@ -67,6 +86,19 @@ ProcessTerminal.prototype.stop = function stop() {
   }
   if (this.input.pause) this.input.pause();
   if (this.output.write) this.output.write(DISABLE_BRACKETED_PASTE + SHOW_CURSOR + RESET);
+};
+
+ProcessTerminal.prototype.queryAndEnableKittyProtocol = function queryAndEnableKittyProtocol() {
+  var self = this;
+  this._kittyProtocolActive = false;
+
+  // Query terminal for Kitty keyboard protocol support
+  this.write('\x1b[?u');
+
+  this.kittyProtocolTimer = setTimeout(function() {
+    // Fallback: enable xterm modifyOtherKeys mode 2 (for tmux, etc.)
+    self.write('\x1b[>4;2m');
+  }, 200);
 };
 
 ProcessTerminal.prototype.drainInput = function drainInput(maxReads) {

@@ -7,6 +7,11 @@ var ESC = '\x1b';
 var BRACKETED_PASTE_START = '\x1b[200~';
 var BRACKETED_PASTE_END = '\x1b[201~';
 
+function kittyProtocolFlags(data) {
+  var match = /^\x1b\[\?(\d+)u$/.exec(String(data || ''));
+  return match ? parseInt(match[1], 10) : null;
+}
+
 function isCompleteCsiSequence(data) {
   if (data.length < 3) return false;
   var payload = data.slice(2);
@@ -107,6 +112,11 @@ StdinBuffer.prototype.process = function process(data) {
         this.timeout = null;
         var sequence = this.buffer;
         this.buffer = '';
+        var bufferedKittyFlags = kittyProtocolFlags(sequence);
+        if (bufferedKittyFlags !== null) {
+          this.emit('kittyProtocolResponse', bufferedKittyFlags);
+          continue;
+        }
         this.emit('data', sequence);
       } else {
         this.scheduleFlush();
@@ -143,7 +153,12 @@ StdinBuffer.prototype.process = function process(data) {
       var candidate = text.slice(0, end);
       var status = isCompleteSequence(candidate);
       if (status === 'complete') {
-        this.emit('data', candidate);
+        var kittyFlags = kittyProtocolFlags(candidate);
+        if (kittyFlags !== null) {
+          this.emit('kittyProtocolResponse', kittyFlags);
+        } else {
+          this.emit('data', candidate);
+        }
         text = text.slice(end);
         break;
       }

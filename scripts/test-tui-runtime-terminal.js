@@ -49,13 +49,17 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
 
   var drainCalled = false;
   var writes = '';
+  var inputDataHandler = null;
+  var seenInput = [];
   var fakeInput = {
     isRaw: false,
     setRawMode: function() {},
     setEncoding: function() {},
     resume: function() {},
     pause: function() {},
-    on: function() {},
+    on: function(event, handler) {
+      if (event === 'data') inputDataHandler = handler;
+    },
     removeListener: function() {},
     read: function() { return null; },
   };
@@ -75,6 +79,17 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
   ok(drainCalled, 'stop drains pending input');
   ok(writes.indexOf('\x1b[?2004l') >= 0, 'stop disables bracketed paste');
   ok(writes.indexOf('\x1b[?25h') >= 0, 'stop shows cursor');
+
+  writes = '';
+  inputDataHandler = null;
+  var kittyTerm = new runtime.ProcessTerminal({ input: fakeInput, output: fakeOutput });
+  kittyTerm.start(function(data) { seenInput.push(data); }, function() {});
+  ok(writes.indexOf('\x1b[?u') >= 0, 'start queries Kitty keyboard protocol');
+  inputDataHandler('\x1b[?7u');
+  ok(writes.indexOf('\x1b[>7u') >= 0, 'Kitty response enables expected flags');
+  equal(seenInput.length, 0, 'Kitty response is not forwarded as user input');
+  kittyTerm.stop();
+
   console.log(pass + '/' + (pass + fail) + ' passed');
   process.exit(fail > 0 ? 1 : 0);
 }

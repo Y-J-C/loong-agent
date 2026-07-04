@@ -37,7 +37,7 @@ Box.prototype.render = function(width, context) {
     result.push(themeMod.paint(theme, 'borderMuted', '|') + fit('', outerWidth - 2) + themeMod.paint(theme, 'borderMuted', '|'));
   }
   result.push(themeMod.paint(theme, 'borderMuted', '+' + '-'.repeat(Math.max(0, outerWidth - 2)) + '+'));
-  return result.map(function(line) { return fit(line, outerWidth); });
+  return result;
 };
 
 Box.prototype.invalidate = function() {

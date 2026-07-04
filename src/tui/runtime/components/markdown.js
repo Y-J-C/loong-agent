@@ -5,12 +5,12 @@ var themeMod = require('../theme');
 
 var DEFAULT_MAX_LINES = 80;
 
-function normalizeInline(text) {
+function renderInlineMarkup(text) {
   return String(text || '')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/`([^`]+)`/g, '$1');
+    .replace(/\*\*([^*]+)\*\*/g, '\x1b[1m$1\x1b[22m')
+    .replace(/__([^_]+)__/g, '\x1b[3m$1\x1b[23m')
+    .replace(/`([^`]+)`/g, '\x1b[38;5;116m\x1b[48;5;236m$1\x1b[0m')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '\x1b[38;5;117m$1\x1b[0m(\x1b[38;5;244m$2\x1b[0m)');
 }
 
 function fit(line, width) {
@@ -22,12 +22,30 @@ function pad(line, width) {
   return text + ' '.repeat(Math.max(0, width - utils.visibleWidth(text)));
 }
 
+function highlightSyntax(text, theme) {
+  // Only highlight inside code blocks (when mdCodeBlock token is used)
+  var result = String(text || '');
+  // Strings: "..." or '...'
+  result = result.replace(/("(?:[^"\\]|\\.)*")/g, function(m) { return themeMod.paint(theme, 'syntaxString', m); });
+  result = result.replace(/('(?:[^'\\]|\\.)*')/g, function(m) { return themeMod.paint(theme, 'syntaxString', m); });
+  // Comments: #...  or //...
+  result = result.replace(/(#.*)$/gm, function(m) { return themeMod.paint(theme, 'syntaxComment', m); });
+  result = result.replace(/(\/\/.*)$/gm, function(m) { return themeMod.paint(theme, 'syntaxComment', m); });
+  // Numbers: 123, 0xFF, 3.14
+  result = result.replace(/(\b[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b)/g, function(m) { return themeMod.paint(theme, 'syntaxNumber', m); });
+  // Keywords
+  var keywords = '\\b(if|else|for|while|do|switch|case|break|continue|return|function|def|class|import|export|from|const|let|var|async|await|try|catch|throw|new|delete|typeof|instanceof|in|of|true|false|null|this|super|yield|with|void)\\b';
+  result = result.replace(new RegExp(keywords, 'g'), function(m) { return themeMod.paint(theme, 'syntaxKeyword', m); });
+  return result;
+}
+
 function pushWrapped(output, raw, width, theme, token, options) {
   var opts = options || {};
   var prefix = opts.prefix || '';
   var fill = Boolean(opts.fill);
   var contentWidth = Math.max(1, width - utils.visibleWidth(prefix));
-  var wrapped = utils.wrapTextWithAnsi(normalizeInline(raw), contentWidth);
+  var rawText = token === 'mdCodeBlock' ? highlightSyntax(raw, theme) : renderInlineMarkup(raw);
+  var wrapped = utils.wrapTextWithAnsi(rawText, contentWidth);
   if (!wrapped.length) wrapped = [''];
   for (var index = 0; index < wrapped.length; index += 1) {
     var text = fit(prefix + wrapped[index], width);
@@ -49,6 +67,7 @@ function Markdown(options) {
   this.text = String(options.text || '');
   this.maxLines = options.maxLines || DEFAULT_MAX_LINES;
   this.token = options.token || 'assistant';
+  this.thinking = options.thinking || false;
 }
 
 Markdown.prototype.render = function render(width, context) {
@@ -63,11 +82,21 @@ Markdown.prototype.render = function render(width, context) {
     var line = lines[index] || '';
     var fence = line.match(/^```(.*)$/);
     if (fence) {
-      inCode = !inCode;
-      codeLang = inCode ? String(fence[1] || '').trim() : '';
-      if (inCode && codeLang) {
-        output.push(themeMod.paint(theme, 'mdCode', pad(' code ' + codeLang, maxWidth)));
+      if (inCode) {
+        var bottomFill = Math.max(0, maxWidth - 2);
+        output.push(themeMod.paint(theme, 'mdCodeBlockBorder', '+' + '-'.repeat(bottomFill) + '+'));
+        inCode = false;
+        codeLang = '';
+        continue;
       }
+      inCode = true;
+      codeLang = String(fence[1] || '').trim();
+      var label = codeLang ? ' ' + codeLang + ' ' : '';
+      var fillLen = Math.max(0, maxWidth - utils.visibleWidth(label) - 2);
+      var border = themeMod.paint(theme, 'mdCodeBlockBorder', '+-' + label + '-'.repeat(fillLen) + '+');
+      var innerPad = themeMod.paint(theme, 'mdCodeBlock', pad('', maxWidth));
+      output.push(border);
+      output.push(innerPad);
       continue;
     }
 
@@ -101,13 +130,29 @@ Markdown.prototype.render = function render(width, context) {
 
     var ordered = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
     if (ordered) {
-      pushWrapped(output, ordered[3], maxWidth, theme, this.token, { prefix: ordered[1] + ordered[2] + '. ' });
+      var oPrefix = themeMod.paint(theme, 'mdListBullet', ordered[1] + ordered[2] + '. ');
+      var oWrapped = utils.wrapTextWithAnsi(renderInlineMarkup(ordered[3]), Math.max(1, maxWidth - utils.visibleWidth(ordered[1] + ordered[2] + '. ')));
+      if (!oWrapped.length) oWrapped = [''];
+      for (var oi = 0; oi < oWrapped.length; oi += 1) {
+        var oText = fit((oi === 0 ? oPrefix : ' '.repeat(utils.visibleWidth(ordered[1] + ordered[2] + '. '))) + oWrapped[oi], maxWidth);
+        output.push(themeMod.paint(theme, this.token, oText));
+      }
       continue;
     }
 
     pushWrapped(output, line, maxWidth, theme, this.token);
   }
 
+  if (inCode) {
+    var endFill = Math.max(0, maxWidth - 2);
+    output.push(themeMod.paint(theme, 'mdCodeBlockBorder', '+' + '-'.repeat(endFill) + '+'));
+  }
+  if (this.thinking && output.length) {
+    // Thinking block: wrap with italic style
+    output = output.map(function(line) {
+      return themeMod.paint(theme, 'dim', '\x1b[3m' + line + '\x1b[23m');
+    });
+  }
   return clampLines(output.length ? output : [''], maxWidth, theme, this.maxLines)
     .map(function(item) { return fit(item, maxWidth); });
 };

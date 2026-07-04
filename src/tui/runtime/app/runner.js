@@ -13,7 +13,7 @@ var openJsonlSession = require('../../../session').openJsonlSession;
 var createSessionManager = require('../../../session-manager').createSessionManager;
 var ProcessTerminal = require('../terminal').ProcessTerminal;
 var createRuntimeDiffRenderer = require('../diff').createRuntimeDiffRenderer;
-var renderRuntimeChatView = require('./chat-view').renderRuntimeChatView;
+var ChatView = require('./chat-view').ChatView;
 
 function terminalSize(terminal) {
   return {
@@ -56,6 +56,7 @@ async function runRuntimeNextTui(config, options) {
   var terminal = options.terminal || new ProcessTerminal({ input: inputStream, output: outputStream });
   var diffRenderer = createRuntimeDiffRenderer();
   var state = stateModule.createTuiState(config);
+  var chatView = new ChatView(state);
   var activeConfig = config;
   var stopped = false;
   var unsubscribe = null;
@@ -94,7 +95,9 @@ async function runRuntimeNextTui(config, options) {
       if (state.messages.length === before) applyFallbackAgentEvent(state, event);
       var info = session.getSessionInfo && session.getSessionInfo();
       if (info) state.currentSession = { id: info.id, path: info.path };
-      if (state.scrollOffset > 0 && state.selector === null) state.scrollOffset = 0;
+      if (!state.viewingHistory && state.selector === null) {
+        state.scrollOffset = 0;
+      }
       render();
     });
     var info = session.getSessionInfo && session.getSessionInfo();
@@ -118,7 +121,7 @@ async function runRuntimeNextTui(config, options) {
     if (stopped) return;
     try {
       var size = terminalSize(terminal);
-      var lines = renderRuntimeChatView(state, size);
+      var lines = chatView.render(size.columns, { rows: size.rows });
       state.lastRender = {
         at: new Date().toISOString(),
         columns: size.columns,
@@ -134,16 +137,11 @@ async function runRuntimeNextTui(config, options) {
       };
       terminal.write(diffRenderer.render(lines, size));
     } catch (error) {
-      state.lastRenderError = {
-        at: new Date().toISOString(),
-        message: error && error.message ? error.message : String(error),
-      };
+      state.lastRenderError = { at: new Date().toISOString(), message: error && error.message ? error.message : String(error) };
       try {
         diffRenderer.reset();
         diffResetCount += 1;
-        terminal.write(diffRenderer.render([
-          '[runtime-next render error] ' + state.lastRenderError.message,
-        ], terminalSize(terminal)));
+        terminal.write(diffRenderer.render(['[runtime-next render error] ' + state.lastRenderError.message], terminalSize(terminal)));
       } catch (fallbackError) {
         terminal.write('\x1b[?25h\x1b[0m\n[runtime-next render error] ' + state.lastRenderError.message + '\n');
       }
@@ -399,6 +397,22 @@ async function runRuntimeNextTui(config, options) {
       } else {
         stop();
       }
+      render();
+      return;
+    }
+
+    if (key.type === 'page_up') {
+      var scrollPage = require('../../scroll');
+      scrollPage.scrollByPages(state, -1);
+      stateModule.updateAutocomplete(state);
+      render();
+      return;
+    }
+
+    if (key.type === 'page_down') {
+      var scrollPage = require('../../scroll');
+      scrollPage.scrollByPages(state, 1);
+      stateModule.updateAutocomplete(state);
       render();
       return;
     }

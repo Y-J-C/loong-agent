@@ -2,37 +2,68 @@
 
 var utils = require('../utils');
 var themeMod = require('../theme');
+var component = require('../component');
+var renderMessageList = require('./message-list').renderRuntimeMessageList;
+var renderInputBlock = require('./input-line').renderRuntimeInputBlock;
+var Footer = require('./status-bar').Footer;
+var DynamicBorder = require('../components/dynamic-border').DynamicBorder;
 var compositeOverlays = require('../overlay').compositeOverlays;
-var renderRuntimeMessageList = require('./message-list').renderRuntimeMessageList;
-var renderRuntimeInputBlock = require('./input-line').renderRuntimeInputBlock;
-var renderRuntimeStatusBar = require('./status-bar').renderRuntimeStatusBar;
-var renderRuntimeOverlays = require('./overlay-view').renderRuntimeOverlays;
+var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
 
-function pad(line, width) {
-  var raw = utils.truncateToWidth(String(line || ''), width);
-  var missing = Math.max(0, width - utils.visibleWidth(raw));
-  return raw + ' '.repeat(missing);
+function ChatView(state) {
+  component.Container.call(this);
+  this.state = state || {};
+  this.footer = new Footer(state);
+  this.divider = new DynamicBorder({ colorToken: 'divider' });
+  this.addChild(this.footer);    // children[0]
+  this.addChild(this.divider);    // children[1]
 }
 
-function renderRuntimeChatView(state, size) {
-  var width = Math.max(40, Number(size && size.columns) || 80);
-  var rows = Math.max(6, Number(size && size.rows) || 24);
-  var theme = themeMod.getTheme(state && state.theme);
-  var context = { state: state, theme: theme, size: { columns: width, rows: rows } };
-  var overlays = renderRuntimeOverlays(state, width, rows, context);
-  var input = renderRuntimeInputBlock(state, width, { focused: overlays.length === 0, theme: theme });
-  var status = renderRuntimeStatusBar(state, width, context);
-  var bodyHeight = Math.max(1, rows - input.length - 1);
-  var body = renderRuntimeMessageList(state, width, bodyHeight, context);
-  var lines = body.concat(input).concat([status]).slice(0, rows);
+ChatView.prototype = Object.create(component.Container.prototype);
+ChatView.prototype.constructor = ChatView;
+
+ChatView.prototype.render = function render(width, context) {
+  var state = this.state;
+  var cols = Math.max(40, Number(width) || 80);
+  var rows = (context && context.rows) || this._lastRows || 24;
+  this._lastRows = rows;
+  var theme = context && context.theme ? context.theme : themeMod.getTheme(state && state.theme);
+  var renderCtx = { state: state, theme: theme, rows: rows, columns: cols };
+
+  var overlays = renderOverlays(state, cols, rows, renderCtx);
+  var inputLines = renderInputBlock(state, cols, { focused: overlays.length === 0, theme: theme });
+  var footerLines = this.footer.render(cols, renderCtx);
+  var dividerLine = this.divider.render(cols, renderCtx);
+
+  var bodyHeight = Math.max(1, rows - inputLines.length - dividerLine.length - footerLines.length);
+  var body = renderMessageList(state, cols, bodyHeight, renderCtx);
+
+  var lines = body.concat(dividerLine).concat(inputLines).concat(footerLines).slice(0, rows);
   while (lines.length < rows) lines.push('');
-  lines = lines.map(function(line) { return pad(line, width); });
+
+  lines = lines.map(function(line) {
+    return utils.truncateToWidth(String(line || ''), cols)
+      + ' '.repeat(Math.max(0, cols - utils.visibleWidth(String(line || ''))));
+  });
+
   if (overlays.length) {
-    lines = compositeOverlays(lines, overlays, { columns: width, rows: rows });
+    lines = compositeOverlays(lines, overlays, { columns: cols, rows: rows });
   }
-  return lines.map(function(line) { return pad(line, width); });
-}
+  return lines.map(function(line) {
+    return utils.truncateToWidth(String(line || ''), cols)
+      + ' '.repeat(Math.max(0, cols - utils.visibleWidth(String(line || ''))));
+  });
+};
+
+ChatView.prototype.invalidate = function invalidate() {
+  var clearCache = require('./message-list').clearRuntimeMessageCaches;
+  if (typeof clearCache === 'function') clearCache();
+  this.footer.invalidate();
+};
 
 module.exports = {
-  renderRuntimeChatView: renderRuntimeChatView,
+  ChatView: ChatView,
+  renderRuntimeChatView: function(state, size) {
+    return (new ChatView(state)).render(size.columns || 80, { rows: size.rows || 24 });
+  },
 };

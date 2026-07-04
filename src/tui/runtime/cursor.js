@@ -2,7 +2,7 @@
 
 var utils = require('./utils');
 
-var CURSOR_MARKER = '\uE000';
+var CURSOR_MARKER = '\x1b_pi:c\x07';
 
 function stripCursorMarker(text) {
   return String(text || '').split(CURSOR_MARKER).join('');

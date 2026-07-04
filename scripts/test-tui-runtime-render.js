@@ -34,7 +34,7 @@ var terminal = {
     this.onInput = onInput;
     this.onResize = onResize;
   },
-  stop: function() {},
+  stop: function() {}, hideCursor: function() {}, showCursor: function() {},
 };
 
 var tui = new runtime.TUI(terminal);

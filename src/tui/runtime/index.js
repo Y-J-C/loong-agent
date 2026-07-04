@@ -15,6 +15,9 @@ var editorComponent = require('./components/editor');
 var markdownComponent = require('./components/markdown');
 var settingsListComponent = require('./components/settings-list');
 var truncatedTextComponent = require('./components/truncated-text');
+var loaderComponent = require('./components/loader');
+var dynamicBorderComponent = require('./components/dynamic-border');
+var keybindingsModule = require('./keybindings');
 
 module.exports = {
   visibleWidth: utils.visibleWidth,
@@ -48,5 +51,8 @@ module.exports = {
   Markdown: markdownComponent.Markdown,
   SettingsList: settingsListComponent.SettingsList,
   TruncatedText: truncatedTextComponent.TruncatedText,
+  Loader: loaderComponent.Loader,
+  DynamicBorder: dynamicBorderComponent.DynamicBorder,
+  KeybindingsManager: keybindingsModule.KeybindingsManager,
   TUI: tui.TUI,
 };

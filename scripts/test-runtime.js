@@ -50,6 +50,10 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function allMessageContent(messages) {
+  return (messages || []).map((message) => String((message && message.content) || '')).join('\n---\n');
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -889,7 +893,7 @@ test('prompt builder no longer includes all observations blindly', () => {
   assert(prompt.indexOf('SHOULD_NOT_APPEAR') < 0, 'prompt leaked raw unselected observation');
 });
 
-test('prompt builder includes only selected current memory context', () => {
+test('prompt builder includes full current memory context as separate messages', () => {
   const messages = buildMessagesFromTurnContext({
     userPrompt: 'current memory status',
     messages: [
@@ -921,14 +925,14 @@ test('prompt builder includes only selected current memory context', () => {
     tools: createDefaultTools(),
     config: {},
   });
-  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  const prompt = allMessageContent(messages);
   assert(prompt.indexOf('system.memory') >= 0, 'prompt missing selected memory observation');
   assert(prompt.indexOf('1.4Gi') >= 0, 'prompt missing selected memory value');
-  assert(prompt.indexOf('0x76') < 0, 'prompt leaked unrelated I2C observation');
-  assert(prompt.indexOf('I2C_TOOL_RESULT_SHOULD_NOT_APPEAR') < 0, 'prompt leaked raw toolResult');
+  assert(prompt.indexOf('0x76') >= 0, 'full context should include unrelated I2C observation');
+  assert(prompt.indexOf('I2C_TOOL_RESULT_SHOULD_NOT_APPEAR') >= 0, 'full context should include toolResult context');
 });
 
-test('prompt builder includes only selected current I2C context', () => {
+test('prompt builder includes full current I2C context as separate messages', () => {
   const messages = buildMessagesFromTurnContext({
     userPrompt: 'current I2C situation',
     messages: [
@@ -954,13 +958,13 @@ test('prompt builder includes only selected current I2C context', () => {
     tools: createDefaultTools(),
     config: {},
   });
-  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  const prompt = allMessageContent(messages);
   assert(prompt.indexOf('hardware.i2c') >= 0, 'prompt missing selected I2C observation');
   assert(prompt.indexOf('i2c-1') >= 0, 'prompt missing selected I2C raw output');
-  assert(prompt.indexOf('MEMORY_SHOULD_NOT_APPEAR') < 0, 'prompt leaked unrelated memory observation');
+  assert(prompt.indexOf('MEMORY_SHOULD_NOT_APPEAR') >= 0, 'full context should include memory observation');
 });
 
-test('prompt builder includes selected current network port observations', () => {
+test('prompt builder includes full current network port observations', () => {
   const messages = buildMessagesFromTurnContext({
     userPrompt: '当前设备端口开放情况',
     messages: [
@@ -997,14 +1001,14 @@ test('prompt builder includes selected current network port observations', () =>
     tools: createDefaultTools(),
     config: {},
   });
-  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  const prompt = allMessageContent(messages);
   assert(prompt.indexOf('network.ports') >= 0, 'network ports observation missing from prompt');
   assert(prompt.indexOf('externalTcpPorts') >= 0, 'network ports parsed facts missing from prompt');
   assert(prompt.indexOf('0.0.0.0:22') >= 0 && prompt.indexOf('*:80') >= 0, 'network ports raw evidence missing from prompt');
-  assert(prompt.indexOf('MEMORY_SHOULD_NOT_APPEAR') < 0, 'unrelated memory observation leaked into port prompt');
+  assert(prompt.indexOf('MEMORY_SHOULD_NOT_APPEAR') >= 0, 'full context should include memory observation');
 });
 
-test('prompt builder keeps historical context separate from current observations', () => {
+test('prompt builder includes historical and current observations in full context mode', () => {
   const messages = buildMessagesFromTurnContext({
     userPrompt: '上次 I2C 扫描结果',
     messages: [
@@ -1030,9 +1034,9 @@ test('prompt builder keeps historical context separate from current observations
     tools: createDefaultTools(),
     config: {},
   });
-  const prompt = messages[1] && messages[1].content ? messages[1].content : '';
+  const prompt = allMessageContent(messages);
   assert(prompt.indexOf('SESSION_HISTORY_I2C') >= 0, 'prompt missing historical session observation');
-  assert(prompt.indexOf('CURRENT_I2C_SHOULD_NOT_APPEAR') < 0, 'prompt leaked current observation into historical request');
+  assert(prompt.indexOf('CURRENT_I2C_SHOULD_NOT_APPEAR') >= 0, 'full context should include current observation');
 });
 
 test('prompt builder exposes model request audit metadata without changing messages shape', () => {
@@ -1065,16 +1069,20 @@ test('prompt builder exposes model request audit metadata without changing messa
   });
   const messages = built.messages;
   const metadata = built.metadata;
-  assert(Array.isArray(messages) && messages.length === 2, 'messages shape should stay system+user');
-  assert(metadata.messageCount === 2, 'metadata message count mismatch');
-  assert(metadata.roles.join(',') === 'system,user', 'metadata roles mismatch');
+  assert(Array.isArray(messages) && messages.length === 5, 'messages shape should include full context messages');
+  assert(metadata.messageCount === 5, 'metadata message count mismatch');
+  assert(metadata.roles.join(',') === 'system,user,user,user,user', 'metadata roles mismatch');
   assert(metadata.charStats.systemChars > 0, 'missing system chars');
   assert(metadata.charStats.currentRequestChars > 0, 'missing current request chars');
   assert(metadata.charStats.recentConversationChars > 0, 'missing recent conversation chars');
   assert(metadata.charStats.kbSummaryChars === 'KB_TOPIC'.length, 'kb summary chars mismatch');
   assert(metadata.charStats.analysisHintChars > 0, 'missing analysis hint chars');
   assert(metadata.contextStats.contextBudgetChars === 1234, 'context budget mismatch');
-  assert(metadata.contextStats.selectedConversationMessageCount === 1, 'conversation count mismatch');
+  assert(metadata.contextStats.contextMode === 'full_messages', 'context mode mismatch');
+  assert(metadata.contextStats.sourceMessageCount === 3, 'source message count mismatch');
+  assert(metadata.contextStats.sourceObservationMessageCount === 1, 'source observation count mismatch');
+  assert(metadata.contextStats.sourceBashExecutionMessageCount === 1, 'source bash count mismatch');
+  assert(metadata.contextStats.selectedConversationMessageCount === 3, 'conversation count mismatch');
   assert(metadata.contextStats.selectedObservationMessageCount === 1, 'observation count mismatch');
   assert(metadata.contextStats.llmContextMessageCount <= metadata.contextStats.selectedContextMessageCount, 'llm context count should not exceed selected count');
   assert(metadata.tokenEstimate.method === 'chars_div_4', 'token estimate method mismatch');
@@ -1115,8 +1123,10 @@ test('prompt builder distinguishes selected context from LLM transcript context 
     tools: createDefaultTools(),
   });
   const stats = built.metadata.contextStats;
-  assert(stats.selectedContextMessageCount > stats.llmContextMessageCount, 'selected context should exceed LLM transcript context');
-  assert(stats.llmContextMessageCount === 12, 'LLM transcript context should be capped at 12');
+  assert(stats.contextMode === 'full_messages', 'context mode should be full messages');
+  assert(stats.sourceObservationMessageCount === 16, 'source observation count mismatch');
+  assert(stats.selectedContextMessageCount === stats.llmContextMessageCount, 'full-message mode should not keep a separate selected/transcript split');
+  assert(stats.llmContextMessageCount === 16, 'LLM transcript context should include all source observations under the cap');
 });
 
 test('finish event order includes turn_end', async () => {
@@ -1219,6 +1229,47 @@ test('model request summary is emitted by default before model usage', async () 
   assert(!request.messages, 'summary model_request should not include messages');
   assert(request.charStats && request.charStats.totalChars > 0, 'model_request missing char stats');
   assert(request.tokenEstimate && request.tokenEstimate.method === 'chars_div_4', 'model_request missing token estimate');
+});
+
+test('agent compacts long context before model request', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-pre-model-compaction',
+    capabilities: { streaming: false, thinking: false, usage: true, toolCalling: false },
+    chatCompletion: async (cfg, messages) => {
+      calls += 1;
+      const first = messages[0] && messages[0].content ? messages[0].content : '';
+      if (first.indexOf('Summarize the following coding agent conversation history') >= 0) {
+        return 'compact summary for old turns';
+      }
+      return JSON.stringify({
+        tool: 'finish',
+        input: { summary: 'compacted ok' },
+        reason: 'done',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-pre-model-compaction'), {
+    contextWindow: 100,
+    reserveTokens: 10,
+    streaming: false,
+  }), { session: null });
+  const state = agent.getState();
+  for (let index = 0; index < 18; index += 1) {
+    state.messages.push({
+      role: index % 2 ? 'assistant' : 'user',
+      content: `old turn ${index} ${'x'.repeat(120)}`,
+      turn: index + 1,
+    });
+  }
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('finish after compaction');
+  const request = events.find((event) => event.type === 'model_request');
+  assert(result.summary === 'compacted ok', 'agent did not finish after pre-model compaction');
+  assert(calls >= 2, 'provider should be called for compaction and final model request');
+  assert(request && request.contextStats && request.contextStats.compactionApplied, 'model_request missing compaction metadata');
+  assert(request.contextStats.contextWindowTokens === 100, 'compaction should use configured context window');
 });
 
 test('config uses profile context budget unless env overrides it', () => {
@@ -3877,7 +3928,7 @@ test('loong_env_check injects controlled knowledge context on next turn', async 
           reason: 'inspect environment',
         });
       }
-      secondPrompt = messages[1] && messages[1].content ? messages[1].content : '';
+      secondPrompt = allMessageContent(messages);
       return JSON.stringify({
         tool: 'finish',
         input: { summary: 'context injected' },

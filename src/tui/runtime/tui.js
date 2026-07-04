@@ -4,17 +4,49 @@ var component = require('./component');
 var focus = require('./focus');
 var terminalModule = require('./terminal');
 var utils = require('./utils');
+var cursor = require('./cursor');
+var overlay = require('./overlay');
+
+var RESET = '\x1b[0m';
+
+// ─── TUI Class ────────────────────────────────────────────────────────────────
 
 function TUI(terminal) {
   component.Container.call(this);
   this.terminal = terminal || new terminalModule.ProcessTerminal();
-  this.focusedComponent = null;
+
+  // Rendering state
+  this.previousLines = [];
+  this.previousWidth = 0;
+  this.previousHeight = 0;
+  this.previousViewportTop = 0;
+  this.hardwareCursorRow = 0;
+  this.cursorRow = 0;
+  this.maxLinesRendered = 0;
+
+  // Rendering control
   this.renderRequested = false;
+  this.renderTimer = undefined;
+  this.lastRenderAt = 0;
+  this.fullRedrawCount = 0;
   this.stopped = false;
+  this.clearOnShrink = true;
+
+  // Focus & overlay
+  this.focusedComponent = null;
+  this.overlayStack = [];
+  this.focusOrderCounter = 0;
+  this.inputListeners = [];
+  this.showHardwareCursor = true;
 }
 
 TUI.prototype = Object.create(component.Container.prototype);
 TUI.prototype.constructor = TUI;
+
+TUI.MIN_RENDER_INTERVAL_MS = 16;
+TUI.SEGMENT_RESET = RESET;
+
+// ─── Focus ────────────────────────────────────────────────────────────────────
 
 TUI.prototype.setFocus = function setFocus(next) {
   if (focus.isFocusable(this.focusedComponent)) {
@@ -26,51 +58,316 @@ TUI.prototype.setFocus = function setFocus(next) {
   }
 };
 
-TUI.prototype.requestRender = function requestRender() {
-  var self = this;
-  if (this.renderRequested || this.stopped) return;
-  this.renderRequested = true;
-  process.nextTick(function() {
-    self.renderRequested = false;
-    self.renderNow();
-  });
+// ─── Input ────────────────────────────────────────────────────────────────────
+
+TUI.prototype.addInputListener = function addInputListener(listener) {
+  this.inputListeners.push(listener);
+  return function remove() {
+    var idx = this.inputListeners.indexOf(listener);
+    if (idx >= 0) this.inputListeners.splice(idx, 1);
+  }.bind(this);
 };
 
-TUI.prototype.renderNow = function renderNow(widthOverride) {
+TUI.prototype.handleInput = function handleInput(data) {
+  // 1. Input listeners
+  for (var i = 0; i < this.inputListeners.length; i++) {
+    var result = this.inputListeners[i](data);
+    if (result && result.consume) return;
+    if (result && result.data !== undefined) data = result.data;
+    if (!data || data.length === 0) return;
+  }
+
+  // 2. Focused component
+  if (this.focusedComponent && typeof this.focusedComponent.handleInput === 'function') {
+    var wantsRelease = this.focusedComponent.wantsKeyRelease;
+    if (!wantsRelease) {
+      var keys = require('./keys');
+      if (typeof keys.isKeyRelease === 'function' && keys.isKeyRelease(data)) return;
+    }
+    this.focusedComponent.handleInput(data);
+    this.requestRender();
+  }
+};
+
+// ─── Rendering pipeline ───────────────────────────────────────────────────────
+
+TUI.prototype.requestRender = function requestRender(force) {
+  if (force) {
+    this.previousLines = [];
+    this.previousWidth = -1;
+    this.previousHeight = -1;
+    this.cursorRow = 0;
+    this.hardwareCursorRow = 0;
+    this.maxLinesRendered = 0;
+    this.previousViewportTop = 0;
+    if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = undefined; }
+    this.renderRequested = true;
+    process.nextTick(this._doImmediateRender.bind(this));
+    return;
+  }
+  if (this.renderRequested || this.stopped) return;
+  this.renderRequested = true;
+  process.nextTick(this._scheduleRender.bind(this));
+};
+
+TUI.prototype._doImmediateRender = function _doImmediateRender() {
+  if (this.stopped || !this.renderRequested) return;
+  this.renderRequested = false;
+  this.lastRenderAt = this._now();
+  this.doRender();
+};
+
+TUI.prototype._scheduleRender = function _scheduleRender() {
+  if (this.stopped || this.renderTimer || !this.renderRequested) return;
+  var elapsed = this._now() - this.lastRenderAt;
+  var delay = Math.max(0, TUI.MIN_RENDER_INTERVAL_MS - elapsed);
+  this.renderTimer = setTimeout(function(self) {
+    self.renderTimer = undefined;
+    if (self.stopped || !self.renderRequested) return;
+    self.renderRequested = false;
+    self.lastRenderAt = self._now();
+    self.doRender();
+  }, delay, this);
+};
+
+TUI.prototype._now = function _now() {
+  return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+};
+
+// ─── doRender ─────────────────────────────────────────────────────────────────
+
+TUI.prototype.doRender = function doRender() {
   if (this.stopped) return;
-  var width = widthOverride || this.terminal.columns || 80;
-  var lines = this.render(width, {
+
+  var width = this.terminal.columns;
+  var height = this.terminal.rows;
+  var widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
+  var heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
+
+  var previousBufferLength = this.previousHeight > 0
+    ? this.previousViewportTop + this.previousHeight : height;
+  var prevViewportTop = heightChanged
+    ? Math.max(0, previousBufferLength - height) : this.previousViewportTop;
+  var viewportTop = prevViewportTop;
+
+  // 1. Render component tree
+  var newLines = this.render(width, {
     tui: this,
     terminal: this.terminal,
   });
-  for (var index = 0; index < lines.length; index += 1) {
-    var actual = utils.visibleWidth(lines[index]);
-    if (actual > width) {
-      throw new Error('TUI rendered line exceeds width ' + width + ': ' + actual);
+
+  // 2. Composite overlays
+  if (this.overlayStack.length > 0) {
+    var visibleEntries = [];
+    for (var ei = 0; ei < this.overlayStack.length; ei++) {
+      var entry = this.overlayStack[ei];
+      if (!entry.hidden) visibleEntries.push(entry);
+    }
+    if (visibleEntries.length > 0) {
+      var overlayEntries = visibleEntries.map(function(e) {
+        return { component: e.component, lines: null, options: e.options, context: { tui: this, terminal: this.terminal } };
+      }, this);
+      newLines = overlay.compositeOverlays(newLines, overlayEntries, { columns: width, rows: height });
     }
   }
-  if (this.terminal.clearScreen) this.terminal.clearScreen();
-  this.terminal.write(lines.join('\n'));
+
+  // 3. Extract cursor position
+  var cursorResult = cursor.extractCursorPosition(newLines, height);
+  var cursorPos = cursorResult.cursor;
+  newLines = cursorResult.lines;
+
+  // 4. Apply line resets
+  newLines = this._applyLineResets(newLines);
+
+  // 5. Full vs diff render
+  var first = this.previousLines.length === 0;
+  var clear = this.clearOnShrink && newLines.length < this.maxLinesRendered && this.overlayStack.length === 0;
+
+  if (first) { this._fullRender(newLines, width, height, cursorPos, false); }
+  else if (widthChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
+  else if (heightChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
+  else if (clear) { this._fullRender(newLines, width, height, cursorPos, true); }
+  else { this._diffRender(newLines, width, height, cursorPos, viewportTop); }
+
+  // 6. Position hardware cursor
+  this._positionHardwareCursor(cursorPos, newLines.length);
+
+  // 7. Save state
+  this.previousLines = newLines;
+  this.previousWidth = width;
+  this.previousHeight = height;
 };
+
+TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursorPos, clear) {
+  this.fullRedrawCount += 1;
+  var buffer = '\x1b[?2026h'; // Synchronized output begin
+
+  if (clear) {
+    if (this.terminal.clearScreen) this.terminal.clearScreen();
+    buffer += '\x1b[2J\x1b[H'; // Clear screen, home
+  }
+
+  for (var i = 0; i < newLines.length; i++) {
+    if (i > 0) buffer += '\r\n';
+    buffer += newLines[i];
+  }
+  buffer += '\x1b[?2026l'; // Synchronized output end
+  this.terminal.write(buffer);
+
+  this.cursorRow = Math.max(0, newLines.length - 1);
+  this.hardwareCursorRow = this.cursorRow;
+  if (clear) {
+    this.maxLinesRendered = newLines.length;
+  } else {
+    this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
+  }
+  var bufferLength = Math.max(height, newLines.length);
+  this.previousViewportTop = Math.max(0, bufferLength - height);
+};
+
+TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursorPos, viewportTop) {
+  // Find changed range
+  var firstChanged = -1;
+  var lastChanged = -1;
+  var max = Math.max(this.previousLines.length, newLines.length);
+  for (var row = 0; row < max; row++) {
+    var oldLine = row < this.previousLines.length ? this.previousLines[row] : '';
+    var newLine = row < newLines.length ? newLines[row] : '';
+    if (oldLine !== newLine) {
+      if (firstChanged < 0) firstChanged = row;
+      lastChanged = row;
+    }
+  }
+
+  // No changes — just update cursor position
+  if (firstChanged < 0) {
+    this.previousViewportTop = viewportTop;
+    return;
+  }
+
+  // Build diff output
+  var buffer = '\x1b[?2026h\x1b[?25l\x1b[' + (firstChanged + 1) + ';1H';
+  for (var i = firstChanged; i <= lastChanged; i++) {
+    if (i > firstChanged) buffer += '\n';
+    buffer += '\x1b[2K' + (i < newLines.length ? newLines[i] : '');
+  }
+  buffer += '\x1b[?2026l';
+  this.terminal.write(buffer);
+
+  this.hardwareCursorRow = Math.min(lastChanged, newLines.length - 1);
+  this.previousViewportTop = viewportTop;
+};
+
+// ─── Line resets ──────────────────────────────────────────────────────────────
+
+TUI.prototype._applyLineResets = function _applyLineResets(lines) {
+  return lines.map(function(line) {
+    return line + RESET;
+  });
+};
+
+// ─── Cursor ───────────────────────────────────────────────────────────────────
+
+TUI.prototype._positionHardwareCursor = function _positionHardwareCursor(cursorPos, totalLines) {
+  if (!cursorPos || totalLines <= 0) {
+    if (this.terminal && typeof this.terminal.hideCursor === 'function') this.terminal.hideCursor();
+    return;
+  }
+  var targetRow = Math.max(0, Math.min(cursorPos.row, totalLines - 1));
+  var targetCol = Math.max(0, cursorPos.column || 0);
+  var rowDelta = targetRow - this.hardwareCursorRow;
+  var buf = '';
+  if (rowDelta > 0) buf += '\x1b[' + rowDelta + 'B';
+  else if (rowDelta < 0) buf += '\x1b[' + (-rowDelta) + 'A';
+  buf += '\x1b[' + (targetCol + 1) + 'G';
+  this.terminal.write(buf);
+  this.hardwareCursorRow = targetRow;
+  if (this.showHardwareCursor) { this.terminal.showCursor(); }
+  else { this.terminal.hideCursor(); }
+};
+
+// ─── Overlay ──────────────────────────────────────────────────────────────────
+
+TUI.prototype.showOverlay = function showOverlay(component, options) {
+  var entry = {
+    component: component,
+    options: options || {},
+    preFocus: this.focusedComponent,
+    hidden: false,
+    focusOrder: ++this.focusOrderCounter,
+  };
+  this.overlayStack.push(entry);
+  if (!entry.options.nonCapturing && this._isOverlayVisible(entry)) {
+    this.setFocus(component);
+  }
+  this.terminal.hideCursor();
+  this.requestRender();
+  return entry;
+};
+
+TUI.prototype.hideOverlay = function hideOverlay(target) {
+  var idx = this.overlayStack.length - 1;
+  if (target) {
+    idx = this.overlayStack.indexOf(target);
+    if (idx < 0) return;
+  }
+  var overlayEntry = this.overlayStack.splice(idx, 1)[0];
+  if (!overlayEntry) return;
+  if (this.focusedComponent === overlayEntry.component && this.overlayStack.length > 0) {
+    var topVisible = this._getTopmostVisibleOverlay();
+    this.setFocus(topVisible ? topVisible.component : overlayEntry.preFocus);
+  } else if (this.focusedComponent === overlayEntry.component) {
+    this.setFocus(overlayEntry.preFocus);
+  }
+  if (this.overlayStack.length === 0) {
+    this.terminal.hideCursor();
+  }
+  this.requestRender();
+};
+
+TUI.prototype._isOverlayVisible = function _isOverlayVisible(entry) {
+  return !entry.hidden;
+};
+
+TUI.prototype._getTopmostVisibleOverlay = function _getTopmostVisibleOverlay() {
+  for (var i = this.overlayStack.length - 1; i >= 0; i--) {
+    if (!this.overlayStack[i].hidden) return this.overlayStack[i];
+  }
+  return null;
+};
+
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 TUI.prototype.start = function start() {
   var self = this;
   this.stopped = false;
   this.terminal.start(function(data) {
-    if (self.focusedComponent && typeof self.focusedComponent.handleInput === 'function') {
-      self.focusedComponent.handleInput(data);
-      self.requestRender();
-    }
+    self.handleInput(data);
   }, function() {
     self.requestRender();
   });
-  this.renderNow();
+  this.doRender();
 };
 
 TUI.prototype.stop = function stop() {
   this.stopped = true;
+  if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = undefined; }
   if (this.terminal.stop) this.terminal.stop();
 };
+
+TUI.prototype.setClearOnShrink = function setClearOnShrink(flag) {
+  this.clearOnShrink = Boolean(flag);
+};
+
+// Legacy aliases
+TUI.prototype.renderNow = function renderNow() { 
+  if (this.terminal.clearScreen) this.terminal.clearScreen();
+  return this.doRender(); 
+};
+TUI.prototype.hideCursor = function hideCursor() { this.terminal.hideCursor(); };
+TUI.prototype.showCursor = function showCursor() { this.terminal.showCursor(); };
+
+// ─── Export ───────────────────────────────────────────────────────────────────
 
 module.exports = {
   TUI: TUI,

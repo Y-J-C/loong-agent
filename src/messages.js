@@ -124,7 +124,7 @@ function convertToLlm(messages, options) {
         return { role: 'user', content: bashExecutionToText(message), timestamp: message.timestamp };
       }
       if (message.role === 'observation') {
-        if (!message.includeInContext && !shouldIncludeObservation(message, subjectSet)) return null;
+        if (!message.includeInContext && !(options && options.includeObservations) && !shouldIncludeObservation(message, subjectSet)) return null;
         return { role: 'user', content: observationToText(message), timestamp: message.timestamp };
       }
       if (message.role === 'toolResult') {

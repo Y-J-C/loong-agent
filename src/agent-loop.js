@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildMessagesWithAuditMetadata, buildTurnContext } = require('./prompts');
+const { compactMessages, estimateContextTokens, shouldCompact, mergeCompactionResult } = require('./compaction');
 const { resolveProviderCapabilities } = require('./provider-registry');
 const {
   finishRun,
@@ -25,6 +26,45 @@ function elapsedMs(startedAt) {
 
 function errorMessage(error) {
   return error && error.message ? error.message : String(error);
+}
+
+function resolveContextWindow(config) {
+  config = config || {};
+  const explicit = Number(
+    config.contextWindow ||
+    config.contextWindowTokens ||
+    config.modelContextWindow ||
+    config.maxContextTokens
+  );
+  if (explicit > 0) return explicit;
+  const model = String(config.model || '').toLowerCase();
+  if (model.indexOf('deepseek') >= 0) return 128000;
+  if (model.indexOf('gpt-4.1') >= 0 || model.indexOf('gpt-5') >= 0) return 1000000;
+  if (model.indexOf('gpt-4o') >= 0 || model.indexOf('o3') >= 0 || model.indexOf('o4') >= 0) return 128000;
+  if (model.indexOf('claude') >= 0) return 200000;
+  return 128000;
+}
+
+function resolveReserveTokens(config) {
+  config = config || {};
+  const explicit = Number(config.reserveTokens || config.outputReserveTokens || config.maxOutputTokens);
+  return explicit > 0 ? explicit : 16384;
+}
+
+async function compactStateBeforeModelRequest(state, config, chatCompletion) {
+  if (!state || !Array.isArray(state.messages) || state.messages.length <= 15) return null;
+  const contextWindow = resolveContextWindow(config);
+  const reserveTokens = resolveReserveTokens(config);
+  const estimated = estimateContextTokens(state.messages);
+  if (!shouldCompact(estimated.tokens, contextWindow, reserveTokens)) return null;
+  const compactResult = await compactMessages(state.messages, config, chatCompletion);
+  if (!compactResult) return null;
+  state.messages = mergeCompactionResult(state.messages, compactResult);
+  return Object.assign({}, compactResult, {
+    estimatedTokens: estimated.tokens,
+    contextWindow,
+    reserveTokens,
+  });
 }
 
 function textOf(value) {
@@ -1525,6 +1565,7 @@ async function runAgentLoop(options) {
       },
     };
     try {
+      const compactResult = await compactStateBeforeModelRequest(state, config, chatCompletion);
       const modelTurnContext = buildTurnContext({
         config,
         state,
@@ -1532,6 +1573,16 @@ async function runAgentLoop(options) {
         userPrompt: currentUserPrompt || state.userPrompt,
       });
       const built = buildMessagesWithAuditMetadata(modelTurnContext);
+      if (compactResult) {
+        built.metadata.contextStats = Object.assign({}, built.metadata.contextStats || {}, {
+          compactionApplied: true,
+          compactedMessageCount: compactResult.compactedCount,
+          keptMessageCount: compactResult.keptCount,
+          preCompactionEstimatedTokens: compactResult.estimatedTokens,
+          contextWindowTokens: compactResult.contextWindow,
+          reserveTokens: compactResult.reserveTokens,
+        });
+      }
       const messages = built.messages;
       const modelRequestEvent = createModelRequestEvent(Object.assign({}, config, {
         nativeToolCalling: protocolMetadata.nativeToolCalling,

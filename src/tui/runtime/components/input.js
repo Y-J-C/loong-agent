@@ -87,6 +87,19 @@ Input.prototype.handleKey = function handleKey(key) {
   return false;
 };
 
+Input.prototype.handleInput = function handleInput(data) {
+  var keys = require('../keys');
+  var parsed = keys.parseKey(data);
+  if (parsed === undefined) return false;
+  var key = (typeof parsed === 'string' && parsed.length === 1 && parsed >= ' ')
+    ? { type: 'text', text: parsed }
+    : { type: parsed };
+  if (parsed === 'backspace' && this.cursor <= 0) return false;
+  if (parsed === 'escape' && this.onEscape) { this.onEscape(); return true; }
+  if (parsed === 'enter' && this.onSubmit) { this.onSubmit(this.value); return true; }
+  return this.handleKey(key);
+};
+
 function sliceByWidthFrom(text, startCol, maxWidth) {
   var output = '';
   var used = 0;

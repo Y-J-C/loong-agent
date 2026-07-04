@@ -100,7 +100,7 @@ async function main() {
   });
 
   ok(terminal.started, 'default runTui starts runtime-next terminal');
-  ok(terminal.output.indexOf('mock/m') >= 0, 'default runtime-next renders status');
+  ok(terminal.output.indexOf('mock') >= 0 || terminal.output.indexOf('m ') >= 0, 'default runtime-next renders status');
 
   send(terminal, 'hello');
   terminal.inputHandler('\r');

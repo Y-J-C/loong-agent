@@ -3,7 +3,7 @@
 const { createDefaultTools, formatToolsForPrompt } = require('./tool-registry');
 const { resolveProviderCapabilities } = require('./provider-registry');
 const { convertToLlm } = require('./messages');
-const { classifyRequestContext, selectContextMessageGroups } = require('./context-selector');
+// context-selector no longer imported - all messages passed to LLM
 const { createDefaultExtensionRuntime } = require('./extensions');
 const { loadSkillSummary } = require('./skills/file-skills');
 const { createTaskMemorySnapshot, renderTaskMemoryPromptBlock } = require('./agent/task-memory');
@@ -216,20 +216,24 @@ function buildTurnContext(options) {
 
 function buildMessagesWithAuditMetadata(turnContext) {
   turnContext = turnContext || {};
-  const requestContext = classifyRequestContext(turnContext.userPrompt || '');
-  const selectedGroups = selectContextMessageGroups(turnContext.messages || [], requestContext, {
-    maxMessages: 12,
-    observationsPerSubject: 2,
-    conversationMessages: 4,
+  const sourceMessages = turnContext.messages || [];
+  const sourceRoleCounts = sourceMessages.reduce((counts, message) => {
+    if (!message || message.internal) return counts;
+    const role = message.role || 'unknown';
+    counts[role] = (counts[role] || 0) + 1;
+    return counts;
+  }, {});
+  // Full-message context mode intentionally preserves more conversation history.
+  // This trades higher token use for better continuity across long coding turns.
+  var allLlmMessages = convertToLlm(turnContext.messages || [], {
+    maxMessages: 200,
+    includeBashExecutions: true,
+    includeObservations: true,
+    includeToolResults: true,
   });
-  const selectedMessages = selectedGroups.selected || [];
-  const llmContextMessages = convertToLlm(selectedMessages, {
-    maxMessages: 12,
-  });
-  const transcriptText = summarizeMessages(llmContextMessages);
-  const parts = [{
+  var parts = [{
     name: 'currentRequest',
-    content: `Current user request:\n${turnContext.userPrompt || 'Continue from current context.'}`,
+    content: 'Current user request:\n' + (turnContext.userPrompt || 'Continue from current context.'),
   }];
   if (turnContext.taskMemoryPromptBlock) {
     parts.push({
@@ -243,12 +247,8 @@ function buildMessagesWithAuditMetadata(turnContext) {
       content: turnContext.sessionMemoryPromptBlock,
     });
   }
-  if (transcriptText) {
-    parts.push({
-      name: 'recentConversation',
-      content: `Recent conversation:\n${transcriptText}`,
-    });
-  }
+  // Conversation messages are passed as separate LLM messages below,
+  // not embedded into the user prompt. transcriptText is not used.
   if (turnContext.kbSummary) {
     parts.push([
       'Controlled context / knowledge additions:',
@@ -293,42 +293,52 @@ function buildMessagesWithAuditMetadata(turnContext) {
     .map(partText)
     .filter((text) => text.indexOf('Analysis depth hint:') === 0)
     .reduce((sum, text) => sum + text.length, 0);
-  const totalChars = systemContent.length + userContent.length;
-  const messages = [
-    { role: 'system', content: systemContent },
-    {
-      role: 'user',
-      content: userContent,
-    },
-  ];
+  var conversationChars = 0;
+  for (var ci = 0; ci < (allLlmMessages || []).length; ci += 1) {
+    conversationChars += String(allLlmMessages[ci].content || '').length;
+  }
+  const totalChars = systemContent.length + userContent.length + conversationChars;
+  const messages = [{ role: 'system', content: systemContent }]
+    .concat(allLlmMessages)
+    .concat([{ role: 'user', content: userContent }]);
   return {
     messages,
     metadata: {
       messageCount: messages.length,
-      roles: messages.map((message) => message.role || ''),
+      roles: messages.map(function(msg) { return msg.role || ''; }),
       charStats: {
         systemChars: systemContent.length,
         userChars: userContent.length,
+        conversationChars: conversationChars,
         totalChars,
         currentRequestChars: namedPartChars.currentRequestChars || 0,
         taskMemoryChars: namedPartChars.taskMemoryChars || 0,
         sessionMemoryChars: namedPartChars.sessionMemoryChars || 0,
-        recentConversationChars: namedPartChars.recentConversationChars || 0,
+        recentConversationChars: conversationChars,
         kbSummaryChars: turnContext.kbSummary ? turnContext.kbSummary.length : 0,
         controlledContextChars,
         analysisHintChars,
       },
       contextStats: {
+        contextMode: 'full_messages',
+        contextSelection: 'last_200_convertible_messages_with_tools',
         contextBudgetChars: turnContext.budget && turnContext.budget.contextBudgetChars
           ? turnContext.budget.contextBudgetChars
           : turnContext.config && turnContext.config.contextBudgetChars
             ? turnContext.config.contextBudgetChars
             : 1800,
-        selectedContextMessageCount: selectedMessages.length,
-        llmContextMessageCount: llmContextMessages.length,
-        selectedConversationMessageCount: (selectedGroups.conversation || []).length,
-        selectedObservationMessageCount: (selectedGroups.observations || []).length,
-        selectedBashFallbackMessageCount: (selectedGroups.bashFallback || []).length,
+        sourceMessageCount: sourceMessages.length,
+        sourceUserMessageCount: sourceRoleCounts.user || 0,
+        sourceAssistantMessageCount: sourceRoleCounts.assistant || 0,
+        sourceObservationMessageCount: sourceRoleCounts.observation || 0,
+        sourceBashExecutionMessageCount: sourceRoleCounts.bashExecution || 0,
+        sourceToolResultMessageCount: sourceRoleCounts.toolResult || 0,
+        selectedContextMessageCount: allLlmMessages.length,
+        llmContextMessageCount: allLlmMessages.length,
+        selectedConversationMessageCount: allLlmMessages.length,
+        selectedObservationMessageCount: sourceRoleCounts.observation || 0,
+        selectedBashFallbackMessageCount: sourceRoleCounts.bashExecution || 0,
+        selectedToolResultMessageCount: sourceRoleCounts.toolResult || 0,
         hasTaskMemorySnapshot: Boolean(turnContext.taskMemorySnapshot || turnContext.taskMemoryPromptBlock),
         taskMemoryFailedAttemptCount: turnContext.taskMemorySnapshot && Array.isArray(turnContext.taskMemorySnapshot.failedAttempts)
           ? turnContext.taskMemorySnapshot.failedAttempts.length
