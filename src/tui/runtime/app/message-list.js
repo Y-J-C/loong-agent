@@ -6,22 +6,7 @@ var Markdown = require('../components/markdown').Markdown;
 var cacheMod = require('../render-cache');
 var scroll = require('../../scroll');
 
-// No max width limit — content fills terminal left-aligned like pi-agent
-
 var markdownCache = cacheMod.createRenderCache(200);
-
-function messageLabel(message) {
-  if (!message) return 'msg';
-  if (message.type === 'assistant_final') return '◈ Assistant';
-  if (message.type === 'assistant') return '◈ Assistant';
-  if (message.type === 'user') return '▸ User';
-  if (message.type === 'tool') {
-    var toolIcon = message.isError || message.status === 'error' ? '❌' : message.done ? '✅' : '⏳';
-    return toolIcon + ' ' + (message.toolName || 'tool');
-  }
-  if (message.type === 'error') return '✗ Error';
-  return message.type || 'system';
-}
 
 function messageText(message) {
   if (!message) return '';
@@ -69,7 +54,23 @@ function clearRuntimeMessageCaches() {
   markdownCache.clear();
 }
 
-function renderRuntimeMessageList(state, width, height, context) {
+function asciiMessageLabel(message) {
+  if (!message) return 'msg';
+  if (message.type === 'assistant_final') return '[final] Assistant';
+  if (message.type === 'assistant') return '[assistant] Assistant';
+  if (message.type === 'user') return '[user] User';
+  if (message.type === 'tool') return asciiToolStatus(message) + ' ' + (message.toolName || 'tool');
+  if (message.type === 'error') return '[err] Error';
+  return message.type || 'system';
+}
+
+function asciiToolStatus(message) {
+  if (message && (message.isError || message.status === 'error')) return '[err]';
+  if (message && message.done) return '[ok]';
+  return '[run]';
+}
+
+function renderRuntimeMessageListAscii(state, width, height, context) {
   var messages = state && Array.isArray(state.messages) ? state.messages : [];
   var lines = [];
   var maxWidth = Math.max(1, Number(width) || 80);
@@ -82,7 +83,6 @@ function renderRuntimeMessageList(state, width, height, context) {
     var text = messageText(message);
 
     if (message.type === 'user') {
-      // User message: subtle background, no border, no label
       var uContent = String(text || '');
       var uwrapped = utils.wrapTextWithAnsi(uContent, Math.max(4, maxWidth - 2));
       if (!uwrapped.length) uwrapped = [''];
@@ -91,11 +91,8 @@ function renderRuntimeMessageList(state, width, height, context) {
         var uPadded = ' ' + uwrapped[ui] + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(' ' + uwrapped[ui])));
         lines.push(userFgBg + uPadded + (userFgBg ? '\x1b[0m' : ''));
       }
-
     } else if (message.type === 'tool') {
-      // Tool message: subtle bg, icon + name on first line, dim output
-      var toolIcon = message.isError || message.status === 'error' ? '❌' : message.done ? '✅' : '⏳';
-      var toolTitle = (message.toolName || 'tool');
+      var toolTitle = message.toolName || 'tool';
       var MAX_TOOL_LINES = 8;
       var toolContent = String(text || '');
       var twrapped = utils.wrapTextWithAnsi(toolContent, Math.max(4, maxWidth - 4));
@@ -108,25 +105,17 @@ function renderRuntimeMessageList(state, width, height, context) {
       var toolBgCode = (theme && theme.toolBg) || '';
       var toolBgReset = toolBgCode ? '\x1b[0m' : '';
       for (var ti = 0; ti < twrapped.length; ti += 1) {
-        var tLine = (ti === 0 ? (toolIcon + ' ' + toolTitle + '  ') : '   ') + twrapped[ti];
+        var tLine = (ti === 0 ? (asciiToolStatus(message) + ' ' + toolTitle + '  ') : '   ') + twrapped[ti];
         var tPadded = tLine + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(tLine)));
-        if (ti === 0) {
-          lines.push(toolBgCode + tPadded + toolBgReset);
-        } else {
-          lines.push(toolBgCode + themeMod.paint(theme, 'dim', tPadded) + toolBgReset);
-        }
+        lines.push(toolBgCode + (ti === 0 ? tPadded : themeMod.paint(theme, 'dim', tPadded)) + toolBgReset);
       }
-
     } else if (message.type === 'assistant' || message.type === 'assistant_final') {
-      // Assistant: no label, no border, just Markdown content
       var awrapped = renderMarkdownMessage(message, maxWidth, renderContext);
       for (var ai = 0; ai < awrapped.length; ai += 1) {
         lines.push(fit(awrapped[ai], maxWidth));
       }
-
     } else {
-      // system/error: keep label prefix
-      var label = messageLabel(message);
+      var label = asciiMessageLabel(message);
       var prefix = label + ' ';
       var prefixText = themedLabel(prefix, message, theme);
       var prefixWidth = utils.visibleWidth(prefix);
@@ -136,6 +125,7 @@ function renderRuntimeMessageList(state, width, height, context) {
         lines.push(fit((oi === 0 ? prefixText : ' '.repeat(prefixWidth)) + owrapped[oi], maxWidth));
       }
     }
+
     if (message.type === 'tool' && state && state.expandedTools) {
       var detail = detailText(message);
       if (detail) {
@@ -151,12 +141,9 @@ function renderRuntimeMessageList(state, width, height, context) {
   var visibleHeight = Math.max(0, Number(height) || 0);
   if (visibleHeight <= 0) return [];
   var totalLines = lines.length;
-  var scrollOffset = 0;
-  if (state) {
-    scrollOffset = scroll.updateScrollMetrics(state, totalLines, visibleHeight).offset;
-  } else {
-    scrollOffset = scroll.clampScrollOffset(0, totalLines, visibleHeight);
-  }
+  var scrollOffset = state
+    ? scroll.updateScrollMetrics(state, totalLines, visibleHeight).offset
+    : scroll.clampScrollOffset(0, totalLines, visibleHeight);
   if (lines.length > visibleHeight) {
     var start = Math.max(0, totalLines - visibleHeight - scrollOffset);
     lines = lines.slice(start, start + visibleHeight);
@@ -167,5 +154,5 @@ function renderRuntimeMessageList(state, width, height, context) {
 
 module.exports = {
   clearRuntimeMessageCaches: clearRuntimeMessageCaches,
-  renderRuntimeMessageList: renderRuntimeMessageList,
+  renderRuntimeMessageList: renderRuntimeMessageListAscii,
 };

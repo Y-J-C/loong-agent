@@ -36,5 +36,18 @@ ok(plainThemeLines.join('\n').indexOf('\x1b[') < 0, 'plain theme omits ANSI');
 var limited = new Markdown({ text: 'a\nb\nc', maxLines: 2 }).render(20, { theme: theme.getTheme('plain') });
 ok(limited.join('\n').indexOf('truncated') >= 0, 'maxLines adds truncation marker');
 
+var mixed = new Markdown({
+  text: '## Mixed\n\n1. ordered item with `code` and [docs](https://example.test)\n> quoted ' + '\u4e2d\u6587' + '\n```txt\nunterminated code fence ' + '\u4e2d\u6587',
+  maxLines: 40,
+});
+var mixedLines = mixed.render(28, { theme: theme.getTheme('loong-dark') });
+var mixedPlain = utils.stripAnsi(mixedLines.join('\n'));
+ok(mixedPlain.indexOf('## Mixed') >= 0, 'renders level two heading');
+ok(mixedPlain.indexOf('1. ordered item') >= 0, 'renders ordered list');
+ok(mixedPlain.indexOf('docs') >= 0, 'renders link label');
+ok(mixedPlain.indexOf('quoted ' + '\u4e2d\u6587') >= 0, 'renders quoted CJK text');
+ok(mixedPlain.indexOf('unterminated code fence') >= 0, 'renders unterminated code block');
+ok(mixedLines.every(function(line) { return utils.visibleWidth(line) <= 28; }), 'mixed markdown lines fit width');
+
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

@@ -1,6 +1,8 @@
 'use strict';
 
-var FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+var utils = require('../utils');
+
+var FRAMES = ['|', '/', '-', '\\'];
 
 function Loader(options) {
   options = options || {};
@@ -35,7 +37,7 @@ Loader.prototype.render = function render(width, context) {
   var text = (this.message || 'Working...');
   if (theme) text = themeMod.paint(theme, 'dim', text);
   var line = ' ' + spinner + ' ' + text;
-  return [line];
+  return [utils.truncateToWidth(line, maxWidth)];
 };
 
 Loader.prototype.invalidate = function invalidate() {};
