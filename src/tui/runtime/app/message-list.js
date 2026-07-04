@@ -4,6 +4,7 @@ var utils = require('../utils');
 var themeMod = require('../theme');
 var Markdown = require('../components/markdown').Markdown;
 var cacheMod = require('../render-cache');
+var scroll = require('../../scroll');
 
 // No max width limit — content fills terminal left-aligned like pi-agent
 
@@ -150,15 +151,11 @@ function renderRuntimeMessageList(state, width, height, context) {
   var visibleHeight = Math.max(0, Number(height) || 0);
   if (visibleHeight <= 0) return [];
   var totalLines = lines.length;
-  var maxOffset = Math.max(0, totalLines - visibleHeight);
-  var scrollOffset = Math.max(0, Number(state && state.scrollOffset) || 0);
-  scrollOffset = Math.min(scrollOffset, maxOffset);
+  var scrollOffset = 0;
   if (state) {
-    state.scrollOffset = scrollOffset;
-    state.scrollBodyLength = totalLines;
-    state.scrollVisibleRows = visibleHeight;
-    state.scrollMaxOffset = maxOffset;
-    state.viewingHistory = scrollOffset > 0;
+    scrollOffset = scroll.updateScrollMetrics(state, totalLines, visibleHeight).offset;
+  } else {
+    scrollOffset = scroll.clampScrollOffset(0, totalLines, visibleHeight);
   }
   if (lines.length > visibleHeight) {
     var start = Math.max(0, totalLines - visibleHeight - scrollOffset);

@@ -93,6 +93,11 @@ function createFakeSession() {
     abort: function() {
       session.aborts += 1;
     },
+    emit: function(event) {
+      subscribers.forEach(function(fn) {
+        fn(event);
+      });
+    },
     getSessionInfo: function() {
       return { id: 'session123456', path: '/tmp/session.jsonl' };
     },
@@ -153,9 +158,19 @@ async function main() {
   terminal.inputHandler('\x1b[5~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(capturedState.scrollOffset > 0 && capturedState.viewingHistory, 'page up scrolls history through TUI dispatcher');
+  fakeSession.emit({ type: 'assistant_final', text: 'reply while viewing history' });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.scrollOffset > 0 && capturedState.viewingHistory, 'new session event preserves history view');
+  terminal.inputHandler('\x1b[6~');
+  terminal.inputHandler('\x1b[6~');
+  terminal.inputHandler('\x1b[6~');
   terminal.inputHandler('\x1b[6~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.scrollOffset, 0, 'page down returns to bottom through TUI dispatcher');
+  equal(capturedState.viewingHistory, false, 'page down at bottom clears history mode');
+  fakeSession.emit({ type: 'assistant_final', text: 'reply after bottom' });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.scrollOffset, 0, 'new session event stays at bottom after history is cleared');
 
   terminal.inputHandler('t');
   terminal.inputHandler('o');

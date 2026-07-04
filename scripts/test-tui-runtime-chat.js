@@ -2,6 +2,7 @@
 'use strict';
 
 var renderRuntimeChatView = require('../src/tui/runtime/app/chat-view').renderRuntimeChatView;
+var renderRuntimeMessageList = require('../src/tui/runtime/app/message-list').renderRuntimeMessageList;
 var stripAnsi = require('../src/tui/runtime/utils').stripAnsi;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
 var pass = 0;
@@ -104,6 +105,66 @@ ok(scrollPlain.indexOf('message-29') < 0, 'scroll offset moves away from latest 
 ok(scrollPlain.indexOf('message-') >= 0, 'scroll view still renders history messages');
 ok(scrollState.scrollMaxOffset > 0, 'scroll metrics record max offset');
 equal(scrollState.viewingHistory, true, 'scroll metrics mark history view');
+
+var historyState = {
+  scrollOffset: 2,
+  scrollBodyLength: 10,
+  scrollVisibleRows: 5,
+  messages: [],
+};
+for (var historyIndex = 0; historyIndex < 10; historyIndex += 1) {
+  historyState.messages.push({ type: 'system', text: 'history-' + historyIndex });
+}
+renderRuntimeMessageList(historyState, 40, 5, {});
+var previousHistoryOffset = historyState.scrollOffset;
+historyState.messages.push({ type: 'system', text: 'history-new-a' });
+historyState.messages.push({ type: 'system', text: 'history-new-b' });
+var historyLines = renderRuntimeMessageList(historyState, 40, 5, {});
+var historyPlain = stripAnsi(historyLines.join('\n'));
+ok(historyState.scrollOffset > previousHistoryOffset, 'history offset is compensated when content grows');
+ok(historyPlain.indexOf('history-new-b') < 0, 'history view does not jump to newest content');
+
+var clampState = {
+  scrollOffset: 999,
+  messages: [
+    { type: 'system', text: 'short-1' },
+    { type: 'system', text: 'short-2' },
+  ],
+};
+renderRuntimeMessageList(clampState, 30, 2, {});
+equal(clampState.scrollOffset, clampState.scrollMaxOffset, 'stale scroll offset clamps to max');
+ok(clampState.scrollOffset >= 0, 'small list offset is not negative');
+
+var tinyState = {
+  scrollOffset: 5,
+  messages: [{ type: 'system', text: 'tiny-window' }],
+};
+var tinyLines = renderRuntimeMessageList(tinyState, 20, 1, {});
+equal(tinyLines.length, 1, 'tiny message list fills requested height');
+ok(tinyState.scrollOffset >= 0, 'tiny message list offset is not negative');
+
+var longToolText = [];
+for (var toolLine = 0; toolLine < 20; toolLine += 1) {
+  longToolText.push('tool output line ' + toolLine);
+}
+var toolState = Object.assign({}, state, {
+  inputBuffer: '',
+  messages: [{
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    summary: longToolText.join('\n'),
+    detail: 'hidden detail line',
+  }],
+});
+var toolLines = renderRuntimeChatView(toolState, { columns: 60, rows: 16 });
+var toolPlain = stripAnsi(toolLines.join('\n'));
+ok(toolPlain.indexOf('more lines') >= 0, 'long tool output is truncated by default');
+ok(toolPlain.indexOf('hidden detail line') < 0, 'tool detail stays collapsed by default');
+var expandedToolLines = renderRuntimeChatView(Object.assign({}, toolState, { expandedTools: true }), { columns: 60, rows: 20 });
+var expandedToolPlain = stripAnsi(expandedToolLines.join('\n'));
+ok(expandedToolPlain.indexOf('detail: hidden detail line') >= 0, 'expanded tool detail renders');
+ok(expandedToolLines.every(function(line) { return visibleWidth(line) <= 60; }), 'expanded tool lines fit width');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);
