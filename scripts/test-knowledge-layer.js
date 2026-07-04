@@ -800,10 +800,13 @@ test('turn context applies knowledge budget and keeps metadata', () => {
     userPrompt: 'check risk',
   });
   const messages = buildMessagesFromTurnContext(turnContext);
+  const prompt = messages[messages.length - 1] && messages[messages.length - 1].content
+    ? messages[messages.length - 1].content
+    : '';
   assert(turnContext.kbSummary.length <= 240, 'kb summary exceeded budget');
   assert(turnContext.kbSummary.indexOf('risk_list') >= 0, 'kb summary missing evidence topic');
-  assert(messages[1].content.indexOf('Controlled context / knowledge additions') >= 0, 'prompt missing controlled context');
-  assert(messages[1].content.indexOf('待确认') >= 0, 'prompt missing pending confirmation warning');
+  assert(prompt.indexOf('Controlled context / knowledge additions') >= 0, 'prompt missing controlled context');
+  assert(prompt.indexOf('待确认') >= 0, 'prompt missing pending confirmation warning');
 });
 
 test('P3 system prompt includes knowledge-driven answer and command safety rules', () => {
