@@ -32,6 +32,8 @@ function FakeTerminal() {
   this.started = false;
   this.stopped = false;
   this.inputHandler = null;
+  this.hideCursorCount = 0;
+  this.showCursorCount = 0;
 }
 FakeTerminal.prototype = Object.create(EventEmitter.prototype);
 FakeTerminal.prototype.constructor = FakeTerminal;
@@ -47,6 +49,12 @@ FakeTerminal.prototype.write = function(data) {
 };
 FakeTerminal.prototype.clear = function() {
   this.output = '';
+};
+FakeTerminal.prototype.hideCursor = function() {
+  this.hideCursorCount += 1;
+};
+FakeTerminal.prototype.showCursor = function() {
+  this.showCursorCount += 1;
 };
 
 function createFakeSession(toolsRef) {
@@ -98,13 +106,15 @@ function send(terminal, text) {
 }
 
 function tick() {
-  return new Promise(function(resolve) { setTimeout(resolve, 15); });
+  return new Promise(function(resolve) { setTimeout(resolve, 50); });
 }
 
 async function main() {
   var terminal = new FakeTerminal();
   var toolsRef = {};
   var fakeSession = null;
+  var tuiRef = null;
+  var overlayControllerRef = null;
   var resultPromise = runRuntimeNextTui({
     workspace: '/tmp/ws',
     provider: 'mock',
@@ -117,16 +127,27 @@ async function main() {
       return fakeSession;
     },
     skipBoardStatus: true,
+    onTui: function(tui) {
+      tuiRef = tui;
+    },
+    onOverlayController: function(controller) {
+      overlayControllerRef = controller;
+    },
   });
 
   ok(terminal.started, 'terminal starts');
+  ok(tuiRef, 'runner exposes tui test hook');
+  ok(overlayControllerRef, 'runner exposes overlay controller test hook');
 
   send(terminal, 'needs approval');
   terminal.inputHandler('\r');
   await tick();
   ok(terminal.output.indexOf('Tool Approval') >= 0, 'approval overlay renders');
+  equal(tuiRef.overlayStack.length, 1, 'approval uses tui overlay stack');
+  equal(overlayControllerRef.getCurrentKind(), 'approval', 'approval controller kind is active');
   terminal.inputHandler('y');
   await tick();
+  equal(tuiRef.overlayStack.length, 0, 'approval overlay closes through controller');
   equal(fakeSession.approvals[0] && fakeSession.approvals[0].approved, true, 'approval y resolves true');
   ok(terminal.output.indexOf('approved') >= 0, 'approval result renders');
 
@@ -134,8 +155,11 @@ async function main() {
   terminal.inputHandler('\r');
   await tick();
   ok(terminal.output.indexOf('Model Selector') >= 0, 'model overlay renders');
+  equal(tuiRef.overlayStack.length, 1, 'model panel uses tui overlay stack');
+  equal(overlayControllerRef.getCurrentKind(), 'panel', 'panel controller kind is active');
   terminal.inputHandler('\x1b');
   await tick();
+  equal(tuiRef.overlayStack.length, 0, 'model panel overlay closes through controller');
   ok(terminal.output.indexOf('> /model') < terminal.output.lastIndexOf('Model Selector') || terminal.output.lastIndexOf('Model Selector') >= 0, 'model overlay was visible before close');
 
   terminal.clear();
@@ -143,8 +167,10 @@ async function main() {
   terminal.inputHandler('\r');
   await tick();
   ok(terminal.output.indexOf('Command') >= 0, 'command panel overlay renders');
+  equal(tuiRef.overlayStack.length, 1, 'command panel uses tui overlay stack');
   terminal.inputHandler('\r');
   await tick();
+  equal(tuiRef.overlayStack.length, 0, 'command panel overlay closes after enter');
   ok(terminal.output.indexOf('> /') >= 0, 'command panel enter inserts command');
 
   inputExit:
@@ -155,8 +181,11 @@ async function main() {
     terminal.inputHandler('\r');
     await tick();
     ok(terminal.output.indexOf('Session') >= 0, 'session selector overlay renders');
+    equal(tuiRef.overlayStack.length, 1, 'session selector uses tui overlay stack');
+    equal(overlayControllerRef.getCurrentKind(), 'selector', 'selector controller kind is active');
     terminal.inputHandler('\x1b');
     await tick();
+    equal(tuiRef.overlayStack.length, 0, 'session selector closes through controller');
     break inputExit;
   }
 

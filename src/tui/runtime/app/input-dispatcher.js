@@ -8,8 +8,10 @@ function createRuntimeInputDispatcher(options) {
   var handleKey = options.handleKey;
   var isStopped = typeof options.isStopped === 'function' ? options.isStopped : function() { return false; };
   var onError = typeof options.onError === 'function' ? options.onError : null;
+  var shouldConsume = typeof options.shouldConsume === 'function' ? options.shouldConsume : function() { return true; };
 
   async function dispatch(sequence) {
+    if (!shouldConsume(sequence)) return { consume: false, data: sequence };
     try {
       var keys = input.parseInputBuffer(state, sequence);
       for (var index = 0; index < keys.length; index += 1) {

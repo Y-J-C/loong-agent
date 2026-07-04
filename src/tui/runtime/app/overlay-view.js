@@ -128,18 +128,27 @@ function buildSelectorOverlay(state, width, rows, context) {
   };
 }
 
+function buildApprovalOverlay(state, width, rows, context) {
+  if (!state || !state.pendingToolApproval) return null;
+  return {
+    component: new ConfirmDialog({
+      title: 'Tool Approval',
+      approval: state.pendingToolApproval.approval || {},
+    }),
+    context: context || {},
+    options: { width: width, maxHeight: rows - 2, margin: 1 },
+  };
+}
+
 function renderRuntimeOverlays(state, width, rows, context) {
   var overlayWidth = Math.max(30, Math.min(width - 2, Math.floor(width * 0.82)));
   var maxRows = Math.max(6, rows - 2);
   if (state && state.pendingToolApproval) {
-    return [{
-      component: new ConfirmDialog({
-        title: 'Tool Approval',
-        approval: state.pendingToolApproval.approval || {},
-      }),
-      context: context || {},
-      options: { width: overlayWidth, maxHeight: maxRows, margin: 1 },
-    }];
+    var approvalOverlay = buildApprovalOverlay(state, overlayWidth, maxRows + 2, context);
+    if (approvalOverlay) {
+      approvalOverlay.options = { width: overlayWidth, maxHeight: maxRows, margin: 1 };
+      return [approvalOverlay];
+    }
   }
   if (state && state.selector) {
     return [buildSelectorOverlay(state, overlayWidth, rows, context)];
@@ -151,5 +160,8 @@ function renderRuntimeOverlays(state, width, rows, context) {
 }
 
 module.exports = {
+  buildApprovalOverlay: buildApprovalOverlay,
+  buildPanelOverlay: buildPanelOverlay,
+  buildSelectorOverlay: buildSelectorOverlay,
   renderRuntimeOverlays: renderRuntimeOverlays,
 };

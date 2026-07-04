@@ -15,6 +15,7 @@ var ProcessTerminal = require('../terminal').ProcessTerminal;
 var TUI = require('../tui').TUI;
 var ChatView = require('./chat-view').ChatView;
 var createRuntimeInputDispatcher = require('./input-dispatcher').createRuntimeInputDispatcher;
+var createStateOverlayController = require('./state-overlay-controller').createStateOverlayController;
 
 function terminalSize(terminal) {
   return {
@@ -56,7 +57,7 @@ async function runRuntimeNextTui(config, options) {
 
   var terminal = options.terminal || new ProcessTerminal({ input: inputStream, output: outputStream });
   var state = stateModule.createTuiState(config);
-  var chatView = new ChatView(state);
+  var chatView = new ChatView(state, { renderStateOverlays: false });
   var tui = new TUI(terminal, {
     onBeforeRender: updateLastRender,
     onRenderError: handleRenderError,
@@ -64,11 +65,13 @@ async function runRuntimeNextTui(config, options) {
   });
   tui.addChild(chatView);
   if (typeof options.onState === 'function') options.onState(state);
+  if (typeof options.onTui === 'function') options.onTui(tui);
   var activeConfig = config;
   var stopped = false;
   var unsubscribe = null;
   var resolveDone = null;
   var diffResetCount = 0;
+  var overlayController = null;
 
   function requestToolApproval(approval) {
     return new Promise(function(resolve) {
@@ -146,6 +149,7 @@ async function runRuntimeNextTui(config, options) {
 
   function requestRender(force) {
     if (stopped) return;
+    if (overlayController) overlayController.sync();
     chatView.invalidate();
     updateLastRender();
     tui.requestRender(force);
@@ -440,11 +444,20 @@ async function runRuntimeNextTui(config, options) {
   }
 
   subscribe(agentSession);
+  overlayController = createStateOverlayController({
+    tui: tui,
+    state: state,
+    handleKey: handleModalKey,
+  });
+  if (typeof options.onOverlayController === 'function') options.onOverlayController(overlayController);
   var inputDispatcher = createRuntimeInputDispatcher({
     state: state,
     handleKey: handleKey,
     isStopped: function() { return stopped; },
     onError: handleInputError,
+    shouldConsume: function() {
+      return !overlayController.hasCapturingOverlay();
+    },
   });
   tui.addInputListener(inputDispatcher.dispatch);
   updateLastRender();

@@ -77,6 +77,13 @@ TUI.prototype.handleInput = async function handleInput(data) {
   var wantsRelease = this.focusedComponent && this.focusedComponent.wantsKeyRelease;
   if (!wantsRelease && typeof keys.isKeyRelease === 'function' && keys.isKeyRelease(data)) return { consume: true };
 
+  // Capturing overlays own input before app-level fallback listeners.
+  if (this.hasCapturingOverlay() && this.focusedComponent && typeof this.focusedComponent.handleInput === 'function') {
+    var overlayResult = await this.focusedComponent.handleInput(data);
+    this.requestRender();
+    return overlayResult || { consume: true };
+  }
+
   // 1. Input listeners
   for (var i = 0; i < this.inputListeners.length; i++) {
     var result = await this.inputListeners[i](data);
@@ -319,7 +326,7 @@ TUI.prototype.showOverlay = function showOverlay(component, options) {
   if (!entry.options.nonCapturing && this._isOverlayVisible(entry)) {
     this.setFocus(component);
   }
-  this.terminal.hideCursor();
+  if (this.terminal && typeof this.terminal.hideCursor === 'function') this.terminal.hideCursor();
   this.requestRender();
   return entry;
 };
@@ -339,7 +346,7 @@ TUI.prototype.hideOverlay = function hideOverlay(target) {
     this.setFocus(overlayEntry.preFocus);
   }
   if (this.overlayStack.length === 0) {
-    this.terminal.hideCursor();
+    if (this.terminal && typeof this.terminal.hideCursor === 'function') this.terminal.hideCursor();
   }
   this.requestRender();
 };
@@ -353,6 +360,15 @@ TUI.prototype._getTopmostVisibleOverlay = function _getTopmostVisibleOverlay() {
     if (!this.overlayStack[i].hidden) return this.overlayStack[i];
   }
   return null;
+};
+
+TUI.prototype.getTopOverlay = function getTopOverlay() {
+  return this._getTopmostVisibleOverlay();
+};
+
+TUI.prototype.hasCapturingOverlay = function hasCapturingOverlay() {
+  var entry = this.getTopOverlay();
+  return Boolean(entry && entry.options && entry.options.nonCapturing !== true);
 };
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────

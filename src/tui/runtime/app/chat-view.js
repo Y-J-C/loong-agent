@@ -10,9 +10,11 @@ var DynamicBorder = require('../components/dynamic-border').DynamicBorder;
 var compositeOverlays = require('../overlay').compositeOverlays;
 var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
 
-function ChatView(state) {
+function ChatView(state, options) {
   component.Container.call(this);
+  options = options || {};
   this.state = state || {};
+  this.renderStateOverlays = options.renderStateOverlays !== false;
   this.footer = new Footer(state);
   this.divider = new DynamicBorder({ colorToken: 'divider' });
   this.addChild(this.footer);    // children[0]
@@ -30,7 +32,7 @@ ChatView.prototype.render = function render(width, context) {
   var theme = context && context.theme ? context.theme : themeMod.getTheme(state && state.theme);
   var renderCtx = { state: state, theme: theme, rows: rows, columns: cols };
 
-  var overlays = renderOverlays(state, cols, rows, renderCtx);
+  var overlays = this.renderStateOverlays ? renderOverlays(state, cols, rows, renderCtx) : [];
   var inputLines = renderInputBlock(state, cols, { focused: overlays.length === 0, theme: theme });
   var footerLines = this.footer.render(cols, renderCtx);
   var dividerLine = this.divider.render(cols, renderCtx);
