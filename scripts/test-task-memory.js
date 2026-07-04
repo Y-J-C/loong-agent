@@ -204,7 +204,7 @@ test('prompt block truncates long content but preserves evidence references', ()
   assert(block.indexOf('evt:bash:node') >= 0, 'verified fact evidenceRef was dropped');
 });
 
-test('prompt builder injects task memory without changing message shape', () => {
+test('prompt builder injects task memory with full message context', () => {
   const taskState = createTaskState({
     goal: '检查当前项目',
     steps: [{ id: 'inspect', title: 'Inspect project', status: 'pending' }],
@@ -222,9 +222,11 @@ test('prompt builder injects task memory without changing message shape', () => 
     userPrompt: '继续检查',
   });
   const built = buildMessagesWithAuditMetadata(turnContext);
-  const prompt = built.messages[1].content;
+  const prompt = built.messages[built.messages.length - 1].content;
 
-  assert.strictEqual(built.messages.length, 2);
+  assert.strictEqual(built.messages.length, 3);
+  assert.strictEqual(built.messages[1].role, 'user');
+  assert(built.messages[1].content.length > 0, 'missing full-context user message');
   assert(prompt.indexOf('Current user request:') >= 0, 'missing current request');
   assert(prompt.indexOf('Task Memory Snapshot:') > prompt.indexOf('Current user request:'), 'task memory should follow request');
   assert(prompt.indexOf('Recent conversation:') < 0 || prompt.indexOf('Task Memory Snapshot:') < prompt.indexOf('Recent conversation:'), 'task memory should precede recent conversation');
