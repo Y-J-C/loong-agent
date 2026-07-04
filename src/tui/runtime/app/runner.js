@@ -12,7 +12,7 @@ var toolFocus = require('../../tool-focus');
 var openJsonlSession = require('../../../session').openJsonlSession;
 var createSessionManager = require('../../../session-manager').createSessionManager;
 var ProcessTerminal = require('../terminal').ProcessTerminal;
-var createRuntimeDiffRenderer = require('../diff').createRuntimeDiffRenderer;
+var TUI = require('../tui').TUI;
 var ChatView = require('./chat-view').ChatView;
 
 function terminalSize(terminal) {
@@ -54,9 +54,14 @@ async function runRuntimeNextTui(config, options) {
   }
 
   var terminal = options.terminal || new ProcessTerminal({ input: inputStream, output: outputStream });
-  var diffRenderer = createRuntimeDiffRenderer();
   var state = stateModule.createTuiState(config);
   var chatView = new ChatView(state);
+  var tui = new TUI(terminal, {
+    onBeforeRender: updateLastRender,
+    onRenderError: handleRenderError,
+  });
+  tui.addChild(chatView);
+  if (typeof options.onState === 'function') options.onState(state);
   var activeConfig = config;
   var stopped = false;
   var unsubscribe = null;
@@ -71,7 +76,7 @@ async function runRuntimeNextTui(config, options) {
       };
       state.mode = 'approval';
       state.status = 'approval';
-      render();
+      requestRender();
     });
   }
 
@@ -98,7 +103,7 @@ async function runRuntimeNextTui(config, options) {
       if (!state.viewingHistory && state.selector === null) {
         state.scrollOffset = 0;
       }
-      render();
+      requestRender();
     });
     var info = session.getSessionInfo && session.getSessionInfo();
     if (info) state.currentSession = { id: info.id, path: info.path };
@@ -113,39 +118,45 @@ async function runRuntimeNextTui(config, options) {
     if (stopped) return;
     stopped = true;
     if (unsubscribe) unsubscribe();
-    terminal.stop();
+    tui.stop();
     if (resolveDone) resolveDone({ nonTty: false });
   }
 
-  function render() {
+  function updateLastRender(renderContext) {
     if (stopped) return;
-    try {
-      var size = terminalSize(terminal);
-      var lines = chatView.render(size.columns, { rows: size.rows });
-      state.lastRender = {
-        at: new Date().toISOString(),
-        columns: size.columns,
-        rows: size.rows,
-        frameLines: lines.length,
-        mode: state.mode,
-        runtime: 'next',
-        renderPath: 'runtime-next',
-        overlaySurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : '',
-        focusedSurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : 'input',
-        diffResetCount: diffResetCount,
-        lastRenderError: state.lastRenderError || null,
-      };
-      terminal.write(diffRenderer.render(lines, size));
-    } catch (error) {
-      state.lastRenderError = { at: new Date().toISOString(), message: error && error.message ? error.message : String(error) };
-      try {
-        diffRenderer.reset();
-        diffResetCount += 1;
-        terminal.write(diffRenderer.render(['[runtime-next render error] ' + state.lastRenderError.message], terminalSize(terminal)));
-      } catch (fallbackError) {
-        terminal.write('\x1b[?25h\x1b[0m\n[runtime-next render error] ' + state.lastRenderError.message + '\n');
-      }
-    }
+    var size = renderContext || terminalSize(terminal);
+    state.lastRender = {
+      at: new Date().toISOString(),
+      columns: size.columns,
+      rows: size.rows,
+      frameLines: size.rows,
+      mode: state.mode,
+      runtime: 'next',
+      renderPath: 'runtime-next',
+      renderer: 'tui',
+      overlaySurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : '',
+      focusedSurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : 'input',
+      diffResetCount: diffResetCount,
+      fullRedrawCount: tui ? tui.fullRedrawCount : 0,
+      lastRenderError: state.lastRenderError || null,
+    };
+  }
+
+  function requestRender(force) {
+    if (stopped) return;
+    chatView.invalidate();
+    updateLastRender();
+    tui.requestRender(force);
+  }
+
+  function handleRenderError(error, renderContext) {
+    state.lastRenderError = {
+      at: new Date().toISOString(),
+      message: error && error.message ? error.message : String(error),
+    };
+    diffResetCount += 1;
+    updateLastRender(renderContext);
+    return ['[runtime-next render error] ' + state.lastRenderError.message];
   }
 
   async function refreshBoardStatus(nextConfig) {
@@ -160,7 +171,7 @@ async function runRuntimeNextTui(config, options) {
         error: error && error.message ? error.message : String(error),
       };
     }
-    render();
+    requestRender();
   }
 
   async function startPrompt(text) {
@@ -168,7 +179,7 @@ async function runRuntimeNextTui(config, options) {
     state.mode = 'running';
     state.status = 'running';
     state.agentStatus = 'running';
-    render();
+    requestRender();
     try {
       await agentSession.prompt(text);
       if (state.mode === 'running') {
@@ -182,7 +193,7 @@ async function runRuntimeNextTui(config, options) {
       state.status = 'idle';
       state.agentStatus = 'error';
     }
-    render();
+    requestRender();
   }
 
   async function runCommand(value) {
@@ -220,14 +231,14 @@ async function runRuntimeNextTui(config, options) {
     if (value.charAt(0) === '/' || value.charAt(0) === '!') {
       await runCommand(value);
       if (state.shouldExit) stop();
-      render();
+      requestRender();
       return;
     }
 
     if (state.mode === 'running' && agentSession && typeof agentSession.steer === 'function') {
       agentSession.steer(value);
       stateModule.addMessage(state, { type: 'system', text: 'steer current run: ' + value });
-      render();
+      requestRender();
       return;
     }
     await startPrompt(value);
@@ -329,19 +340,19 @@ async function runRuntimeNextTui(config, options) {
     if (state.pendingToolApproval) {
       interactions.handleApprovalKey(state, key);
       stateModule.updateAutocomplete(state);
-      render();
+      requestRender();
       return true;
     }
     if (state.selector) {
       await interactions.handleSelectorKey(state, key, modalActions());
       stateModule.updateAutocomplete(state);
-      render();
+      requestRender();
       return true;
     }
     if (interactions.activePanel(state)) {
       interactions.handlePanelKey(state, key, modalActions());
       stateModule.updateAutocomplete(state);
-      render();
+      requestRender();
       return true;
     }
     return false;
@@ -351,9 +362,8 @@ async function runRuntimeNextTui(config, options) {
     if (stopped || !key) return;
 
     if (key.type === 'ctrl_l') {
-      diffRenderer.reset();
       diffResetCount += 1;
-      render();
+      requestRender(true);
       return;
     }
 
@@ -363,19 +373,19 @@ async function runRuntimeNextTui(config, options) {
 
     if (key.type === 'enter') {
       await submit(state.inputBuffer);
-      render();
+      requestRender();
       return;
     }
 
     if (key.type === 'ctrl_o') {
       toolFocus.toggleSelectedToolDetail(state);
-      render();
+      requestRender();
       return;
     }
 
     if (key.type === 'shift_ctrl_o') {
       toolFocus.toggleGlobalToolDetails(state);
-      render();
+      requestRender();
       return;
     }
 
@@ -397,7 +407,7 @@ async function runRuntimeNextTui(config, options) {
       } else {
         stop();
       }
-      render();
+      requestRender();
       return;
     }
 
@@ -405,7 +415,7 @@ async function runRuntimeNextTui(config, options) {
       var scrollPage = require('../../scroll');
       scrollPage.scrollByPages(state, -1);
       stateModule.updateAutocomplete(state);
-      render();
+      requestRender();
       return;
     }
 
@@ -413,13 +423,13 @@ async function runRuntimeNextTui(config, options) {
       var scrollPage = require('../../scroll');
       scrollPage.scrollByPages(state, 1);
       stateModule.updateAutocomplete(state);
-      render();
+      requestRender();
       return;
     }
 
     input.applyKey(state, key);
     stateModule.updateAutocomplete(state);
-    render();
+    requestRender();
   }
 
   async function onInput(sequence) {
@@ -431,15 +441,15 @@ async function runRuntimeNextTui(config, options) {
   }
 
   subscribe(agentSession);
-  terminal.start(function(sequence) {
+  tui.addInputListener(function(sequence) {
     onInput(sequence).catch(function(error) {
       stateModule.addMessage(state, { type: 'error', text: error && error.message ? error.message : String(error) });
-      render();
+      requestRender();
     });
-  }, function() {
-    render();
+    return { consume: true };
   });
-  render();
+  updateLastRender();
+  tui.start();
   refreshBoardStatus(activeConfig);
 
   return new Promise(function(resolve) {

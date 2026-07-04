@@ -44,6 +44,20 @@ equal(clears, 1, 'render clears screen');
 ok(writes.join('').indexOf('hello') >= 0, 'render writes text');
 ok(writes.join('').indexOf('中文') >= 0, 'render writes CJK');
 
+var seenContext = null;
+var contextTui = new runtime.TUI(terminal);
+contextTui.add({
+  render: function(width, context) {
+    seenContext = context;
+    return ['context'];
+  },
+});
+contextTui.renderNow();
+equal(seenContext.columns, terminal.columns, 'render context includes columns');
+equal(seenContext.rows, terminal.rows, 'render context includes rows');
+equal(seenContext.tui, contextTui, 'render context includes tui');
+equal(seenContext.terminal, terminal, 'render context includes terminal');
+
 var bad = new runtime.TUI(terminal);
 bad.add({ render: function() { return ['this line is too long']; } });
 var threw = false;

@@ -11,9 +11,12 @@ var RESET = '\x1b[0m';
 
 // ─── TUI Class ────────────────────────────────────────────────────────────────
 
-function TUI(terminal) {
+function TUI(terminal, options) {
   component.Container.call(this);
+  options = options || {};
   this.terminal = terminal || new terminalModule.ProcessTerminal();
+  this.onBeforeRender = typeof options.onBeforeRender === 'function' ? options.onBeforeRender : null;
+  this.onRenderError = typeof options.onRenderError === 'function' ? options.onRenderError : null;
 
   // Rendering state
   this.previousLines = [];
@@ -141,6 +144,7 @@ TUI.prototype.doRender = function doRender() {
 
   var width = this.terminal.columns;
   var height = this.terminal.rows;
+  if (this.onBeforeRender) this.onBeforeRender({ columns: width, rows: height, tui: this, terminal: this.terminal });
   var widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
   var heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
 
@@ -150,25 +154,34 @@ TUI.prototype.doRender = function doRender() {
     ? Math.max(0, previousBufferLength - height) : this.previousViewportTop;
   var viewportTop = prevViewportTop;
 
-  // 1. Render component tree
-  var newLines = this.render(width, {
+  var renderContext = {
+    columns: width,
+    rows: height,
     tui: this,
     terminal: this.terminal,
-  });
+  };
+  var newLines;
+  try {
+    // 1. Render component tree
+    newLines = this.render(width, renderContext);
 
-  // 2. Composite overlays
-  if (this.overlayStack.length > 0) {
-    var visibleEntries = [];
-    for (var ei = 0; ei < this.overlayStack.length; ei++) {
-      var entry = this.overlayStack[ei];
-      if (!entry.hidden) visibleEntries.push(entry);
+    // 2. Composite overlays
+    if (this.overlayStack.length > 0) {
+      var visibleEntries = [];
+      for (var ei = 0; ei < this.overlayStack.length; ei++) {
+        var entry = this.overlayStack[ei];
+        if (!entry.hidden) visibleEntries.push(entry);
+      }
+      if (visibleEntries.length > 0) {
+        var overlayEntries = visibleEntries.map(function(e) {
+          return { component: e.component, lines: null, options: e.options, context: renderContext };
+        }, this);
+        newLines = overlay.compositeOverlays(newLines, overlayEntries, { columns: width, rows: height });
+      }
     }
-    if (visibleEntries.length > 0) {
-      var overlayEntries = visibleEntries.map(function(e) {
-        return { component: e.component, lines: null, options: e.options, context: { tui: this, terminal: this.terminal } };
-      }, this);
-      newLines = overlay.compositeOverlays(newLines, overlayEntries, { columns: width, rows: height });
-    }
+  } catch (error) {
+    if (!this.onRenderError) throw error;
+    newLines = this.onRenderError(error, renderContext);
   }
 
   // 3. Extract cursor position
@@ -282,8 +295,11 @@ TUI.prototype._positionHardwareCursor = function _positionHardwareCursor(cursorP
   buf += '\x1b[' + (targetCol + 1) + 'G';
   this.terminal.write(buf);
   this.hardwareCursorRow = targetRow;
-  if (this.showHardwareCursor) { this.terminal.showCursor(); }
-  else { this.terminal.hideCursor(); }
+  if (this.showHardwareCursor) {
+    if (this.terminal && typeof this.terminal.showCursor === 'function') this.terminal.showCursor();
+  } else if (this.terminal && typeof this.terminal.hideCursor === 'function') {
+    this.terminal.hideCursor();
+  }
 };
 
 // ─── Overlay ──────────────────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ function FakeTerminal() {
   this.output = '';
   this.started = false;
   this.stopped = false;
+  this.clearCount = 0;
   this.inputHandler = null;
   this.resizeHandler = null;
 }
@@ -46,6 +47,9 @@ FakeTerminal.prototype.stop = function() {
 };
 FakeTerminal.prototype.write = function(data) {
   this.output += String(data || '');
+};
+FakeTerminal.prototype.clearScreen = function() {
+  this.clearCount += 1;
 };
 
 function createFakeSession() {
@@ -99,6 +103,7 @@ function createFakeSession() {
 async function main() {
   var terminal = new FakeTerminal();
   var fakeSession = createFakeSession();
+  var capturedState = null;
   var resultPromise = runRuntimeNextTui({
     workspace: '/tmp/ws',
     provider: 'mock',
@@ -106,18 +111,25 @@ async function main() {
   }, {
     terminal: terminal,
     createAgentSession: function() { return fakeSession; },
+    onState: function(state) { capturedState = state; },
     skipBoardStatus: true,
   });
 
   ok(terminal.started, 'terminal starts');
   ok(terminal.output.indexOf('mock/m') >= 0, 'initial render includes status');
+  equal(capturedState.lastRender.renderer, 'tui', 'runner records TUI renderer');
+
+  terminal.columns = 62;
+  terminal.resizeHandler();
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(terminal.clearCount > 0, 'runner resize render is owned by TUI');
 
   terminal.inputHandler('h');
   terminal.inputHandler('i');
-  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(terminal.output.indexOf('> hi') >= 0, 'typed input renders');
   terminal.inputHandler('\r');
-  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(fakeSession.prompts[0], 'hi', 'enter submits prompt');
   ok(terminal.output.indexOf('reply: hi') >= 0, 'agent event renders reply');
 
@@ -126,14 +138,14 @@ async function main() {
   terminal.inputHandler('o');
   terminal.inputHandler('l');
   terminal.inputHandler('\r');
-  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
   terminal.inputHandler('\x0f');
-  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(terminal.output.indexOf('bash') >= 0 && terminal.output.indexOf('tool summary') >= 0, 'ctrl+o opens tool detail');
   terminal.inputHandler('\x1b');
-  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
   terminal.inputHandler('\x1b[15;6u');
-  await new Promise(function(resolve) { setTimeout(resolve, 10); });
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'shift+ctrl+o expands tool detail in message list');
   terminal.inputHandler('\x0c');
   await new Promise(function(resolve) { setTimeout(resolve, 10); });

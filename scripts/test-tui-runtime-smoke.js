@@ -83,7 +83,7 @@ function send(terminal, text) {
 }
 
 function tick() {
-  return new Promise(function(resolve) { setTimeout(resolve, 15); });
+  return new Promise(function(resolve) { setTimeout(resolve, 150); });
 }
 
 async function main() {
@@ -111,7 +111,7 @@ async function main() {
   send(terminal, '/help');
   terminal.inputHandler('\r');
   await tick();
-  ok(terminal.output.indexOf('Loong Agent') >= 0 || terminal.output.indexOf('/help') >= 0, 'help command renders readable output');
+  ok(terminal.output.indexOf('Commands:') >= 0 || terminal.output.indexOf('/commands') >= 0 || terminal.output.indexOf('Scroll:') >= 0, 'help command renders readable output');
 
   send(terminal, '/debug package runs/tui-runtime-smoke-debug');
   terminal.inputHandler('\r');
