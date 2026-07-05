@@ -333,6 +333,22 @@ test('ephemeral system status is visible only while running', () => {
   assert(live.indexOf('intake status live only') < 0, 'ephemeral system status should be hidden when idle');
 });
 
+test('event adapter keeps agent_start workflow status internal', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  handleAgentEvent(state, {
+    type: 'agent_start',
+    prompt: '你好',
+    providerProfile: 'deepseek',
+    provider: 'deepseek',
+    model: 'deepseek-v4-flash',
+  });
+  const output = renderTui(state, { columns: 100, rows: 18 });
+  const plain = stripAnsi(output);
+  assert(plain.indexOf('解析需求') < 0, 'agent_start workflow status should not be visible');
+  assert(plain.indexOf('prompt: 你好') < 0, 'agent_start prompt audit should not be visible');
+  assert(state.messages.some((message) => message.internal && message.hidden), 'agent_start audit message should stay internal');
+});
+
 test('renderer does not expose api key-like text from state', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.apiKey = 'secret-key';

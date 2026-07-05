@@ -160,11 +160,58 @@ function toolResultContent(message) {
   return JSON.stringify(details === undefined ? null : details);
 }
 
+function toolCallIds(message) {
+  return (message && Array.isArray(message.tool_calls) ? message.tool_calls : [])
+    .map((toolCall) => toolCall && toolCall.id ? String(toolCall.id) : '')
+    .filter(Boolean);
+}
+
+function sanitizeOpenAiToolMessageSequence(messages) {
+  const input = Array.isArray(messages) ? messages : [];
+  const output = [];
+  for (let index = 0; index < input.length; index += 1) {
+    const message = input[index];
+    if (!message) continue;
+    if (message.role === 'tool') continue;
+    if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || !message.tool_calls.length) {
+      output.push(message);
+      continue;
+    }
+
+    const expectedIds = toolCallIds(message);
+    if (!expectedIds.length || expectedIds.length !== message.tool_calls.length) {
+      continue;
+    }
+    const pending = {};
+    expectedIds.forEach((id) => { pending[id] = true; });
+    const toolMessages = [];
+    let cursor = index + 1;
+    let invalid = false;
+    while (cursor < input.length && input[cursor] && input[cursor].role === 'tool') {
+      const toolMessage = input[cursor];
+      const id = toolMessage.tool_call_id ? String(toolMessage.tool_call_id) : '';
+      if (!pending[id]) {
+        invalid = true;
+        break;
+      }
+      delete pending[id];
+      toolMessages.push(toolMessage);
+      cursor += 1;
+    }
+    if (!invalid && Object.keys(pending).length === 0) {
+      output.push(message);
+      toolMessages.forEach((toolMessage) => output.push(toolMessage));
+    }
+    index = Math.max(index, cursor - 1);
+  }
+  return output;
+}
+
 function toOpenAiMessages(messages, options) {
   if (!options || !options.nativeTools) return convertToLlm(messages, options);
   const subjectSet = selectedSubjectSet(options || {});
   const maxMessages = Math.max(1, Number((options && options.maxMessages) || 12));
-  return (messages || [])
+  const converted = (messages || [])
     .slice(-maxMessages)
     .map((message) => {
       if (!message || message.internal) return null;
@@ -206,6 +253,7 @@ function toOpenAiMessages(messages, options) {
       return null;
     })
     .filter(Boolean);
+  return sanitizeOpenAiToolMessageSequence(converted);
 }
 
 function classifyPromptSubjects(prompt) {
@@ -218,5 +266,6 @@ module.exports = {
   classifyPromptSubjects,
   convertToLlm,
   observationToText,
+  sanitizeOpenAiToolMessageSequence,
   toOpenAiMessages,
 };

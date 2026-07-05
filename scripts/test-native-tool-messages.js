@@ -97,6 +97,36 @@ test('toOpenAiMessages emits assistant tool_calls paired with role tool results'
   assert.deepStrictEqual(JSON.parse(messages[toolIndex].content), result);
 });
 
+test('toOpenAiMessages drops unpaired assistant tool_calls and orphan tool results', () => {
+  const state = createAgentState();
+  state.turn = 1;
+
+  recordAssistantMessage(state, 'I will inspect.', { toolCalls: [createToolCall()] });
+  state.messages.push({
+    role: 'user',
+    content: 'next visible user prompt',
+    timestamp: new Date().toISOString(),
+  });
+  state.messages.push({
+    role: 'toolResult',
+    tool: 'bash',
+    toolName: 'bash',
+    toolCallId: 'orphan_call',
+    content: { ok: true },
+    details: { ok: true },
+    timestamp: new Date().toISOString(),
+  });
+
+  const messages = toOpenAiMessages(state.messages, {
+    nativeTools: true,
+    includeToolResults: true,
+  });
+
+  assert(!messages.some((item) => item.role === 'assistant' && item.tool_calls), 'unpaired assistant tool_calls should be dropped');
+  assert(!messages.some((item) => item.role === 'tool'), 'orphan tool result should be dropped');
+  assert(messages.some((item) => item.role === 'user' && item.content === 'next visible user prompt'), 'normal user prompt should remain');
+});
+
 test('convertToLlm keeps legacy toolResult conversion as user text', () => {
   const state = createAgentState();
   state.turn = 1;

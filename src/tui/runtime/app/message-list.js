@@ -79,7 +79,7 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
 
   for (var index = 0; index < messages.length; index += 1) {
     var message = messages[index] || {};
-    if (message.internal) continue;
+    if (message.internal || message.hidden) continue;
     if (lines.length > 0) lines.push('');
     var text = messageText(message);
 

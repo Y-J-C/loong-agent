@@ -44,6 +44,7 @@ var state = {
     { type: 'tool', toolName: 'bash', status: 'running', summary: 'ls' },
     { type: 'system', text: 'system note' },
     { type: 'system', text: 'internal note', internal: true },
+    { type: 'system', text: 'hidden note', hidden: true },
     { type: 'error', text: 'bad thing' },
   ],
   currentSession: { id: 'abcdef123456' },
@@ -61,6 +62,7 @@ ok(plain.indexOf('你好 runtime') >= 0, 'renders input line');
 ok(plain.indexOf('> 你好 runtime') < 0, 'input line omits prompt');
 ok(plain.indexOf('system note') >= 0, 'renders non-internal system message');
 ok(plain.indexOf('internal note') < 0, 'hides internal message');
+ok(plain.indexOf('hidden note') < 0, 'hides hidden message');
 var inputIndex = plain.indexOf('你好 runtime');
 var solidBorder = '────────────────────────────────────────────────────────────';
 var beforeInput = plain.lastIndexOf(solidBorder, inputIndex);

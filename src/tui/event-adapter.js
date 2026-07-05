@@ -153,6 +153,8 @@ function handleAgentEvent(state, event) {
     if (event.prompt) {
       addMessage(state, {
         type: 'system',
+        internal: true,
+        hidden: true,
         ephemeral: true,
         text: [
           workflow('intake', event.prompt),
