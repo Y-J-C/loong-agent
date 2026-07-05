@@ -257,6 +257,32 @@ function safeJsonParseToolArguments(value) {
   }
 }
 
+function parseToolArgumentsResult(value) {
+  const raw = String(value || '');
+  if (!raw.trim()) {
+    return { ok: true, value: {}, error: '', rawPreview: '' };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        value: {},
+        error: 'Invalid tool call arguments JSON: arguments must be an object',
+        rawPreview: raw.slice(0, 300),
+      };
+    }
+    return { ok: true, value: parsed, error: '', rawPreview: '' };
+  } catch (error) {
+    return {
+      ok: false,
+      value: {},
+      error: `Invalid tool call arguments JSON: ${error.message}`,
+      rawPreview: raw.slice(0, 300),
+    };
+  }
+}
+
 const DSML_PREFIX_PATTERN = '<｜｜DSML｜｜';
 const DSML_TAG_PREFIX = '<\\s*[｜|]\\s*[｜|]\\s*DSML\\s*[｜|]\\s*[｜|]\\s*';
 const DSML_TAG_SUFFIX = '\\s*>';
@@ -408,11 +434,14 @@ function extractOpenAiMessage(parsed) {
   const parsedToolCalls = [];
   for (const toolCall of msg.tool_calls || []) {
     const fn = toolCall && toolCall.function ? toolCall.function : {};
+    const parsedArguments = parseToolArgumentsResult(fn.arguments || '{}');
     parsedToolCalls.push({
       type: 'toolCall',
       id: toolCall.id || '',
       name: fn.name || '',
-      arguments: safeJsonParseToolArguments(fn.arguments || '{}'),
+      arguments: parsedArguments.value,
+      argumentsParseError: parsedArguments.error,
+      argumentsRawPreview: parsedArguments.rawPreview,
     });
   }
   const content = normalizeNativeContentBlocks(typeof msg.content === 'string' ? msg.content : '', parsedToolCalls);
@@ -713,11 +742,14 @@ function createNativeToolCallAccumulator() {
         if (!toolCall.name) {
           throw new Error(`Native streaming tool call at index ${index} did not contain a function name`);
         }
+        const parsedArguments = parseToolArgumentsResult(toolCall.arguments || '{}');
         parsedToolCalls.push({
           type: 'toolCall',
           id: toolCall.id || '',
           name: toolCall.name,
-          arguments: safeJsonParseToolArguments(toolCall.arguments || '{}'),
+          arguments: parsedArguments.value,
+          argumentsParseError: parsedArguments.error,
+          argumentsRawPreview: parsedArguments.rawPreview,
         });
       }
       const content = normalizeNativeContentBlocks(this.text, parsedToolCalls);
@@ -895,6 +927,7 @@ module.exports = {
   isRecoverableStreamError,
   parseSseData,
   parseDsmlToolCalls,
+  parseToolArgumentsResult,
   registerProvider,
   safeJsonParseToolArguments,
   streamJson,

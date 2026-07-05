@@ -69,6 +69,7 @@ function tools() {
 
 function registryFor(toolDefs) {
   const map = {};
+  const order = [];
   for (const tool of toolDefs) {
     map[tool.name] = Object.assign({}, tool, {
       renderCall(input) {
@@ -85,9 +86,11 @@ function registryFor(toolDefs) {
     },
     async execute(config, name, input, executionContext) {
       if (!map[name]) throw new Error(`Unknown tool: ${name}`);
+      order.push({ name, input, toolCallId: executionContext && executionContext.toolCallId });
       const raw = await map[name].execute(config, input || {}, executionContext || {});
       return Object.assign({ ok: true }, raw);
     },
+    order,
   };
 }
 
@@ -118,12 +121,13 @@ async function runNativeScenario(responses, options) {
   let legacyCalls = 0;
   let nativeCalls = 0;
   const nativeRequests = [];
+  const registry = registryFor(tools());
 
   const result = await runAgentLoop({
     config: baseConfig(options && options.config),
     userPrompt: 'inspect target',
     state,
-    registry: registryFor(tools()),
+    registry,
     emit: async (event) => {
       events.push(event);
     },
@@ -155,7 +159,7 @@ async function runNativeScenario(responses, options) {
     },
   });
 
-  return { events, legacyCalls, nativeCalls, nativeRequests, result, state };
+  return { events, legacyCalls, nativeCalls, nativeRequests, registry, result, state };
 }
 
 test('parseNativeAgentMessage returns final answer when no toolCall exists', () => {
@@ -172,6 +176,18 @@ test('parseNativeAgentMessage rejects non-object tool arguments', () => {
   }]));
   assert(parsed.kind === 'invalid_action', 'expected invalid action');
   assert(parsed.error && parsed.error.code === 'invalid_tool_action', 'error code mismatch');
+});
+
+test('parseNativeAgentMessage treats malformed native tool arguments as recoverable invalid action', () => {
+  const parsed = parseNativeAgentMessage(toolMessage('bad args', [{
+    id: 'call_bad_json',
+    name: 'inspect',
+    arguments: {},
+    argumentsParseError: 'Invalid tool call arguments JSON: Unexpected end of JSON input',
+  }]));
+  assert(parsed.kind === 'invalid_action', 'expected invalid action');
+  assert(parsed.error && parsed.error.code === 'invalid_tool_arguments_json', 'error code mismatch');
+  assert(parsed.error && parsed.error.recoverable === true, 'malformed arguments should be recoverable');
 });
 
 test('native agent-loop executes one tool, preserves provider toolCallId, and continues', async () => {
@@ -199,6 +215,24 @@ test('native agent-loop executes one tool, preserves provider toolCallId, and co
   assert(run.state.observations.some((item) => item.toolCallId === 'call_native_1'), 'observation id mismatch');
   assert(run.state.messages.some((item) => item.role === 'assistant' && item.toolCalls && item.toolCalls[0].id === 'call_native_1'), 'assistant toolCalls missing');
   assert(run.state.messages.some((item) => item.role === 'toolResult' && item.toolCallId === 'call_native_1'), 'toolResult message missing');
+});
+
+test('native agent-loop retries malformed tool arguments without executing bad tool call', async () => {
+  const run = await runNativeScenario([
+    toolMessage('I will inspect.', [{
+      id: 'call_malformed_args',
+      name: 'inspect',
+      arguments: { target: 'should-not-run' },
+      argumentsParseError: 'Invalid tool call arguments JSON: Unexpected end of JSON input',
+    }]),
+    textMessage('recovered after malformed tool arguments'),
+  ]);
+
+  assert(run.nativeCalls === 2, 'agent should retry after malformed native tool arguments');
+  assert(run.registry.order.length === 0, 'malformed tool call must not execute');
+  assert(run.result.summary === 'recovered after malformed tool arguments', 'final summary mismatch');
+  assert(run.events.some((event) => event.type === 'turn_end' && event.status === 'retry'), 'retry turn_end missing');
+  assert(run.state.messages.some((item) => item.role === 'toolResult' && /Invalid tool call arguments JSON/.test(JSON.stringify(item.details || item.content || ''))), 'parse error should be recorded');
 });
 
 test('native agent-loop accepts empty assistant content with toolCall', async () => {

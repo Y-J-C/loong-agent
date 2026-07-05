@@ -296,6 +296,8 @@ function nativeMessageToolCalls(message) {
       id: item.id || '',
       name: item.name || '',
       arguments: item.arguments,
+      argumentsParseError: item.argumentsParseError || '',
+      argumentsRawPreview: item.argumentsRawPreview || '',
     }));
 }
 
@@ -328,6 +330,14 @@ function parseNativeAgentMessage(message) {
   }
   try {
     const actions = toolCalls.map((toolCall) => {
+      if (toolCall.argumentsParseError) {
+        const error = createLoopError(toolCall.argumentsParseError, 'invalid_tool_arguments_json');
+        error.recoverable = true;
+        error.toolName = toolCall.name || '';
+        error.toolCallId = toolCall.id || '';
+        error.argumentsRawPreview = toolCall.argumentsRawPreview || '';
+        throw error;
+      }
       if (!toolCall.arguments || typeof toolCall.arguments !== 'object' || Array.isArray(toolCall.arguments)) {
         throw createLoopError('Native tool call arguments must be an object', 'invalid_tool_action');
       }
@@ -2039,21 +2049,36 @@ async function runAgentLoop(options) {
 
     if (response.kind === 'invalid_action') {
       invalidJsonCount += 1;
+      const invalidReason = response.error && response.error.code === 'invalid_tool_arguments_json'
+        ? 'invalid_tool_arguments_json'
+        : 'invalid_model_json';
       const result = {
         error: errorMessage(response.error),
+        code: response.error && response.error.code ? response.error.code : invalidReason,
       };
       recordToolResult(state, {
         tool: 'model_response',
-        reason: 'invalid JSON response',
+        reason: invalidReason === 'invalid_tool_arguments_json' ? 'invalid native tool arguments JSON' : 'invalid JSON response',
         input: {},
       }, result);
       await emitTurnEnd(turnContext, {
         isError: true,
         status: 'retry',
-        reason: 'invalid_model_json',
+        reason: invalidReason,
       });
       if (invalidJsonCount >= 2) {
         return failRun(turnContext, response.error, { code: response.error.code || 'invalid_model_response' });
+      }
+      if (invalidReason === 'invalid_tool_arguments_json') {
+        pendingMessages.push({
+          content: [
+            'Your previous native tool call arguments were malformed or truncated JSON.',
+            'Do not repeat the same large tool call. Split long content into smaller steps, use shorter arguments, or write large scripts/files in smaller chunks.',
+            'Return a valid native tool call with complete JSON arguments, or answer with what failed if you cannot safely continue.',
+          ].join('\n'),
+          internal: true,
+        });
+        continue;
       }
       pendingMessages.push({
         content: 'Your previous response looked like a malformed tool or answer JSON object. Return either {"type":"tool","tool":"...","input":{},"reason":"..."} or {"type":"answer","answer":"...","status":"ok"}.',

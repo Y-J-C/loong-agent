@@ -389,7 +389,7 @@ test('chatCompletionWithToolsAndEvents accepts empty content with streaming tool
   });
 });
 
-test('chatCompletionWithToolsAndEvents rejects invalid streamed tool arguments', async () => {
+test('chatCompletionWithToolsAndEvents preserves invalid streamed tool arguments as recoverable toolCall error', async () => {
   await withSseServer([
     sseEvent(toolDelta(0, {
       id: 'call_bad_args',
@@ -398,18 +398,15 @@ test('chatCompletionWithToolsAndEvents rejects invalid streamed tool arguments',
     sseEvent(finishDelta('tool_calls')),
     doneEvent(),
   ], async (baseUrl) => {
-    let failed = null;
-    try {
-      await chatCompletionWithToolsAndEvents(
-        baseConfig({ baseUrl }),
-        [{ role: 'user', content: 'inspect' }],
-        { tools: tools() }
-      );
-    } catch (error) {
-      failed = error;
-    }
-    assert(failed, 'expected invalid arguments failure');
-    assert(/Invalid tool call arguments JSON/.test(failed.message), 'unexpected error message');
+    const message = await chatCompletionWithToolsAndEvents(
+      baseConfig({ baseUrl }),
+      [{ role: 'user', content: 'inspect' }],
+      { tools: tools() }
+    );
+    const toolCall = message.content.find((item) => item.type === 'toolCall');
+    assert(toolCall && toolCall.id === 'call_bad_args', 'malformed streamed toolCall should be preserved');
+    assert(/Invalid tool call arguments JSON/.test(toolCall.argumentsParseError || ''), 'unexpected parse error message');
+    assert(Object.keys(toolCall.arguments || {}).length === 0, 'malformed arguments should not be treated as valid input');
   });
 });
 

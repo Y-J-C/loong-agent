@@ -237,6 +237,45 @@ test('chatCompletionWithTools returns structured toolCall content', async () => 
   });
 });
 
+test('chatCompletionWithTools preserves malformed tool arguments as recoverable toolCall error', async () => {
+  await withServer((payload, res) => {
+    assert(Array.isArray(payload.tools), 'request payload missing tools');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      id: 'cmpl-bad-args',
+      model: 'deepseek-v4-flash',
+      choices: [{
+        finish_reason: 'tool_calls',
+        message: {
+          role: 'assistant',
+          content: 'I will write a file.',
+          tool_calls: [{
+            id: 'call_bad_args',
+            type: 'function',
+            function: {
+              name: 'bash',
+              arguments: '{"command":"python3 - <<EOF\\nprint(1)',
+            },
+          }],
+        },
+      }],
+    }));
+  }, async (baseUrl) => {
+    const message = await chatCompletionWithTools(
+      config(baseUrl),
+      [{ role: 'user', content: 'run script' }],
+      { tools: tools() }
+    );
+    const toolCall = message.content.find((item) => item.type === 'toolCall');
+
+    assert(toolCall && toolCall.id === 'call_bad_args', 'toolCall should still be returned');
+    assert(toolCall.name === 'bash', 'toolCall name mismatch');
+    assert(toolCall.arguments && Object.keys(toolCall.arguments).length === 0, 'malformed arguments should not be treated as valid input');
+    assert(/Invalid tool call arguments JSON/.test(toolCall.argumentsParseError || ''), 'parse error should be preserved');
+    assert((toolCall.argumentsRawPreview || '').length <= 300, 'raw preview should be bounded');
+  });
+});
+
 test('legacy chatCompletion still returns string content', async () => {
   await withServer((payload, res) => {
     assert(!Object.prototype.hasOwnProperty.call(payload, 'tools'), 'legacy payload should not include tools');
