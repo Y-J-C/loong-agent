@@ -6,7 +6,6 @@ var component = require('../component');
 var renderMessageList = require('./message-list').renderRuntimeMessageList;
 var renderInputBlock = require('./input-line').renderRuntimeInputBlock;
 var Footer = require('./status-bar').Footer;
-var DynamicBorder = require('../components/dynamic-border').DynamicBorder;
 var compositeOverlays = require('../overlay').compositeOverlays;
 var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
 
@@ -16,9 +15,7 @@ function ChatView(state, options) {
   this.state = state || {};
   this.renderStateOverlays = options.renderStateOverlays !== false;
   this.footer = new Footer(state);
-  this.divider = new DynamicBorder({ colorToken: 'divider' });
   this.addChild(this.footer);    // children[0]
-  this.addChild(this.divider);    // children[1]
 }
 
 ChatView.prototype = Object.create(component.Container.prototype);
@@ -40,12 +37,11 @@ ChatView.prototype.render = function render(width, context) {
     showHardwareCursor: context && context.showHardwareCursor,
   });
   var footerLines = this.footer.render(cols, renderCtx);
-  var dividerLine = this.divider.render(cols, renderCtx);
 
-  var bodyHeight = Math.max(1, rows - inputLines.length - dividerLine.length - footerLines.length);
+  var bodyHeight = Math.max(1, rows - inputLines.length - footerLines.length);
   var body = renderMessageList(state, cols, bodyHeight, renderCtx);
 
-  var lines = body.concat(dividerLine).concat(inputLines).concat(footerLines).slice(0, rows);
+  var lines = body.concat(inputLines).concat(footerLines).slice(0, rows);
   while (lines.length < rows) lines.push('');
 
   lines = lines.map(function(line) {

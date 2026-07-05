@@ -3,11 +3,27 @@
 var Input = require('../components/input').Input;
 var Editor = require('../components/editor').Editor;
 var AutocompleteComponent = require('../../components').AutocompleteComponent;
+var themeMod = require('../theme');
 var inputSurface = require('./input-surface');
 var policy = require('./surface-policy');
 
 function hasModal(state) {
   return Boolean(policy.isInputSurfaceActive(state) || policy.isOverlaySurfaceActive(state));
+}
+
+function resolveEditorBorderToken(state) {
+  var value = state && state.inputBuffer ? String(state.inputBuffer) : '';
+  if (value.charAt(0) === '!') return 'toolRunning';
+  if (state && (state.mode === 'running' || state.status === 'running' || state.agentStatus === 'running')) {
+    return 'editorActiveBorder';
+  }
+  return 'editorBorder';
+}
+
+function renderInputBorder(width, options, state) {
+  var columns = Math.max(1, Number(width) || 80);
+  var theme = options && options.theme ? options.theme : themeMod.getTheme(state && state.theme);
+  return themeMod.paint(theme, resolveEditorBorderToken(state), '─'.repeat(columns));
 }
 
 function renderRuntimeInputLine(state, width, options) {
@@ -18,6 +34,7 @@ function renderRuntimeInputLine(state, width, options) {
     value: value,
     cursor: cursor,
     focused: options.focused !== false && !hasModal(state),
+    prompt: '',
   });
   return component.render(Math.max(1, Number(width) || 80), {
     theme: options.theme,
@@ -30,21 +47,29 @@ function renderRuntimeInputBlock(state, width, options) {
   if (inputSurface.isInputSurfaceActive(state)) {
     return inputSurface.renderRuntimeInputSurface(state, width, options);
   }
+  var columns = Math.max(1, Number(width) || 80);
   var value = state && state.inputBuffer ? state.inputBuffer : '';
-  var autocomplete = renderRuntimeAutocompleteBlock(state, width, options);
-  if (String(value).indexOf('\n') < 0) return autocomplete.concat([renderRuntimeInputLine(state, width, options)]);
-  var cursor = state && state.cursor !== undefined ? state.cursor : Array.from(value).length;
-  var height = Math.max(2, Math.min(Number(options.height) || 4, String(value).split(/\n/).length + 1));
-  var component = new Editor({
-    value: value,
-    cursor: cursor,
-    focused: options.focused !== false && !hasModal(state),
-  });
-  return autocomplete.concat(component.render(Math.max(1, Number(width) || 80), {
-    height: height,
-    theme: options.theme,
-    showHardwareCursor: options.showHardwareCursor,
-  }));
+  var autocomplete = renderRuntimeAutocompleteBlock(state, columns, options);
+  var inputLines;
+  if (String(value).indexOf('\n') < 0) {
+    inputLines = [renderRuntimeInputLine(state, columns, options)];
+  } else {
+    var cursor = state && state.cursor !== undefined ? state.cursor : Array.from(value).length;
+    var height = Math.max(2, Math.min(Number(options.height) || 4, String(value).split(/\n/).length + 1));
+    var component = new Editor({
+      value: value,
+      cursor: cursor,
+      focused: options.focused !== false && !hasModal(state),
+      prompt: '',
+    });
+    inputLines = component.render(columns, {
+      height: height,
+      theme: options.theme,
+      showHardwareCursor: options.showHardwareCursor,
+    });
+  }
+  var border = renderInputBorder(columns, options, state);
+  return autocomplete.concat([border]).concat(inputLines).concat([border]);
 }
 
 function renderRuntimeAutocompleteBlock(state, width, options) {
@@ -60,6 +85,7 @@ function renderRuntimeAutocompleteBlock(state, width, options) {
 
 module.exports = {
   hasModal: hasModal,
+  resolveEditorBorderToken: resolveEditorBorderToken,
   renderRuntimeAutocompleteBlock: renderRuntimeAutocompleteBlock,
   renderRuntimeInputBlock: renderRuntimeInputBlock,
   renderRuntimeInputLine: renderRuntimeInputLine,

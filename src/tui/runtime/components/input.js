@@ -13,7 +13,7 @@ function Input(options) {
   this.value = String(options.value || '');
   this.cursor = Math.max(0, Math.min(chars(this.value).length, Number(options.cursor) || 0));
   this.focused = options.focused !== false;
-  this.prompt = options.prompt || '> ';
+  this.prompt = options.prompt !== undefined ? options.prompt : '';
   this.onSubmit = options.onSubmit || null;
   this.onEscape = options.onEscape || null;
 }

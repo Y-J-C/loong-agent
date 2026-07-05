@@ -106,7 +106,11 @@ var baseState = {
   { columns: 40, rows: 10 },
 ].forEach(function(size) {
   var view = new ChatView(Object.assign({}, baseState));
-  assertFrameFits(view.render(size.columns, { rows: size.rows, theme: plain }), size.columns, size.rows, 'chat ' + size.columns + 'x' + size.rows);
+  var chatLines = view.render(size.columns, { rows: size.rows, theme: plain });
+  var chatPlain = utils.stripAnsi(chatLines.join('\n'));
+  assertFrameFits(chatLines, size.columns, size.rows, 'chat ' + size.columns + 'x' + size.rows);
+  ok(chatPlain.indexOf('─'.repeat(size.columns)) >= 0, 'chat ' + size.columns + 'x' + size.rows + ' uses solid input border');
+  ok(chatPlain.indexOf('-'.repeat(size.columns)) < 0, 'chat ' + size.columns + 'x' + size.rows + ' omits extra dashed divider');
 });
 
 var overlayState = Object.assign({}, baseState, {

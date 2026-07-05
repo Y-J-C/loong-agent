@@ -134,7 +134,8 @@ async function main() {
   terminal.inputHandler('h');
   terminal.inputHandler('i');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  ok(terminal.output.indexOf('> hi') >= 0, 'typed input renders');
+  ok(terminal.output.indexOf('hi') >= 0, 'typed input renders');
+  ok(terminal.output.indexOf('> hi') < 0, 'typed input omits prompt');
 
   terminal.inputHandler('x');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });

@@ -34,9 +34,13 @@ var input = new Input({ value: '你好龙芯', cursor: 2, focused: true });
 var line = input.render(20)[0];
 ok(line.indexOf(CURSOR_MARKER) >= 0, 'focused input renders marker');
 equal(markerCount(line), 1, 'focused input renders exactly one marker');
+ok(stripCursorMarker(line).indexOf('> ') < 0, 'input default prompt is empty');
 ok(stripCursorMarker(line).indexOf('你好') >= 0, 'CJK text renders');
 ok(visibleWidth(line) <= 20, 'focused input fits width');
 ok(line.indexOf('\x1b[7m') < 0, 'hardware cursor mode omits inverse software cursor');
+
+var promptedInput = new Input({ value: 'hello', cursor: 0, focused: false, prompt: '> ' }).render(12)[0];
+ok(stripCursorMarker(promptedInput).indexOf('> hello') >= 0, 'input explicit prompt is preserved');
 
 var softwareLine = input.render(20, { showHardwareCursor: false })[0];
 ok(softwareLine.indexOf(CURSOR_MARKER) >= 0, 'software cursor mode keeps marker');
@@ -73,6 +77,10 @@ ok(stripCursorMarker(endCjkLine).indexOf('\u9f99\u82af') >= 0, 'end CJK input ke
 var editor = new Editor({ value: 'hello\nworld', cursor: 7, focused: true });
 var editorLines = editor.render(20, { height: 3 });
 equal(markerCount(editorLines.join('\n')), 1, 'focused editor renders exactly one marker');
+ok(stripCursorMarker(editorLines.join('\n')).indexOf('> ') < 0, 'editor default prompt is empty');
+
+var promptedEditorLines = new Editor({ value: 'hello\nworld', cursor: 0, focused: false, prompt: '> ' }).render(20, { height: 2 });
+ok(stripCursorMarker(promptedEditorLines.join('\n')).indexOf('> hello') >= 0, 'editor explicit prompt is preserved');
 
 var blurredEditor = new Editor({ value: 'hello\nworld', cursor: 7, focused: false });
 var blurredEditorLines = blurredEditor.render(20, { height: 3 });

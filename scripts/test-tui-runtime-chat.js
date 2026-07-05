@@ -43,6 +43,7 @@ var state = {
     { type: 'assistant_final', text: 'final answer' },
     { type: 'tool', toolName: 'bash', status: 'running', summary: 'ls' },
     { type: 'system', text: 'system note' },
+    { type: 'system', text: 'internal note', internal: true },
     { type: 'error', text: 'bad thing' },
   ],
   currentSession: { id: 'abcdef123456' },
@@ -56,7 +57,16 @@ ok(plain.indexOf('hello assistant') >= 0, 'renders assistant message');
 ok(plain.indexOf('- markdown item') >= 0, 'renders assistant markdown item');
 ok(plain.indexOf('final answer') >= 0, 'renders final answer');
 ok(plain.indexOf('bash') >= 0, 'renders tool summary');
-ok(plain.indexOf('> 你好 runtime') >= 0, 'renders input line');
+ok(plain.indexOf('你好 runtime') >= 0, 'renders input line');
+ok(plain.indexOf('> 你好 runtime') < 0, 'input line omits prompt');
+ok(plain.indexOf('system note') >= 0, 'renders non-internal system message');
+ok(plain.indexOf('internal note') < 0, 'hides internal message');
+var inputIndex = plain.indexOf('你好 runtime');
+var solidBorder = '────────────────────────────────────────────────────────────';
+var beforeInput = plain.lastIndexOf(solidBorder, inputIndex);
+var afterInput = plain.indexOf(solidBorder, inputIndex);
+ok(beforeInput >= 0 && afterInput > inputIndex, 'renders input borders around input line');
+ok(plain.indexOf('------------------------------------------------------------') < 0, 'chat view omits extra divider line');
 ok(plain.indexOf('m ') >= 0 || plain.indexOf('mock') >= 0, 'renders model in footer');
 ok(plain.indexOf('abcdef12') >= 0, 'renders session short id');
 ok(lines.every(function(line) { return visibleWidth(line) <= 60; }), 'all lines fit width');
@@ -73,6 +83,7 @@ var multiLines = renderRuntimeChatView(multiState, { columns: 50, rows: 10 });
 var multiPlain = stripAnsi(multiLines.join('\n'));
 ok(multiPlain.indexOf('first line') >= 0, 'renders first editor line');
 ok(multiPlain.indexOf('第二行') >= 0, 'renders second editor line');
+ok(multiPlain.indexOf('> first line') < 0, 'multi-line editor omits prompt');
 ok(multiLines.every(function(line) { return visibleWidth(line) <= 50; }), 'multi-line chat view fits width');
 
 var panelState = Object.assign({}, state, {
