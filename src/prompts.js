@@ -22,6 +22,13 @@ const CORE_RULES = `Core rules:
 - User-specified absolute output paths are allowed. Record the exact path in the answer when creating or editing files.
 - After writing a script, use bash to execute it and read to inspect generated output files.`;
 
+const OPERATIONAL_GUIDELINES = `Operational guidelines:
+- When bash returns timedOut=true, do not blindly repeat the same command. Either: increase timeoutMs up to 300000 for bounded commands, or use background:true + process_wait for long-running tasks.
+- When bash returns exitCode=127 or errorType=not_found, the command is not installed or unavailable. Check installation or use an available alternative before retrying.
+- After bash background:true, use process_status, process_wait, process_logs, and read generated output files before answering from the task result.
+- When command output is truncated, inspect fullOutputPath if provided, or rerun with narrower output before drawing conclusions.
+- Use write for new files or complete rewrites. Do not switch to bash heredoc unless tool-call arguments are malformed/truncated or the write path explicitly fails.`;
+
 const LEGACY_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
 
 Available tools:
@@ -39,6 +46,8 @@ Response protocol:
   {"type":"answer","answer":"final answer","status":"ok","evidence":[]}
 
 ${CORE_RULES}
+
+${OPERATIONAL_GUIDELINES}
 - The finish tool is legacy compatibility. Prefer type="answer" or natural language for final answers.`;
 
 const NATIVE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
@@ -52,7 +61,9 @@ Native tool calling:
 - If no tool is needed, answer naturally and cite the evidence already present in context.
 - Do not invent tool results; wait for tool result messages before relying on tool output.
 
-${CORE_RULES}`;
+${CORE_RULES}
+
+${OPERATIONAL_GUIDELINES}`;
 
 function defaultExtensionGuidelines() {
   try {

@@ -13,7 +13,7 @@ const { parseAgentResponse, parseToolCall } = require('../src/agent-loop');
 const { runAgent } = require('../src/agent');
 const { createAgentSession } = require('../src/agent-session');
 const { createDefaultExtensionRuntime, createExtensionRuntime } = require('../src/extensions');
-const { createDefaultPrepareNextTurn, createHookRunner, toolErrorRecoveryHook } = require('../src/hooks');
+const { createDefaultPrepareNextTurn, createHookRunner, longTaskWorkflowHook, toolErrorRecoveryHook } = require('../src/hooks');
 const { registerProvider } = require('../src/llm');
 const { classifyRequestContext, selectContextMessages } = require('../src/context-selector');
 const { bindClaims, extractClaims, validateFinalAnswerBinding } = require('../src/evidence-binding');
@@ -126,6 +126,12 @@ test('prompt uses native protocol without embedded tool list or json_action inst
   assert(nativeSystem.indexOf('finish tool') < 0, 'native prompt should not mention finish tool guidance');
   assert(nativeSystem.indexOf('Use typed observations and current tool evidence') >= 0, 'native prompt should keep evidence rules');
   assert(nativeSystem.indexOf('actually call write') >= 0, 'native prompt should keep artifact write rule');
+  assert(nativeSystem.indexOf('timedOut=true') >= 0, 'native prompt missing bash timeout recovery rule');
+  assert(nativeSystem.indexOf('timeoutMs up to 300000') >= 0, 'native prompt missing timeoutMs limit guidance');
+  assert(nativeSystem.indexOf('background:true + process_wait') >= 0, 'native prompt missing background process_wait guidance');
+  assert(nativeSystem.indexOf('exitCode=127') >= 0 || nativeSystem.indexOf('errorType=not_found') >= 0, 'native prompt missing command-not-found guidance');
+  assert(nativeSystem.indexOf('fullOutputPath') >= 0, 'native prompt missing truncated output guidance');
+  assert(nativeSystem.indexOf('Do not switch to bash heredoc unless') >= 0, 'native prompt missing constrained heredoc guidance');
 
   const legacyContext = buildTurnContext({
     userPrompt: 'inspect current runtime',
@@ -142,6 +148,9 @@ test('prompt uses native protocol without embedded tool list or json_action inst
   assert(legacySystem.indexOf('Available tools:') >= 0, 'legacy prompt should embed tool list');
   assert(legacySystem.indexOf('Response protocol:') >= 0, 'legacy prompt should include json response protocol');
   assert(legacySystem.indexOf('{"type":"tool"') >= 0, 'legacy prompt should include json_action tool example');
+  assert(legacySystem.indexOf('Operational guidelines:') >= 0, 'legacy prompt missing operational guidelines');
+  assert(legacySystem.indexOf('timedOut=true') >= 0, 'legacy prompt missing bash timeout recovery rule');
+  assert(legacySystem.indexOf('exitCode=127') >= 0 || legacySystem.indexOf('errorType=not_found') >= 0, 'legacy prompt missing command-not-found guidance');
 });
 
 test('native prompt does not format embedded tool list', () => {
@@ -3126,6 +3135,31 @@ test('bash background process can be checked logged and stopped', async () => {
   await sleep(300);
   const finalStatus = await registry.execute(cfg, 'process_status', { pidFile, logFile });
   assert(finalStatus.running === false, 'background process was not stopped');
+});
+
+test('long task workflow context describes background verification path', async () => {
+  const result = await longTaskWorkflowHook({
+    state: {
+      userPrompt: '每隔10秒采集传感器数据并保存CSV，测试运行',
+      observations: [],
+    },
+    action: { tool: 'bash' },
+    result: {
+      data: {
+        background: true,
+        pid: 123,
+        logFile: 'logger.log',
+        pidFile: 'logger.pid',
+      },
+    },
+  });
+  const content = result.contextAdditions.map((item) => item.content || '').join('\n');
+  assert(content.indexOf('process_status') >= 0, 'background workflow missing process_status');
+  assert(content.indexOf('process_wait') >= 0, 'background workflow missing process_wait');
+  assert(content.indexOf('process_logs') >= 0, 'background workflow missing process_logs');
+  assert(/\bread\b/.test(content), 'background workflow missing read output instruction');
+  assert(/Do not use bash sleep/i.test(content), 'background workflow should discourage bash sleep');
+  assert(/bash cat\/tail log/i.test(content), 'background workflow should discourage bash cat/tail log');
 });
 
 test('long task workflow blocks bash sleep and redirects to process_wait', async () => {
