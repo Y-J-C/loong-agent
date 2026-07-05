@@ -10,7 +10,7 @@ function overlayKind(state) {
   return '';
 }
 
-function defaultOverlayOptions(tui, overrides) {
+function defaultOverlayOptions(tui, kind, overrides) {
   var terminal = tui && tui.terminal ? tui.terminal : {};
   var columns = Math.max(1, Number(terminal.columns) || 80);
   var rows = Math.max(1, Number(terminal.rows) || 24);
@@ -19,6 +19,12 @@ function defaultOverlayOptions(tui, overrides) {
     maxHeight: Math.max(6, rows - 2),
     margin: 1,
   };
+  if (kind === 'approval') {
+    options.width = Math.max(30, Math.min(columns - 1, Math.floor(columns * 0.82)));
+    options.maxHeight = Math.max(4, Math.min(8, rows - 4));
+    options.anchor = 'bottom-left';
+    options.margin = { top: 1, right: 1, bottom: 3, left: 0 };
+  }
   overrides = overrides || {};
   Object.keys(overrides).forEach(function(key) {
     options[key] = overrides[key];
@@ -49,7 +55,7 @@ function createStateOverlayController(options) {
       kind: kind,
       handleKey: handleKey,
     });
-    currentEntry = tui.showOverlay(component, defaultOverlayOptions(tui, overlayOptions));
+    currentEntry = tui.showOverlay(component, defaultOverlayOptions(tui, kind, overlayOptions));
     currentKind = kind;
   }
 

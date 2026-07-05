@@ -11,6 +11,14 @@ function ConfirmDialog(options) {
   options = options || {};
   this.title = options.title || 'Confirm';
   this.approval = options.approval || {};
+  this.borderChars = options.borderChars || {
+    topLeft: '┌',
+    topRight: '┐',
+    bottomLeft: '└',
+    bottomRight: '┘',
+    horizontal: '─',
+    vertical: '│',
+  };
 }
 
 ConfirmDialog.prototype.render = function(width, context) {
@@ -33,7 +41,13 @@ ConfirmDialog.prototype.render = function(width, context) {
       fitted.push(line(wrapped[wrapIndex], Math.max(1, inner - 4)));
     }
   }
-  return new Box({ title: this.title, lines: fitted, paddingX: 1, paddingY: 0 }).render(inner, context || {});
+  return new Box({
+    title: this.title,
+    lines: fitted,
+    paddingX: 1,
+    paddingY: 0,
+    borderChars: this.borderChars,
+  }).render(inner, context || {});
 };
 
 ConfirmDialog.prototype.invalidate = function() {};

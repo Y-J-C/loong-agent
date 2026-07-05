@@ -130,13 +130,19 @@ function buildSelectorOverlay(state, width, rows, context) {
 
 function buildApprovalOverlay(state, width, rows, context) {
   if (!state || !state.pendingToolApproval) return null;
+  var terminalWidth = Math.max(1, Number(context && context.columns) || width || 80);
   return {
     component: new ConfirmDialog({
       title: 'Tool Approval',
       approval: state.pendingToolApproval.approval || {},
     }),
     context: context || {},
-    options: { width: width, maxHeight: rows - 2, margin: 1 },
+    options: {
+      width: Math.max(30, Math.min(terminalWidth - 1, Number(width) || terminalWidth)),
+      maxHeight: Math.max(4, Math.min(8, rows - 4)),
+      anchor: 'bottom-left',
+      margin: { top: 1, right: 1, bottom: 3, left: 0 },
+    },
   };
 }
 
@@ -146,7 +152,6 @@ function renderRuntimeOverlays(state, width, rows, context) {
   if (state && state.pendingToolApproval) {
     var approvalOverlay = buildApprovalOverlay(state, overlayWidth, maxRows + 2, context);
     if (approvalOverlay) {
-      approvalOverlay.options = { width: overlayWidth, maxHeight: maxRows, margin: 1 };
       return [approvalOverlay];
     }
   }
