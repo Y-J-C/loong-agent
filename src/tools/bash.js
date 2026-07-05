@@ -32,6 +32,7 @@ function commandObservation(result) {
   if (source.timedOut) lines.push('Command timed out.');
   if (source.cancelled) lines.push('Command was cancelled.');
   if (source.truncated) lines.push('Output was truncated; inspect fullOutputPath for the complete output.');
+  if (source.guidance) lines.push(`Guidance: ${source.guidance}`);
   return lines.filter(Boolean).join('\n');
 }
 
@@ -57,13 +58,71 @@ function validateBash(input) {
     optionalString(input || {}, 'pidFile');
 }
 
+function classifyBashResult(result) {
+  const source = result || {};
+  if (source.timedOut) {
+    return {
+      errorType: 'timeout',
+      guidance: 'Command timed out. For bounded commands, increase timeoutMs up to 300000. For long-running tasks, rerun with background:true and inspect with process_status/process_wait/process_logs.',
+    };
+  }
+  if (source.cancelled) {
+    return {
+      errorType: 'cancelled',
+      guidance: 'Command was cancelled. Do not assume command output is complete.',
+    };
+  }
+  if (source.background) {
+    return {
+      errorType: 'background_started',
+      guidance: 'Background process started. Use process_status/process_wait/process_logs before answering from its result.',
+    };
+  }
+
+  const exitCode = Number(source.exitCode);
+  if (exitCode === 0) return { errorType: '', guidance: '' };
+  if (exitCode === 127) {
+    return {
+      errorType: 'not_found',
+      guidance: 'Command not found. Verify the executable is installed or use an available alternative before retrying.',
+    };
+  }
+  if (exitCode === 137) {
+    return {
+      errorType: 'killed',
+      guidance: 'Command was killed, possibly by memory pressure or external termination. Reduce workload or inspect system resources before retrying.',
+    };
+  }
+  if (exitCode === 143) {
+    return {
+      errorType: 'terminated',
+      guidance: 'Command was terminated by SIGTERM. Inspect logs or process state before retrying.',
+    };
+  }
+  return {
+    errorType: 'non_zero_exit',
+    guidance: 'Command exited with a non-zero status. Inspect stdout/stderr before retrying.',
+  };
+}
+
+function addWarning(warnings, value) {
+  if (!value) return;
+  if (warnings.indexOf(value) < 0) warnings.push(value);
+}
+
 function commandEnvelope(result) {
   const warnings = Array.isArray(result.warnings) ? result.warnings.slice() : [];
-  if (result.timedOut) warnings.push('Command timed out.');
-  if (result.cancelled) warnings.push('Command was cancelled.');
-  if (result.exitCode !== 0 && !result.timedOut) warnings.push('Command exited with non-zero status.');
-  if (result.truncated) warnings.push('Command output was truncated; inspect fullOutputPath for complete output.');
-  if (result.likelyLongRunning && result.recoveryHint) warnings.push(result.recoveryHint);
+  const classification = classifyBashResult(result);
+  if (result.timedOut) addWarning(warnings, 'Command timed out.');
+  if (result.cancelled) addWarning(warnings, 'Command was cancelled.');
+  if (result.exitCode !== 0 && !result.timedOut) addWarning(warnings, 'Command exited with non-zero status.');
+  if (result.truncated) addWarning(warnings, 'Command output was truncated; inspect fullOutputPath for complete output.');
+  if (result.likelyLongRunning && result.recoveryHint) addWarning(warnings, result.recoveryHint);
+  addWarning(warnings, classification.guidance);
+  const observationSource = Object.assign({}, result, {
+    errorType: classification.errorType,
+    guidance: classification.guidance,
+  });
   return {
     ok: result.exitCode === 0,
     data: {
@@ -83,8 +142,10 @@ function commandEnvelope(result) {
       fullOutputPath: result.fullOutputPath || '',
       likelyLongRunning: result.likelyLongRunning === true,
       recoveryHint: result.recoveryHint || '',
+      errorType: classification.errorType,
+      guidance: classification.guidance,
     },
-    summary: commandObservation(result),
+    summary: commandObservation(observationSource),
     evidence: [{
       source: 'command',
       command: result.command,
@@ -99,6 +160,8 @@ function commandEnvelope(result) {
       truncated: result.truncated === true,
     }],
     warnings,
+    errorType: classification.errorType,
+    guidance: classification.guidance,
     error: result.exitCode === 0 ? '' : result.stderr || `Command failed: ${result.exitCode}`,
     command: result.command,
     exitCode: result.exitCode,
@@ -116,6 +179,8 @@ function commandEnvelope(result) {
     fullOutputPath: result.fullOutputPath || '',
     likelyLongRunning: result.likelyLongRunning === true,
     recoveryHint: result.recoveryHint || '',
+    errorType: classification.errorType,
+    guidance: classification.guidance,
   };
 }
 
@@ -139,7 +204,7 @@ function createBashToolDefinition() {
     },
     parameters: {
       command: 'string',
-      timeoutMs: 'number optional; default 15000, max 30000',
+      timeoutMs: 'number optional; default 60000, max 300000',
       background: 'boolean optional; true starts the command and returns pid/logFile/pidFile without waiting',
       logFile: 'string optional; path for background stdout/stderr log',
       pidFile: 'string optional; path for background pid file',
@@ -161,6 +226,7 @@ function createBashToolDefinition() {
 }
 
 module.exports = {
+  classifyBashResult,
   commandObservation,
   commandEnvelope,
   createBashTool,

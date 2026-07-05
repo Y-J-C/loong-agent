@@ -12,8 +12,8 @@ const {
   untrackDetachedChildPid,
 } = require('./shell');
 
-const DEFAULT_COMMAND_TIMEOUT_MS = 15000;
-const MAX_COMMAND_TIMEOUT_MS = 30000;
+const DEFAULT_COMMAND_TIMEOUT_MS = 60000;
+const MAX_COMMAND_TIMEOUT_MS = 300000;
 const LONG_RUNNING_RECOVERY_HINT =
   'This command timed out. If it is a logger, monitor, server, or loop, run it again with bash background=true, then check process_status, process_wait, process_logs, and any output file.';
 

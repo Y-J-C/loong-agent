@@ -2955,14 +2955,13 @@ test('bash accepts compound shell syntax without policy block', async () => {
 
 test('bash truncates long output and records full output path', async () => {
   if (childProcessSpawnBlocked()) return;
-  const command = process.platform === 'win32'
-    ? 'for /L %i in (1,1,12000) do @echo line-%i'
-    : 'i=0; while [ $i -lt 12000 ]; do echo line-$i; i=$((i+1)); done';
+  const command = 'node -e "for (let i = 0; i < 12000; i += 1) console.log(\'line-\' + i)"';
   const registry = createDefaultToolRegistry();
   const result = await registry.execute(config('test-bash-long-output'), 'bash', { command });
   assert(result.exitCode === 0, `long output command failed: ${result.stderr}`);
   assert(result.truncated === true, 'long output should be truncated');
   assert(result.fullOutputPath && fs.existsSync(result.fullOutputPath), 'full output path missing');
+  assert((result.warnings || []).some((warning) => /fullOutputPath|full output/i.test(warning)), 'truncated output warning should mention full output');
   assert((result.stdout || '').indexOf('line-11999') >= 0, 'tail output missing final line');
 });
 
@@ -2975,8 +2974,59 @@ test('bash timeout returns long-running recovery hint', async () => {
   const result = await registry.execute(config('test-bash-timeout'), 'bash', { command, timeoutMs: 100 });
   assert(result.exitCode === 124, `timeout command exit mismatch: ${result.exitCode}`);
   assert(result.timedOut === true, 'timeout result missing timedOut');
+  assert(result.errorType === 'timeout', `timeout result errorType mismatch: ${result.errorType}`);
+  assert(result.data && result.data.errorType === 'timeout', 'timeout data missing errorType');
+  assert(/background:true|timeoutMs/i.test(result.guidance || ''), 'timeout result missing actionable guidance');
+  assert((result.warnings || []).some((warning) => /background:true|timeoutMs/i.test(warning)), 'timeout warnings missing actionable guidance');
   assert(result.likelyLongRunning === true, 'timeout result missing likelyLongRunning');
   assert(/background=true/.test(result.recoveryHint || ''), 'timeout result missing background recovery hint');
+});
+
+test('bash command envelope classifies recoverable command states', () => {
+  const missing = commandEnvelope({
+    command: 'missing_binary',
+    exitCode: 127,
+    stdout: '',
+    stderr: 'missing_binary: command not found',
+    output: 'missing_binary: command not found',
+    durationMs: 1,
+    timedOut: false,
+    cancelled: false,
+  });
+  assert(missing.errorType === 'not_found', `not_found errorType mismatch: ${missing.errorType}`);
+  assert(missing.data.errorType === 'not_found', 'not_found data errorType missing');
+  assert(/not found|installed|available/i.test(missing.guidance || ''), 'not_found guidance missing');
+  assert((missing.warnings || []).some((warning) => /not found|installed|available/i.test(warning)), 'not_found warning missing');
+
+  const killed = commandEnvelope({
+    command: 'memory-heavy-command',
+    exitCode: 137,
+    stdout: '',
+    stderr: '',
+    output: '',
+    durationMs: 1,
+    timedOut: false,
+    cancelled: false,
+  });
+  assert(killed.errorType === 'killed', `killed errorType mismatch: ${killed.errorType}`);
+  assert(/memory|killed|resources/i.test(killed.guidance || ''), 'killed guidance missing');
+
+  const background = commandEnvelope({
+    command: 'node server.js',
+    exitCode: 0,
+    stdout: '',
+    stderr: '',
+    output: '',
+    durationMs: 1,
+    timedOut: false,
+    cancelled: false,
+    background: true,
+    pid: 123,
+    logFile: 'server.log',
+    pidFile: 'server.pid',
+  });
+  assert(background.errorType === 'background_started', `background errorType mismatch: ${background.errorType}`);
+  assert(/process_status|process_wait|process_logs/i.test(background.guidance || ''), 'background guidance missing');
 });
 
 test('bash emits execution updates and bashExecution facts', async () => {
@@ -3984,6 +4034,47 @@ test('tool error recovery hook returns structured runtime context', async () => 
   assert(result.contextAdditions.length === 1, 'missing tool error recovery context');
   assert(result.contextAdditions[0].source === 'runtime_context', 'unexpected recovery context source');
   assert(/outside workspace/.test(result.contextAdditions[0].content), 'missing tool error text');
+});
+
+test('tool error recovery hook returns bash-specific recovery context', async () => {
+  const timeout = toolErrorRecoveryHook({
+    state: { observations: [], turn: 1 },
+    isError: true,
+    action: { tool: 'bash' },
+    result: {
+      errorType: 'timeout',
+      guidance: 'Command timed out. Use background:true or increase timeoutMs.',
+      timedOut: true,
+      exitCode: 124,
+    },
+  });
+  assert(timeout.contextAdditions.length === 1, 'missing timeout recovery context');
+  assert(/background:true|process_status/.test(timeout.contextAdditions[0].content), 'timeout recovery missing background flow');
+
+  const notFound = toolErrorRecoveryHook({
+    state: { observations: [], turn: 1 },
+    isError: true,
+    action: { tool: 'bash' },
+    result: {
+      errorType: 'not_found',
+      guidance: 'Command not found. Verify the executable is installed.',
+      exitCode: 127,
+    },
+  });
+  assert(notFound.contextAdditions.length === 1, 'missing not_found recovery context');
+  assert(/not found|installed|alternative/i.test(notFound.contextAdditions[0].content), 'not_found recovery missing install guidance');
+
+  const truncated = toolErrorRecoveryHook({
+    state: { observations: [], turn: 1 },
+    isError: false,
+    action: { tool: 'bash' },
+    result: {
+      truncated: true,
+      fullOutputPath: 'runs/full-output.log',
+    },
+  });
+  assert(truncated.contextAdditions.length === 1, 'missing truncated recovery context');
+  assert(/runs\/full-output\.log|Full output path/.test(truncated.contextAdditions[0].content), 'truncated recovery missing full output path');
 });
 
 test('loong_env_check injects controlled knowledge context on next turn', async () => {
