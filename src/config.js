@@ -82,6 +82,12 @@ function normalizeRecordModelRequest(value, allowUnsafe) {
   return 'summary';
 }
 
+function normalizeNativeToolChoice(value) {
+  const choice = String(value || '').toLowerCase();
+  if (choice === 'auto' || choice === 'required' || choice === 'none') return choice;
+  return '';
+}
+
 function loadConfig() {
   const projectRoot = path.resolve(__dirname, '..');
   loadDotEnv(path.join(projectRoot, '.env'));
@@ -121,6 +127,7 @@ function loadConfig() {
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
     nativeTools: boolEnv('LOONG_AGENT_NATIVE_TOOLS', false),
+    nativeToolChoice: normalizeNativeToolChoice(process.env.LOONG_AGENT_NATIVE_TOOL_CHOICE),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),
     recordModelRequest: normalizeRecordModelRequest(
       process.env.LOONG_AGENT_RECORD_MODEL_REQUEST || 'summary',
@@ -134,6 +141,7 @@ function loadConfig() {
 
 module.exports = {
   loadConfig,
+  normalizeNativeToolChoice,
   normalizeThinkingLevel,
   normalizeRecordModelRequest,
   PROVIDER_PROFILES,

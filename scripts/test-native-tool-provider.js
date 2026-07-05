@@ -82,6 +82,24 @@ test('native payload includes OpenAI tools and disables json mode', () => {
   assert(!Object.prototype.hasOwnProperty.call(payload, 'response_format'), 'native payload should not send response_format');
 });
 
+test('native payload forwards explicit tool_choice strategy', () => {
+  const required = buildOpenAiPayload(
+    config(),
+    [{ role: 'user', content: 'check' }],
+    { nativeTools: true, tools: tools(), toolChoice: 'required' }
+  );
+  const none = buildOpenAiPayload(
+    config(),
+    [{ role: 'user', content: 'check' }],
+    { nativeTools: true, tools: tools(), toolChoice: 'none' }
+  );
+
+  assert(required.tool_choice === 'required', 'required tool_choice mismatch');
+  assert(none.tool_choice === 'none', 'none tool_choice mismatch');
+  assert(required.parallel_tool_calls === false, 'required should keep parallel disabled');
+  assert(none.parallel_tool_calls === false, 'none should keep parallel disabled');
+});
+
 test('chatCompletionWithTools returns structured toolCall content', async () => {
   await withServer((payload, res) => {
     assert(Array.isArray(payload.tools), 'request payload missing tools');

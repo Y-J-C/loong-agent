@@ -323,24 +323,22 @@ function parseNativeAgentMessage(message) {
       toolCalls,
     };
   }
-  const toolCall = toolCalls[0];
-  if (!toolCall.arguments || typeof toolCall.arguments !== 'object' || Array.isArray(toolCall.arguments)) {
-    return {
-      kind: 'invalid_action',
-      error: createLoopError('Native tool call arguments must be an object', 'invalid_tool_action'),
-      assistantText: text,
-      toolCalls,
-    };
-  }
   try {
-    return {
-      kind: 'tool_action',
-      action: validateAction({
+    const actions = toolCalls.map((toolCall) => {
+      if (!toolCall.arguments || typeof toolCall.arguments !== 'object' || Array.isArray(toolCall.arguments)) {
+        throw createLoopError('Native tool call arguments must be an object', 'invalid_tool_action');
+      }
+      return validateAction({
         tool: toolCall.name,
         input: toolCall.arguments,
         reason: text || '',
         toolCallId: toolCall.id || '',
-      }),
+      });
+    });
+    return {
+      kind: 'tool_action',
+      action: actions[0],
+      actions,
       assistantText: text,
       toolCalls,
     };
@@ -1257,6 +1255,37 @@ function nativeModelMetadata(config, nativeMessage) {
   };
 }
 
+function normalizeNativeToolChoice(value) {
+  const choice = String(value || '').toLowerCase();
+  if (choice === 'auto' || choice === 'required' || choice === 'none') return choice;
+  return '';
+}
+
+function missingCurrentHardwareEvidence(state) {
+  return !hasCurrentObservationSubject(state, 'hardware.i2c') &&
+    !hasCurrentObservationSubject(state, 'hardware.sensor');
+}
+
+function shouldRequireNativeToolChoice(state, prompt) {
+  const text = String(prompt || '');
+  if (isProjectReadinessPrompt(text) && !hasObservationFrom(state, ['loong_env_check'])) return true;
+  if (isBoardEnvironmentQuestion(text) && temporalIntentForPrompt(text) !== 'historical' && !hasObservationFrom(state, ['loong_env_check'])) return true;
+  if (isCurrentMemoryQuestion(text) && !hasCurrentObservationSubject(state, 'system.memory')) return true;
+  if (isCurrentDiskQuestion(text) && !hasCurrentObservationSubject(state, 'system.disk')) return true;
+  if (isCurrentHardwareQuestion(text) && missingCurrentHardwareEvidence(state)) return true;
+  if (isCurrentNetworkPortQuestion(text) && !hasCurrentObservationSubject(state, 'network.ports')) return true;
+  return false;
+}
+
+function resolveNativeToolChoice(config, state, currentUserPrompt, loop, maxLoops) {
+  const override = normalizeNativeToolChoice(config && config.nativeToolChoice);
+  if (override) return override;
+  const totalLoops = Number(maxLoops || (config && config.maxLoops) || 0);
+  if (totalLoops > 0 && loop >= totalLoops - 1) return 'none';
+  if (shouldRequireNativeToolChoice(state, currentUserPrompt || (state && state.userPrompt))) return 'required';
+  return 'auto';
+}
+
 function summarizeModelUsage(state) {
   const items = (state && state.modelUsage) || [];
   const summary = {
@@ -1726,6 +1755,7 @@ async function runAgentLoop(options) {
           isAborted,
           nativeTools: true,
           streaming: false,
+          toolChoice: resolveNativeToolChoice(config, state, currentUserPrompt || state.userPrompt, loop, config.maxLoops),
           tools: state.tools,
         }));
         response = parseNativeAgentMessage(nativeMessage);
@@ -1934,120 +1964,155 @@ async function runAgentLoop(options) {
       continue;
     }
 
-    const action = response.action;
-    const repeatDecision = evaluateRepeatPolicy(turnContext, action);
-    if (repeatDecision.mode !== 'allow') {
-      const evidenceGuard = answerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
-      if (evidenceGuard && evidenceGuard.action && !equivalentAction(evidenceGuard.action, action)) {
-        const guardAction = evidenceGuard.action;
-        const toolExecution = await executeToolCall(turnContext, guardAction, null);
-        const result = toolExecution.result;
-        const isError = toolExecution.isError;
-        await prepareForNextTurn(turnContext, guardAction, result, isError);
+    const actions = Array.isArray(response.actions) && response.actions.length
+      ? response.actions
+      : [response.action];
+    let lastAction = null;
+    let lastToolExecution = null;
+    let continueNextTurn = false;
+
+    for (const action of actions) {
+      lastAction = action;
+      const repeatDecision = evaluateRepeatPolicy(turnContext, action);
+      if (repeatDecision.mode !== 'allow') {
+        const evidenceGuard = answerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
+        if (evidenceGuard && evidenceGuard.action && !equivalentAction(evidenceGuard.action, action)) {
+          const guardAction = evidenceGuard.action;
+          const toolExecution = await executeToolCall(turnContext, guardAction, null);
+          const result = toolExecution.result;
+          const isError = toolExecution.isError;
+          await prepareForNextTurn(turnContext, guardAction, result, isError);
+          await emitTurnEnd(turnContext, {
+            isError,
+            status: isError && toolExecution.errorType === 'policy_blocked' ? 'policy_blocked' : isError ? 'tool_error' : 'ok',
+            reason: evidenceGuard.reason || toolExecution.errorType,
+            toolName: guardAction.tool,
+          });
+          pendingMessages = pendingMessages.concat(getSteeringMessages());
+          pendingMessages.push({
+            content: `${evidenceGuard.message}\nThe model tried to repeat ${action.tool}; continue with the required evidence from ${guardAction.tool} instead, then answer from collected evidence.`,
+            internal: true,
+          });
+          continueNextTurn = true;
+          break;
+        }
+      }
+      if (repeatDecision.mode === 'fallback') {
+        const summary = createRepeatGuardFallback(action, repeatDecision.entry, turnContext);
+        recordToolResult(state, action, {
+          ok: true,
+          repeatGuard: true,
+          summary,
+        });
+        await emitTurnEnd(turnContext, {
+          isError: false,
+          status: 'ok',
+          reason: 'repeat_guard_fallback',
+          toolName: action.tool,
+        });
+        finishRun(state, summary);
+        await emit({
+          type: 'agent_end',
+          summary,
+          observations: state.observations,
+          status: 'ok',
+          turns: state.turn,
+          durationMs: elapsedMs(runStartedAt),
+          usageSummary: summarizeModelUsage(state),
+          completionSource: 'repeat_guard_fallback',
+        });
+        return {
+          summary,
+          observations: state.observations,
+          completionSource: 'repeat_guard_fallback',
+        };
+      }
+
+      const toolExecution = await executeToolCall(turnContext, action, repeatDecision);
+      lastToolExecution = toolExecution;
+      const result = toolExecution.result;
+      const isError = toolExecution.isError;
+
+      if (isError) {
+        consecutiveToolErrors += 1;
+        await prepareForNextTurn(turnContext, action, result, isError);
         await emitTurnEnd(turnContext, {
           isError,
-          status: isError && toolExecution.errorType === 'policy_blocked' ? 'policy_blocked' : isError ? 'tool_error' : 'ok',
-          reason: evidenceGuard.reason || toolExecution.errorType,
-          toolName: guardAction.tool,
+          status: toolExecution.errorType === 'policy_blocked' ? 'policy_blocked' : 'tool_error',
+          reason: toolExecution.errorType,
+          toolName: action.tool,
         });
         pendingMessages = pendingMessages.concat(getSteeringMessages());
-        pendingMessages.push({
-          content: `${evidenceGuard.message}\nThe model tried to repeat ${action.tool}; continue with the required evidence from ${guardAction.tool} instead, then answer from collected evidence.`,
-          internal: true,
-        });
-        continue;
+        if (!pendingMessages.length) {
+          if (consecutiveToolErrors >= 3) {
+            pendingMessages.push({
+              content: `Tool ${action.tool} failed again: ${result.error}. Do not call more tools. Return a final answer with what failed and what is known.`,
+              internal: true,
+            });
+          } else {
+            pendingMessages.push({
+              content: `Tool ${action.tool} failed: ${result.error}. Use another available tool only if needed, otherwise return a final answer with a clear summary.`,
+              internal: true,
+            });
+          }
+        }
+        continueNextTurn = true;
+        break;
       }
+
+      consecutiveToolErrors = 0;
+
+      if (action.tool === 'finish' || result.finished) {
+        const followUps = getFollowUpMessages();
+        if (followUps.length > 0) {
+          await emitTurnEnd(turnContext, {
+            isError: false,
+            status: 'ok',
+            reason: toolExecution.errorType,
+            toolName: action.tool,
+          });
+          pendingMessages = followUps;
+          continueNextTurn = true;
+          break;
+        }
+        await emitTurnEnd(turnContext, {
+          isError: false,
+          status: 'ok',
+          reason: toolExecution.errorType,
+          toolName: action.tool,
+        });
+        finishRun(state, result.summary || '');
+        await emit({
+          type: 'agent_end',
+          summary: result.summary || '',
+          observations: state.observations,
+          status: 'ok',
+          turns: state.turn,
+          durationMs: elapsedMs(runStartedAt),
+          usageSummary: summarizeModelUsage(state),
+          completionSource: 'finish_tool',
+        });
+        return {
+          summary: result.summary || '',
+          observations: state.observations,
+          completionSource: 'finish_tool',
+        };
+      }
+
+      await prepareForNextTurn(turnContext, action, result, isError);
+      pendingMessages = pendingMessages.concat(getSteeringMessages());
     }
-    if (repeatDecision.mode === 'fallback') {
-      const summary = createRepeatGuardFallback(action, repeatDecision.entry, turnContext);
-      recordToolResult(state, action, {
-        ok: true,
-        repeatGuard: true,
-        summary,
-      });
+
+    if (continueNextTurn) continue;
+
+    if (lastAction && lastToolExecution) {
       await emitTurnEnd(turnContext, {
         isError: false,
         status: 'ok',
-        reason: 'repeat_guard_fallback',
-        toolName: action.tool,
+        reason: lastToolExecution.errorType,
+        toolName: lastAction.tool,
       });
-      finishRun(state, summary);
-      await emit({
-        type: 'agent_end',
-        summary,
-        observations: state.observations,
-        status: 'ok',
-        turns: state.turn,
-        durationMs: elapsedMs(runStartedAt),
-        usageSummary: summarizeModelUsage(state),
-        completionSource: 'repeat_guard_fallback',
-      });
-      return {
-        summary,
-        observations: state.observations,
-        completionSource: 'repeat_guard_fallback',
-      };
     }
-
-    const toolExecution = await executeToolCall(turnContext, action, repeatDecision);
-    const result = toolExecution.result;
-    const isError = toolExecution.isError;
-
-    await emitTurnEnd(turnContext, {
-      isError,
-      status: isError && toolExecution.errorType === 'policy_blocked' ? 'policy_blocked' : isError ? 'tool_error' : 'ok',
-      reason: toolExecution.errorType,
-      toolName: action.tool,
-    });
-
-    if (isError) {
-      consecutiveToolErrors += 1;
-      await prepareForNextTurn(turnContext, action, result, isError);
-      pendingMessages = pendingMessages.concat(getSteeringMessages());
-      if (!pendingMessages.length) {
-        if (consecutiveToolErrors >= 3) {
-          pendingMessages.push({
-            content: `Tool ${action.tool} failed again: ${result.error}. Do not call more tools. Return a final answer with what failed and what is known.`,
-            internal: true,
-          });
-        } else {
-          pendingMessages.push({
-            content: `Tool ${action.tool} failed: ${result.error}. Use another available tool only if needed, otherwise return a final answer with a clear summary.`,
-            internal: true,
-          });
-        }
-      }
-      continue;
-    }
-
-    consecutiveToolErrors = 0;
-
-    if (action.tool === 'finish' || result.finished) {
-      const followUps = getFollowUpMessages();
-      if (followUps.length > 0) {
-        pendingMessages = followUps;
-        continue;
-      }
-      finishRun(state, result.summary || '');
-      await emit({
-        type: 'agent_end',
-        summary: result.summary || '',
-        observations: state.observations,
-        status: 'ok',
-        turns: state.turn,
-        durationMs: elapsedMs(runStartedAt),
-        usageSummary: summarizeModelUsage(state),
-        completionSource: 'finish_tool',
-      });
-      return {
-        summary: result.summary || '',
-        observations: state.observations,
-        completionSource: 'finish_tool',
-      };
-    }
-
-    await prepareForNextTurn(turnContext, action, result, isError);
-    pendingMessages = pendingMessages.concat(getSteeringMessages());
   }
 
   const maxLoopSummary = csvObservationSummary(state.observations) || summarizeObservations(state.observations);

@@ -211,7 +211,7 @@ test('native agent-loop accepts empty assistant content with toolCall', async ()
   assert(run.state.messages.some((item) => item.role === 'assistant' && item.toolCalls && item.toolCalls[0].id === 'call_empty_content'), 'empty content toolCall not recorded');
 });
 
-test('native agent-loop only executes first toolCall in Phase 3', async () => {
+test('native agent-loop executes multiple toolCalls sequentially in Phase 4', async () => {
   const run = await runNativeScenario([
     toolMessage('two calls', [
       { id: 'call_first', name: 'inspect', arguments: { target: 'first' } },
@@ -219,9 +219,9 @@ test('native agent-loop only executes first toolCall in Phase 3', async () => {
     ]),
     textMessage('used first'),
   ]);
-  assert(run.state.observations.length === 1, 'Phase 3 should execute one tool only');
+  assert(run.state.observations.length === 2, 'Phase 4 should execute both tool calls');
   assert(run.state.observations[0].toolCallId === 'call_first', 'first toolCall should execute');
-  assert(!run.state.observations.some((item) => item.toolCallId === 'call_second'), 'second toolCall should not execute');
+  assert(run.state.observations[1].toolCallId === 'call_second', 'second toolCall should execute');
 });
 
 test('native agent-loop throws clearly when nativeTools is enabled but provider lacks support', async () => {
