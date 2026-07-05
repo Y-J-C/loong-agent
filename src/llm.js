@@ -86,6 +86,17 @@ async function chatCompletion(config, messages) {
   return normalizeCompletionResult(result, config || {}, { streaming: false }).content;
 }
 
+async function chatCompletionWithTools(config, messages, options) {
+  const provider = getProvider((config && config.provider) || 'openai-compatible');
+  if (typeof provider.chatCompletionWithTools !== 'function') {
+    throw new Error(`Provider ${provider.name} does not support native tool calling`);
+  }
+  return provider.chatCompletionWithTools(config || {}, messages, Object.assign({}, options || {}, {
+    nativeTools: true,
+    streaming: false,
+  }));
+}
+
 async function chatCompletionWithEvents(config, messages, callbacks) {
   const provider = getProvider(config.provider || 'openai-compatible');
   const options = {
@@ -157,6 +168,7 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
 
 module.exports = {
   chatCompletion,
+  chatCompletionWithTools,
   chatCompletionWithEvents,
   getProviderCapabilities,
   getProvider,

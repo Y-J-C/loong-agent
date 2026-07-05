@@ -67,10 +67,12 @@ function jsonModeEnabled(config) {
 
 function buildOpenAiPayload(config, messages, options) {
   config = config || {};
+  options = options || {};
   const payload = {
     model: config.model,
     messages,
   };
+  const nativeTools = options.nativeTools === true;
   const thinkingLevel = config.thinkingLevel || 'off';
   const nativeThinkingModel = isDeepSeekThinkingModeModel(config.model) && isDeepSeekProviderConfig(config);
   const reasonerModel = isDeepSeekReasonerModel(config.model) && isDeepSeekProviderConfig(config);
@@ -79,14 +81,29 @@ function buildOpenAiPayload(config, messages, options) {
     payload.thinking = { type: thinkingLevel === 'off' ? 'disabled' : 'enabled' };
     if (thinkingLevel !== 'off') payload.reasoning_effort = normalizeReasoningEffort(thinkingLevel);
   }
-  if (deepSeekV4Model && jsonModeEnabled(config)) {
+  if (nativeTools && Array.isArray(options.tools) && options.tools.length > 0) {
+    payload.tools = options.tools.map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description || '',
+        parameters: tool.parameters || {},
+      },
+    }));
+    payload.tool_choice = options.toolChoice || 'auto';
+    payload.parallel_tool_calls = false;
+  }
+  if (nativeTools) {
+    payload.stream = false;
+  }
+  if (!nativeTools && deepSeekV4Model && jsonModeEnabled(config)) {
     payload.response_format = { type: 'json_object' };
   }
-  if (options && options.streaming && deepSeekV4Model) {
+  if (!nativeTools && options.streaming && deepSeekV4Model) {
     payload.stream_options = { include_usage: true };
   }
   if (!reasonerModel && !(nativeThinkingModel && thinkingLevel !== 'off')) {
-    payload.temperature = options && options.temperature !== undefined ? options.temperature : 0.2;
+    payload.temperature = options.temperature !== undefined ? options.temperature : 0.2;
   }
   return payload;
 }
@@ -199,6 +216,39 @@ function extractOpenAiUsage(parsed) {
     promptTokens: Number(usage.prompt_tokens || usage.promptTokens || 0) || 0,
     completionTokens: Number(usage.completion_tokens || usage.completionTokens || 0) || 0,
     totalTokens: Number(usage.total_tokens || usage.totalTokens || 0) || 0,
+  };
+}
+
+function safeJsonParseToolArguments(value) {
+  try {
+    return value ? JSON.parse(value) : {};
+  } catch (error) {
+    throw new Error(`Invalid tool call arguments JSON: ${error.message}`);
+  }
+}
+
+function extractOpenAiMessage(parsed) {
+  const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
+  const msg = choice && choice.message ? choice.message : {};
+  const content = [];
+  if (typeof msg.content === 'string' && msg.content) {
+    content.push({ type: 'text', text: msg.content });
+  }
+  for (const toolCall of msg.tool_calls || []) {
+    const fn = toolCall && toolCall.function ? toolCall.function : {};
+    content.push({
+      type: 'toolCall',
+      id: toolCall.id || '',
+      name: fn.name || '',
+      arguments: safeJsonParseToolArguments(fn.arguments || '{}'),
+    });
+  }
+  return {
+    role: 'assistant',
+    content,
+    usage: extractOpenAiUsage(parsed),
+    model: parsed && parsed.model ? parsed.model : '',
+    stopReason: choice.finish_reason || '',
   };
 }
 
@@ -499,6 +549,26 @@ registerProvider({
       reasoningContentAvailable: supportsNativeThinking(config) && Boolean(extractOpenAiReasoning(response)),
     };
   },
+  chatCompletionWithTools: async (config, messages, options) => {
+    if (!config.apiKey) {
+      throw new Error('Missing LOONG_AGENT_API_KEY or DEEPSEEK_API_KEY');
+    }
+
+    const response = await requestJson(
+      joinUrl(config.baseUrl, '/chat/completions'),
+      config.apiKey,
+      buildOpenAiPayload(config, messages, Object.assign({}, options || {}, {
+        nativeTools: true,
+        streaming: false,
+      })),
+      {
+        isAborted: options && options.isAborted,
+        onRequest: options && options.onRequest,
+      }
+    );
+
+    return extractOpenAiMessage(response);
+  },
   streamChatCompletion: async (config, messages, options) => {
     if (!config.apiKey) {
       throw new Error('Missing LOONG_AGENT_API_KEY or DEEPSEEK_API_KEY');
@@ -527,6 +597,7 @@ registerProvider({
 
 module.exports = {
   buildOpenAiPayload,
+  extractOpenAiMessage,
   extractOpenAiUsage,
   extractOpenAiDelta,
   extractOpenAiReasoning,
@@ -541,5 +612,6 @@ module.exports = {
   isRecoverableStreamError,
   parseSseData,
   registerProvider,
+  safeJsonParseToolArguments,
   streamJson,
 };
