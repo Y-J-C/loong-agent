@@ -1,8 +1,12 @@
 'use strict';
 
+var childProcess = require('child_process');
 var utils = require('../utils');
 var themeMod = require('../theme');
 var component = require('../component');
+
+var BRANCH_CACHE_TTL_MS = 2000;
+var branchCache = {};
 
 function Footer(state) {
   component.Container.call(this);
@@ -16,6 +20,26 @@ Footer.prototype.invalidate = function invalidate() {};
 
 function formatK(n) { return n < 1000 ? '' + n : n < 1000000 ? (n / 1000).toFixed(1) + 'K' : (n / 1000000).toFixed(1) + 'M'; }
 
+function resolveGitBranch(cwd) {
+  var key = String(cwd || '');
+  if (!key) return '';
+  var now = Date.now();
+  var cached = branchCache[key];
+  if (cached && now - cached.at < BRANCH_CACHE_TTL_MS) return cached.branch;
+  var branch = '';
+  try {
+    branch = childProcess.execFileSync('git', ['-C', key, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 500,
+    }).trim();
+  } catch (error) {
+    branch = '';
+  }
+  branchCache[key] = { at: now, branch: branch };
+  return branch;
+}
+
 Footer.prototype.render = function renderAsciiFooter(width, context) {
   var maxWidth = Math.max(10, Number(width) || 80);
   var state = this.state;
@@ -23,10 +47,14 @@ Footer.prototype.render = function renderAsciiFooter(width, context) {
   var cwd = (state && state.cwd) || '.';
   var home = process.env.HOME || process.env.USERPROFILE || '';
   if (home && cwd.indexOf(home) === 0) cwd = '~' + cwd.slice(home.length);
+  var branch = resolveGitBranch((state && state.cwd) || process.cwd());
   var sessionPart = state && state.currentSession && state.currentSession.id
     ? state.currentSession.id.slice(0, 8)
     : '';
-  var left = cwd + (sessionPart ? ' - ' + sessionPart : '');
+  var leftLimit = Math.floor(maxWidth * 0.35);
+  var leftSuffix = (branch ? ' [' + branch + ']' : '') + (sessionPart ? ' - ' + sessionPart : '');
+  var cwdLimit = Math.max(1, leftLimit - utils.visibleWidth(leftSuffix));
+  var left = utils.truncateToWidth(cwd, cwdLimit, '') + leftSuffix;
   var tokenIn = Number(state && state.tokenInput) || 0;
   var tokenOut = Number(state && state.tokenOutput) || 0;
   var stats = (tokenIn || tokenOut) ? 'in:' + formatK(tokenIn) + ' out:' + formatK(tokenOut) : 'in:0 out:0';
@@ -41,7 +69,7 @@ Footer.prototype.render = function renderAsciiFooter(width, context) {
   if (state && state.provider && state.provider !== 'openai-compatible') {
     model = state.provider + '/' + model;
   }
-  var leftDim = themeMod.paint(theme, 'dim', utils.truncateToWidth(left, Math.floor(maxWidth * 0.35)));
+  var leftDim = themeMod.paint(theme, 'dim', utils.truncateToWidth(left, leftLimit));
   var right = [stats, ctxStr, model].join(' | ');
   var leftW = utils.visibleWidth(leftDim);
   var rightW = utils.visibleWidth(right);

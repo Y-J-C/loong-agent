@@ -124,6 +124,7 @@ async function runRuntimeNextTui(config, options) {
     if (stopped) return;
     stopped = true;
     if (unsubscribe) unsubscribe();
+    if (chatView && typeof chatView.stop === 'function') chatView.stop();
     tui.stop();
     if (resolveDone) resolveDone({ nonTty: false });
   }

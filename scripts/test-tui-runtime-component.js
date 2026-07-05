@@ -3,6 +3,9 @@
 
 var runtime = require('../src/tui/runtime');
 var Box = require('../src/tui/runtime/components/box').Box;
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
 var pass = 0;
 var fail = 0;
 
@@ -40,6 +43,27 @@ var container = new runtime.Container([new runtime.Text('a', 0, 0), spacer, chil
 equal(container.render(10).map(function(line) { return line.trimRight(); }).join('|'), 'a|||child', 'Container stacks children');
 container.invalidate();
 equal(invalidated, 1, 'Container propagates invalidate');
+
+var tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-tui-width-'));
+var tooLongLine = '0123456789abcdefghijklmnopqrstuvwxyz';
+var badContainer = new runtime.Container([{
+  constructor: { name: 'BadComponent' },
+  render: function() { return [tooLongLine]; },
+}]);
+var threwWidth = false;
+try {
+  badContainer.render(5, { state: { cwd: tmpCwd } });
+} catch (error) {
+  threwWidth = /exceeds width/.test(error && error.message || '');
+}
+ok(threwWidth, 'Container still throws on over-width child line');
+var diagnosticPath = path.join(tmpCwd, '.loong-agent', 'logs', 'tui-render-crash.log');
+ok(fs.existsSync(diagnosticPath), 'over-width render writes diagnostic log');
+var diagnostic = fs.readFileSync(diagnosticPath, 'utf8');
+ok(diagnostic.indexOf('BadComponent') >= 0, 'diagnostic records component name');
+ok(diagnostic.indexOf('expectedWidth=5') >= 0, 'diagnostic records expected width');
+ok(diagnostic.indexOf('actualWidth=36') >= 0, 'diagnostic records actual width');
+ok(diagnostic.indexOf(tooLongLine) < 0, 'diagnostic does not write full rendered line');
 
 var boxInvalidated = 0;
 var box = new Box({

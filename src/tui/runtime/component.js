@@ -1,10 +1,42 @@
 'use strict';
 
+var fs = require('fs');
+var path = require('path');
 var utils = require('./utils');
 
-function assertLineWidth(line, width, componentName) {
+function diagnosticRoot(context) {
+  var cwd = context && context.state && context.state.cwd ? context.state.cwd : process.cwd();
+  try {
+    return path.resolve(String(cwd || process.cwd()));
+  } catch (error) {
+    return process.cwd();
+  }
+}
+
+function writeLineWidthDiagnostic(line, width, actual, componentName, context) {
+  try {
+    var root = diagnosticRoot(context);
+    var logDir = path.join(root, '.loong-agent', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    var plain = utils.stripAnsi(String(line || '')).replace(/\s+/g, ' ').trim();
+    var preview = utils.truncateToWidth(plain, 24);
+    var entry = [
+      '[' + new Date().toISOString() + ']',
+      'component=' + (componentName || 'Component'),
+      'expectedWidth=' + width,
+      'actualWidth=' + actual,
+      'preview="' + preview.replace(/"/g, '\\"') + '"',
+    ].join(' ') + '\n';
+    fs.appendFileSync(path.join(logDir, 'tui-render-crash.log'), entry, 'utf8');
+  } catch (error) {
+    // Diagnostics must never hide the original render error.
+  }
+}
+
+function assertLineWidth(line, width, componentName, context) {
   var actual = utils.visibleWidth(line);
   if (actual > width) {
+    writeLineWidthDiagnostic(line, width, actual, componentName, context);
     throw new Error((componentName || 'Component') + ' rendered line exceeds width ' + width + ': ' + actual);
   }
 }
@@ -45,7 +77,7 @@ Container.prototype.render = function render(width, context) {
     if (!child || typeof child.render !== 'function') continue;
     var childLines = child.render(width, context) || [];
     for (var lineIndex = 0; lineIndex < childLines.length; lineIndex += 1) {
-      assertLineWidth(childLines[lineIndex], width, child.constructor && child.constructor.name);
+      assertLineWidth(childLines[lineIndex], width, child.constructor && child.constructor.name, context);
       lines.push(childLines[lineIndex]);
     }
   }

@@ -8,6 +8,7 @@ var renderInputBlock = require('./input-line').renderRuntimeInputBlock;
 var Footer = require('./status-bar').Footer;
 var compositeOverlays = require('../overlay').compositeOverlays;
 var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
+var Loader = require('../components/loader').Loader;
 
 function ChatView(state, options) {
   component.Container.call(this);
@@ -15,6 +16,7 @@ function ChatView(state, options) {
   this.state = state || {};
   this.renderStateOverlays = options.renderStateOverlays !== false;
   this.footer = new Footer(state);
+  this.runningLoader = new Loader({ message: 'Working...' });
   this.addChild(this.footer);    // children[0]
 }
 
@@ -37,11 +39,12 @@ ChatView.prototype.render = function render(width, context) {
     showHardwareCursor: context && context.showHardwareCursor,
   });
   var footerLines = this.footer.render(cols, renderCtx);
+  var runningLines = this._renderRunningLines(cols, Object.assign({}, renderCtx, { tui: context && context.tui }));
 
-  var bodyHeight = Math.max(1, rows - inputLines.length - footerLines.length);
+  var bodyHeight = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length);
   var body = renderMessageList(state, cols, bodyHeight, renderCtx);
 
-  var lines = body.concat(inputLines).concat(footerLines).slice(0, rows);
+  var lines = body.concat(runningLines).concat(inputLines).concat(footerLines).slice(0, rows);
   while (lines.length < rows) lines.push('');
 
   lines = lines.map(function(line) {
@@ -56,6 +59,28 @@ ChatView.prototype.render = function render(width, context) {
     return utils.truncateToWidth(String(line || ''), cols)
       + ' '.repeat(Math.max(0, cols - utils.visibleWidth(String(line || ''))));
   });
+};
+
+ChatView.prototype._renderRunningLines = function _renderRunningLines(width, context) {
+  var state = this.state || {};
+  var running = (state.mode === 'running' || state.agentStatus === 'running') && state.mode !== 'approval';
+  if (!running) {
+    if (this.runningLoader.running) this.runningLoader.stop();
+    return [];
+  }
+  var status = String(state.status || '').trim();
+  this.runningLoader.message = status && status !== 'running' ? status : 'Working...';
+  if (!this.runningLoader.running) {
+    if (context && context.tui) this.runningLoader.start(context.tui);
+    else this.runningLoader.running = true;
+  }
+  return this.runningLoader.render(width, context);
+};
+
+ChatView.prototype.stop = function stop() {
+  if (this.runningLoader && typeof this.runningLoader.stop === 'function') {
+    this.runningLoader.stop();
+  }
 };
 
 ChatView.prototype.invalidate = function invalidate() {

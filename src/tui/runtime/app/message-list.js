@@ -70,6 +70,12 @@ function asciiToolStatus(message) {
   return '[run]';
 }
 
+function toolBgToken(message) {
+  if (message && (message.isError || message.status === 'error')) return 'toolErrorBg';
+  if (message && message.done) return 'toolSuccessBg';
+  return 'toolPendingBg';
+}
+
 function renderRuntimeMessageListAscii(state, width, height, context) {
   var messages = state && Array.isArray(state.messages) ? state.messages : [];
   var lines = [];
@@ -103,7 +109,7 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
         twrapped = twrapped.slice(0, MAX_TOOL_LINES);
         twrapped.push('... (' + (originalLength - MAX_TOOL_LINES) + ' more lines)');
       }
-      var toolBgCode = (theme && theme.toolBg) || '';
+      var toolBgCode = (theme && (theme[toolBgToken(message)] || theme.toolBg)) || '';
       var toolBgReset = toolBgCode ? '\x1b[0m' : '';
       for (var ti = 0; ti < twrapped.length; ti += 1) {
         var tLine = (ti === 0 ? (asciiToolStatus(message) + ' ' + toolTitle + '  ') : '   ') + twrapped[ti];

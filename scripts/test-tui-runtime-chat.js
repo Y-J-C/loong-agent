@@ -3,6 +3,7 @@
 
 var renderRuntimeChatView = require('../src/tui/runtime/app/chat-view').renderRuntimeChatView;
 var renderRuntimeMessageList = require('../src/tui/runtime/app/message-list').renderRuntimeMessageList;
+var themeMod = require('../src/tui/runtime/theme');
 var stripAnsi = require('../src/tui/runtime/utils').stripAnsi;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
 var pass = 0;
@@ -71,10 +72,44 @@ ok(beforeInput >= 0 && afterInput > inputIndex, 'renders input borders around in
 ok(plain.indexOf('------------------------------------------------------------') < 0, 'chat view omits extra divider line');
 ok(plain.indexOf('m ') >= 0 || plain.indexOf('mock') >= 0, 'renders model in footer');
 ok(plain.indexOf('abcdef12') >= 0, 'renders session short id');
+try {
+  var branch = require('child_process').execFileSync('git', ['-C', process.cwd(), 'rev-parse', '--abbrev-ref', 'HEAD'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  var gitFooterLines = renderRuntimeChatView(Object.assign({}, state, {
+    cwd: process.cwd(),
+    inputBuffer: '',
+    messages: [{ type: 'assistant', text: 'git branch footer check' }],
+  }), { columns: 120, rows: 8 });
+  if (branch) ok(stripAnsi(gitFooterLines.join('\n')).indexOf('[' + branch + ']') >= 0, 'renders git branch in footer');
+} catch (error) {
+  ok(true, 'git branch footer check skipped outside git worktree');
+}
 ok(lines.every(function(line) { return visibleWidth(line) <= 60; }), 'all lines fit width');
 
 var plainTheme = renderRuntimeChatView(Object.assign({}, state, { theme: 'plain' }), { columns: 60, rows: 20 });
 ok(plainTheme.join('\n').indexOf('\x1b[') < 0, 'plain theme omits ANSI in chat view');
+
+var runningLines = renderRuntimeChatView(Object.assign({}, state, {
+  mode: 'running',
+  agentStatus: 'running',
+  status: 'tool bash running',
+  inputBuffer: '',
+  messages: [{ type: 'assistant', text: 'body before spinner' }],
+}), { columns: 60, rows: 10 });
+var runningPlain = stripAnsi(runningLines.join('\n'));
+ok(runningPlain.indexOf('tool bash running') >= 0, 'running chat view renders status spinner line');
+ok(runningLines.every(function(line) { return visibleWidth(line) <= 60; }), 'running spinner lines fit width');
+
+var idleLines = renderRuntimeChatView(Object.assign({}, state, {
+  mode: 'idle',
+  agentStatus: 'idle',
+  status: 'idle',
+  inputBuffer: '',
+  messages: [{ type: 'assistant', text: 'body without spinner' }],
+}), { columns: 60, rows: 10 });
+ok(stripAnsi(idleLines.join('\n')).indexOf('Working...') < 0, 'idle chat view omits spinner line');
 
 var multiState = Object.assign({}, state, {
   inputBuffer: 'first line\n第二行',
@@ -185,6 +220,16 @@ var expandedToolLines = renderRuntimeChatView(Object.assign({}, toolState, { exp
 var expandedToolPlain = stripAnsi(expandedToolLines.join('\n'));
 ok(expandedToolPlain.indexOf('detail: hidden detail line') >= 0, 'expanded tool detail renders');
 ok(expandedToolLines.every(function(line) { return visibleWidth(line) <= 60; }), 'expanded tool lines fit width');
+
+var darkTheme = themeMod.getTheme('loong-dark');
+var pendingToolLines = renderRuntimeMessageList({ messages: [{ type: 'tool', toolName: 'bash', status: 'running', done: false, summary: 'pending' }] }, 60, 6, { theme: darkTheme });
+var successToolLines = renderRuntimeMessageList({ messages: [{ type: 'tool', toolName: 'bash', status: 'ok', done: true, summary: 'success' }] }, 60, 6, { theme: darkTheme });
+var errorToolLines = renderRuntimeMessageList({ messages: [{ type: 'tool', toolName: 'bash', status: 'error', done: true, isError: true, summary: 'error' }] }, 60, 6, { theme: darkTheme });
+ok(pendingToolLines.join('\n').indexOf(darkTheme.toolPendingBg) >= 0, 'pending tool uses pending background');
+ok(successToolLines.join('\n').indexOf(darkTheme.toolSuccessBg) >= 0, 'successful tool uses success background');
+ok(errorToolLines.join('\n').indexOf(darkTheme.toolErrorBg) >= 0, 'failed tool uses error background');
+var plainToolLines = renderRuntimeMessageList({ messages: [{ type: 'tool', toolName: 'bash', status: 'ok', done: true, summary: 'plain' }] }, 60, 6, { theme: themeMod.getTheme('plain') });
+ok(plainToolLines.join('\n').indexOf('\x1b[') < 0, 'plain tool backgrounds emit no ANSI');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

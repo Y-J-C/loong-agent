@@ -32,6 +32,14 @@ equal(plain.name, 'plain', 'plain theme name');
 equal(theme.getTheme('missing').name, 'loong-dark', 'missing theme fallback');
 ok(theme.hasTheme('plain'), 'plain theme exists');
 ok(theme.listThemes().indexOf('loong-dark') >= 0, 'theme list includes loong-dark');
+ok(Boolean(dark.toolPendingBg), 'dark theme has pending tool background');
+ok(Boolean(dark.toolSuccessBg), 'dark theme has success tool background');
+ok(Boolean(dark.toolErrorBg), 'dark theme has error tool background');
+ok(dark.toolPendingBg !== dark.toolSuccessBg, 'pending and success tool backgrounds differ');
+ok(dark.toolSuccessBg !== dark.toolErrorBg, 'success and error tool backgrounds differ');
+equal(plain.toolPendingBg, '', 'plain pending tool background is empty');
+equal(plain.toolSuccessBg, '', 'plain success tool background is empty');
+equal(plain.toolErrorBg, '', 'plain error tool background is empty');
 
 var painted = theme.paint(dark, 'error', 'boom');
 ok(painted.indexOf('\x1b[') >= 0, 'dark paint adds ANSI');
