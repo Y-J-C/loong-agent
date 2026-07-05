@@ -150,6 +150,7 @@ for (var toolLine = 0; toolLine < 20; toolLine += 1) {
 var toolState = Object.assign({}, state, {
   inputBuffer: '',
   messages: [{
+    id: 'tool-a',
     type: 'tool',
     toolName: 'bash',
     done: true,
@@ -161,6 +162,12 @@ var toolLines = renderRuntimeChatView(toolState, { columns: 60, rows: 16 });
 var toolPlain = stripAnsi(toolLines.join('\n'));
 ok(toolPlain.indexOf('more lines') >= 0, 'long tool output is truncated by default');
 ok(toolPlain.indexOf('hidden detail line') < 0, 'tool detail stays collapsed by default');
+var selectedToolLines = renderRuntimeChatView(Object.assign({}, toolState, {
+  messages: [Object.assign({}, toolState.messages[0], { expanded: true })],
+}), { columns: 60, rows: 20 });
+var selectedToolPlain = stripAnsi(selectedToolLines.join('\n'));
+ok(selectedToolPlain.indexOf('detail: hidden detail line') >= 0, 'selected tool detail expands inline');
+ok(selectedToolLines.every(function(line) { return visibleWidth(line) <= 60; }), 'selected tool detail lines fit width');
 var expandedToolLines = renderRuntimeChatView(Object.assign({}, toolState, { expandedTools: true }), { columns: 60, rows: 20 });
 var expandedToolPlain = stripAnsi(expandedToolLines.join('\n'));
 ok(expandedToolPlain.indexOf('detail: hidden detail line') >= 0, 'expanded tool detail renders');

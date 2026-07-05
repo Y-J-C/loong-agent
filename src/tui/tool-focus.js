@@ -1,6 +1,6 @@
 'use strict';
 
-const { createToolDetailPanel, isViewerPanel } = require('./viewer');
+const { isViewerPanel } = require('./viewer');
 
 function toolMessages(state) {
   return (state && state.messages ? state.messages : []).filter((message) => (
@@ -44,10 +44,14 @@ function toggleSelectedToolDetail(state) {
     if (state.mode === 'panel') state.mode = 'idle';
     return true;
   }
-  const tool = ensureSelectedTool(state);
+  const tool = latestToolMessage(state);
   if (!tool) return false;
-  state.activePanel = createToolDetailPanel(tool);
-  state.mode = 'panel';
+  toolMessages(state).forEach((message) => {
+    if (message !== tool) message.expanded = false;
+  });
+  tool.expanded = !tool.expanded;
+  if (tool.id && state) state.selectedMessageId = tool.expanded ? tool.id : '';
+  if (state && state.mode === 'panel') state.mode = 'idle';
   return true;
 }
 

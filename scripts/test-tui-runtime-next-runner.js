@@ -180,9 +180,16 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   terminal.inputHandler('\x0f');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  ok(terminal.output.indexOf('bash') >= 0 && terminal.output.indexOf('tool summary') >= 0, 'ctrl+o opens tool detail');
-  terminal.inputHandler('\x1b');
+  equal(capturedState.activePanel, null, 'ctrl+o does not open tool detail panel');
+  ok(capturedState.messages.some(function(message) {
+    return message.type === 'tool' && message.expanded;
+  }), 'ctrl+o expands nearest tool message inline');
+  ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'ctrl+o renders tool detail inline');
+  terminal.inputHandler('\x0f');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(!capturedState.messages.some(function(message) {
+    return message.type === 'tool' && message.expanded;
+  }), 'ctrl+o collapses inline tool detail');
   terminal.inputHandler('\x1b[15;6u');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'shift+ctrl+o expands tool detail in message list');

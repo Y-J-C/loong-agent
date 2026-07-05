@@ -126,7 +126,7 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
       }
     }
 
-    if (message.type === 'tool' && state && state.expandedTools) {
+    if (message.type === 'tool' && state && (state.expandedTools || message.expanded)) {
       var detail = detailText(message);
       if (detail) {
         var detailPrefix = '  detail: ';
