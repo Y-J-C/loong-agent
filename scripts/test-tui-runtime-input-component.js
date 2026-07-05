@@ -30,6 +30,11 @@ var line = input.render(20)[0];
 ok(line.indexOf(CURSOR_MARKER) >= 0, 'focused input renders marker');
 ok(stripCursorMarker(line).indexOf('你好') >= 0, 'CJK text renders');
 ok(visibleWidth(line) <= 20, 'focused input fits width');
+ok(line.indexOf('\x1b[7m') < 0, 'hardware cursor mode omits inverse software cursor');
+
+var softwareLine = input.render(20, { showHardwareCursor: false })[0];
+ok(softwareLine.indexOf(CURSOR_MARKER) >= 0, 'software cursor mode keeps marker');
+ok(softwareLine.indexOf('\x1b[7m') >= 0, 'software cursor mode renders inverse cursor');
 
 var blurred = new Input({ value: 'hello', cursor: 2, focused: false }).render(12)[0];
 ok(blurred.indexOf(CURSOR_MARKER) < 0, 'blurred input omits marker');

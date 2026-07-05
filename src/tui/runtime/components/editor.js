@@ -191,7 +191,8 @@ Editor.prototype.render = function render(width, context) {
       var after = sliceByWidthFrom(raw, cursorCol, Math.max(1, contentWidth - utils.visibleWidth(before)));
       var atCursor = chars(after)[0] || ' ';
       var rest = chars(after).slice(atCursor === ' ' && cursorCol >= totalValueWidth ? 0 : 1).join('');
-      visible = before + CURSOR_MARKER + themeMod.paint(theme, 'cursor', atCursor) + rest;
+      var useHardwareCursor = !context || context.showHardwareCursor !== false;
+      visible = before + CURSOR_MARKER + (useHardwareCursor ? atCursor : themeMod.paint(theme, 'cursor', atCursor)) + rest;
     }
 
     output.push(pad(this.prompt + visible, totalWidth));

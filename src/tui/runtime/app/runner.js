@@ -382,6 +382,12 @@ async function runRuntimeNextTui(config, options) {
       return;
     }
 
+    if (state.autoItems && state.autoItems.length && interactions.handleAutocompleteKey(state, key)) {
+      stateModule.updateAutocomplete(state);
+      requestRender();
+      return;
+    }
+
     if (key.type === 'enter') {
       await submit(state.inputBuffer);
       requestRender();

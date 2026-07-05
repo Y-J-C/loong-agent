@@ -176,6 +176,7 @@ async function main() {
   inputExit:
   {
     terminal.inputHandler('\x1b');
+    terminal.inputHandler('\x15');
     await tick();
     send(terminal, '/sessions');
     terminal.inputHandler('\r');

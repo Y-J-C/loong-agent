@@ -33,7 +33,11 @@ ChatView.prototype.render = function render(width, context) {
   var renderCtx = { state: state, theme: theme, rows: rows, columns: cols };
 
   var overlays = this.renderStateOverlays ? renderOverlays(state, cols, rows, renderCtx) : [];
-  var inputLines = renderInputBlock(state, cols, { focused: overlays.length === 0, theme: theme });
+  var inputLines = renderInputBlock(state, cols, {
+    focused: overlays.length === 0,
+    theme: theme,
+    showHardwareCursor: context && context.showHardwareCursor,
+  });
   var footerLines = this.footer.render(cols, renderCtx);
   var dividerLine = this.divider.render(cols, renderCtx);
 

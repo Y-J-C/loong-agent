@@ -145,7 +145,8 @@ Input.prototype.render = function render(width, context) {
   var atCursor = chars(afterVisible)[0] || ' ';
   var afterCursor = chars(afterVisible).slice(atCursor === ' ' && cursorCol >= totalValueWidth ? 0 : 1).join('');
   var marker = this.focused ? CURSOR_MARKER : '';
-  var cursorText = this.focused ? themeMod.paint(theme, 'cursor', atCursor) : atCursor;
+  var useHardwareCursor = !context || context.showHardwareCursor !== false;
+  var cursorText = this.focused && !useHardwareCursor ? themeMod.paint(theme, 'cursor', atCursor) : atCursor;
   var text = beforeVisible + marker + cursorText + afterCursor;
   var line = this.prompt + text;
   var missing = Math.max(0, totalWidth - utils.visibleWidth(line));

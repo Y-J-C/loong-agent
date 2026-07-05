@@ -141,6 +141,31 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.inputBuffer, '', 'escape clears non-empty input through TUI dispatcher');
 
+  terminal.inputHandler('/');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.autoItems.length > 0, 'slash input builds autocomplete candidates');
+  ok(terminal.output.indexOf('/model') >= 0 || terminal.output.indexOf('/commands') >= 0, 'slash autocomplete preview renders above input');
+  terminal.inputHandler('\x1b');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.inputBuffer, '/', 'escape closes autocomplete preview before clearing input');
+  terminal.inputHandler('\x15');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.inputBuffer, '', 'ctrl+u clears slash input after preview');
+
+  terminal.inputHandler('/');
+  terminal.inputHandler('s');
+  terminal.inputHandler('e');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  terminal.inputHandler('\t');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.inputBuffer.indexOf('/session') === 0, 'tab accepts slash autocomplete instead of inserting a tab');
+  ok(capturedState.inputBuffer.indexOf('\t') < 0, 'tab key should not insert literal tab while autocomplete is open');
+  terminal.inputHandler('\x1b');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  terminal.inputHandler('\x15');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.inputBuffer, '', 'ctrl+u clears completed slash input');
+
   terminal.inputHandler('h');
   terminal.inputHandler('i');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });

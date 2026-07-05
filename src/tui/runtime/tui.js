@@ -169,6 +169,7 @@ TUI.prototype.doRender = function doRender() {
     rows: height,
     tui: this,
     terminal: this.terminal,
+    showHardwareCursor: this.showHardwareCursor,
   };
   var newLines;
   try {
