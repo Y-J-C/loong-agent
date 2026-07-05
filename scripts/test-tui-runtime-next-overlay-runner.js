@@ -145,9 +145,15 @@ async function main() {
   ok(terminal.output.indexOf('Tool Approval') >= 0, 'approval overlay renders');
   equal(tuiRef.overlayStack.length, 1, 'approval uses tui overlay stack');
   equal(overlayControllerRef.getCurrentKind(), 'approval', 'approval controller kind is active');
+  var approvalEntry = overlayControllerRef.getCurrentEntry();
+  equal(approvalEntry.options.anchor, 'bottom-left', 'approval runner overlay anchors bottom-left');
+  equal(approvalEntry.options.margin.left, 0, 'approval runner overlay is left aligned');
+  equal(approvalEntry.options.margin.bottom, 3, 'approval runner overlay leaves input/footer space');
+  ok(terminal.output.indexOf('┌') >= 0 && terminal.output.indexOf('─') >= 0, 'approval runner overlay uses solid border');
   terminal.inputHandler('y');
   await tick();
   equal(tuiRef.overlayStack.length, 0, 'approval overlay closes through controller');
+  equal(overlayControllerRef.getCurrentKind(), '', 'approval controller kind clears after decision');
   equal(fakeSession.approvals[0] && fakeSession.approvals[0].approved, true, 'approval y resolves true');
   ok(terminal.output.indexOf('approved') >= 0, 'approval result renders');
 

@@ -2,6 +2,7 @@
 
 var renderRuntimeOverlays = require('../src/tui/runtime/app/overlay-view').renderRuntimeOverlays;
 var compositeOverlays = require('../src/tui/runtime/overlay').compositeOverlays;
+var resolveOverlayLayout = require('../src/tui/runtime/overlay').resolveOverlayLayout;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
 var pass = 0;
 var fail = 0;
@@ -31,9 +32,35 @@ var approvalState = {
 };
 var approval = renderRuntimeOverlays(approvalState, 80, 20);
 equal(approval.length, 1, 'approval creates overlay');
+equal(approval[0].options.anchor, 'bottom-left', 'approval overlay uses bottom-left anchor');
+equal(approval[0].options.margin.left, 0, 'approval overlay aligns to output left edge');
+equal(approval[0].options.margin.bottom, 3, 'approval overlay leaves input/footer space');
+var approvalLayout = resolveOverlayLayout(approval[0].options, 6, 80, 20);
+equal(approvalLayout.col, 0, 'approval layout starts at left edge');
 var approvalFrame = compositeOverlays(['base'], approval, { columns: 80, rows: 20 });
-ok(approvalFrame.join('\n').indexOf('Tool Approval') >= 0, 'approval title renders');
+var approvalText = approvalFrame.join('\n');
+ok(approvalText.indexOf('Tool Approval') >= 0, 'approval title renders');
+ok(approvalText.indexOf('┌') >= 0 && approvalText.indexOf('─') >= 0, 'approval uses solid border');
+ok(approvalText.indexOf('+ Tool Approval') < 0, 'approval does not use old dashed title line');
+ok(approvalFrame.slice(0, 8).join('\n').indexOf('Tool Approval') < 0, 'approval is not rendered near screen top');
+ok(approvalFrame.slice(10).join('\n').indexOf('Tool Approval') >= 0, 'approval renders near output bottom');
 ok(approvalFrame.every(function(line) { return visibleWidth(line) <= 80; }), 'approval frame width fits');
+
+var longApprovalState = {
+  pendingToolApproval: {
+    approval: {
+      tool: 'bash',
+      riskLevel: 'shell_general',
+      operation: 'command=' + 'systemctl list-units --type=service --state=running --no-pager '.repeat(4),
+      reason: 'Command is blocked by safety policy. '.repeat(8),
+      warnings: ['Dangerous shell command pattern matched.', 'Long command requires review.'],
+    },
+  },
+};
+var longApproval = renderRuntimeOverlays(longApprovalState, 48, 12, { columns: 48 });
+var longFrame = compositeOverlays(['base'], longApproval, { columns: 48, rows: 12 });
+ok(longFrame.every(function(line) { return visibleWidth(line) <= 48; }), 'long approval frame stays within narrow width');
+ok(longFrame.join('\n').indexOf('Tool Approval') >= 0, 'long approval still renders title');
 
 var panelState = {
   activePanel: {
