@@ -139,6 +139,75 @@ function convertToLlm(messages, options) {
     .filter(Boolean);
 }
 
+function normalizeToolCall(toolCall) {
+  const args = toolCall && toolCall.arguments && typeof toolCall.arguments === 'object'
+    ? toolCall.arguments
+    : {};
+  return {
+    id: toolCall && toolCall.id ? String(toolCall.id) : '',
+    type: 'function',
+    function: {
+      name: toolCall && toolCall.name ? String(toolCall.name) : '',
+      arguments: JSON.stringify(args),
+    },
+  };
+}
+
+function toolResultContent(message) {
+  const details = message && Object.prototype.hasOwnProperty.call(message, 'details')
+    ? message.details
+    : message && message.content;
+  return JSON.stringify(details === undefined ? null : details);
+}
+
+function toOpenAiMessages(messages, options) {
+  if (!options || !options.nativeTools) return convertToLlm(messages, options);
+  const subjectSet = selectedSubjectSet(options || {});
+  const maxMessages = Math.max(1, Number((options && options.maxMessages) || 12));
+  return (messages || [])
+    .slice(-maxMessages)
+    .map((message) => {
+      if (!message || message.internal) return null;
+      if (message.role === 'user') {
+        return { role: 'user', content: normalizeTextContent(message.content), timestamp: message.timestamp };
+      }
+      if (message.role === 'assistant') {
+        const entry = {
+          role: 'assistant',
+          content: normalizeTextContent(message.content),
+          timestamp: message.timestamp,
+        };
+        if (Array.isArray(message.toolCalls) && message.toolCalls.length) {
+          entry.tool_calls = message.toolCalls.map(normalizeToolCall);
+        }
+        return entry;
+      }
+      if (message.role === 'toolResult') {
+        if (!message.includeInContext && !(options && options.includeToolResults)) return null;
+        return {
+          role: 'tool',
+          tool_call_id: message.toolCallId || '',
+          content: toolResultContent(message),
+          timestamp: message.timestamp,
+        };
+      }
+      if (message.role === 'bashExecution') {
+        if (message.excludeFromContext) return null;
+        if (!message.includeInContext && !(options && options.includeBashExecutions)) return null;
+        return { role: 'user', content: bashExecutionToText(message), timestamp: message.timestamp };
+      }
+      if (message.role === 'observation') {
+        if (!message.includeInContext && !(options && options.includeObservations) && !shouldIncludeObservation(message, subjectSet)) return null;
+        return { role: 'user', content: observationToText(message), timestamp: message.timestamp };
+      }
+      if (message.role === 'custom' || message.role === 'context') {
+        return { role: 'user', content: normalizeTextContent(message.content), timestamp: message.timestamp };
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
 function classifyPromptSubjects(prompt) {
   const context = classifyRequestContext(prompt);
   return context.subjects.length ? context.subjects : promptSubjects(prompt);
@@ -149,4 +218,5 @@ module.exports = {
   classifyPromptSubjects,
   convertToLlm,
   observationToText,
+  toOpenAiMessages,
 };

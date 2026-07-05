@@ -256,7 +256,7 @@ async function executeToolCall(context, action, repeatDecision) {
   const turn = context.turn;
   const tool = registry.get(action.tool);
   const callSummary = tool && tool.renderCall ? tool.renderCall(action.input) : '';
-  const toolCallId = createToolCallId(turn, action.tool);
+  const toolCallId = action.toolCallId || createToolCallId(turn, action.tool);
   const startedAt = Date.now();
 
   await emit({
@@ -408,7 +408,10 @@ async function executeToolCall(context, action, repeatDecision) {
   await emitToolResultMessage(context, action, execution);
 
   if (context.state) {
-    recordToolResult(context.state, Object.assign({}, action, { toolCallId }), result);
+    recordToolResult(context.state, Object.assign({}, action, { toolCallId }), result, {
+      errorType,
+      isError,
+    });
   }
 
   if (action.tool === 'bash' && result && !isError) {

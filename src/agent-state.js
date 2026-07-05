@@ -28,13 +28,23 @@ function startTurn(state) {
   return state.turn;
 }
 
-function recordAssistantMessage(state, message) {
-  state.messages.push({
+function recordAssistantMessage(state, message, options) {
+  const entry = {
     role: 'assistant',
     turn: state.turn,
     content: message,
     timestamp: new Date().toISOString(),
-  });
+  };
+  if (options && Array.isArray(options.toolCalls) && options.toolCalls.length) {
+    entry.toolCalls = options.toolCalls.map((toolCall) => ({
+      id: toolCall && toolCall.id ? String(toolCall.id) : '',
+      name: toolCall && toolCall.name ? String(toolCall.name) : '',
+      arguments: toolCall && toolCall.arguments && typeof toolCall.arguments === 'object'
+        ? toolCall.arguments
+        : {},
+    }));
+  }
+  state.messages.push(entry);
 }
 
 function recordUserMessage(state, message, options) {
@@ -47,7 +57,7 @@ function recordUserMessage(state, message, options) {
   });
 }
 
-function recordToolResult(state, action, result) {
+function recordToolResult(state, action, result, options) {
   const observationContext = {
     turn: state.turn,
     observationIndex: state.observations.length,
@@ -81,7 +91,12 @@ function recordToolResult(state, action, result) {
     role: 'toolResult',
     turn: state.turn,
     tool: action.tool,
+    toolName: action.tool,
+    toolCallId: action.toolCallId || '',
     content: result,
+    details: result,
+    isError: Boolean(options && options.isError),
+    errorType: (options && options.errorType) || '',
     timestamp: new Date().toISOString(),
   });
   typedObservations.forEach((typedObservation) => {
