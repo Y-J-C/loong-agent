@@ -188,6 +188,8 @@ test('native agent-loop executes one tool, preserves provider toolCallId, and co
   assert(run.legacyCalls === 0, 'legacy chatCompletion should not be called');
   assert(run.nativeCalls === 2, 'native completion should be called twice');
   assert(run.result.summary === 'inspected workspace', 'final summary mismatch');
+  assert(run.events.some((event) => event.type === 'agent_start' && event.agentToolProtocol === 'native_tool_calling'), 'agent_start native protocol metadata mismatch');
+  assert(run.events.some((event) => event.type === 'model_request' && event.agentToolProtocol === 'native_tool_calling'), 'model_request native protocol metadata mismatch');
   assert(run.nativeRequests[0].options && run.nativeRequests[0].options.nativeTools === true, 'nativeTools option missing');
   assert(Array.isArray(run.nativeRequests[0].options.tools), 'native tools missing');
   assert(run.nativeRequests[0].options.streaming === false, 'native path should force non-streaming');

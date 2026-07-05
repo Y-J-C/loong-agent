@@ -126,7 +126,7 @@ function loadConfig() {
     contextBudgetProfileDefault,
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
-    nativeTools: boolEnv('LOONG_AGENT_NATIVE_TOOLS', false),
+    nativeTools: boolEnv('LOONG_AGENT_NATIVE_TOOLS', true),
     nativeToolChoice: normalizeNativeToolChoice(process.env.LOONG_AGENT_NATIVE_TOOL_CHOICE),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),
     recordModelRequest: normalizeRecordModelRequest(

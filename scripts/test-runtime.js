@@ -19,7 +19,7 @@ const { classifyRequestContext, selectContextMessages } = require('../src/contex
 const { bindClaims, extractClaims, validateFinalAnswerBinding } = require('../src/evidence-binding');
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
 const { deriveObservations } = require('../src/observation');
-const { buildMessagesFromTurnContext, buildMessagesWithAuditMetadata } = require('../src/prompts');
+const { buildMessagesFromTurnContext, buildMessagesWithAuditMetadata, buildTurnContext } = require('../src/prompts');
 const { createModelRequestEvent } = require('../src/model-request-audit');
 const { streamJson } = require('../src/provider-registry');
 const { waitForChildProcess, spawnProcess } = require('../src/runtime/child-process');
@@ -82,6 +82,7 @@ function config(provider, workspace) {
     model: 'mock',
     maxLoops: 3,
     workspace: workspace || tempWorkspace(),
+    nativeTools: false,
   };
 }
 
@@ -93,6 +94,54 @@ test('model request config mode normalization is safe by default', () => {
   assert(normalizeRecordModelRequest('redacted', false) === 'redacted', 'redacted mode should be accepted');
   assert(normalizeRecordModelRequest('full', false) === 'redacted', 'full mode should require unsafe opt-in');
   assert(normalizeRecordModelRequest('full', true) === 'full', 'full mode should work with unsafe opt-in');
+});
+
+test('native tools default on and env can disable legacy json_action fallback', () => {
+  const previous = process.env.LOONG_AGENT_NATIVE_TOOLS;
+  process.env.LOONG_AGENT_NATIVE_TOOLS = '';
+  assert(loadConfig().nativeTools === true, 'native tools should default on');
+  process.env.LOONG_AGENT_NATIVE_TOOLS = '0';
+  assert(loadConfig().nativeTools === false, 'native tools env disable failed');
+  if (previous === undefined) delete process.env.LOONG_AGENT_NATIVE_TOOLS;
+  else process.env.LOONG_AGENT_NATIVE_TOOLS = previous;
+});
+
+test('prompt uses native protocol without embedded tool list or json_action instructions', () => {
+  const nativeContext = buildTurnContext({
+    userPrompt: 'inspect current runtime',
+    tools: createDefaultTools(),
+    config: {
+      provider: 'openai-compatible',
+      providerProfile: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      nativeTools: true,
+    },
+  });
+  const nativeSystem = buildMessagesWithAuditMetadata(nativeContext).messages[0].content;
+  assert(nativeSystem.indexOf('Available tools:') < 0, 'native prompt should not embed tool list');
+  assert(nativeSystem.indexOf('Response protocol:') < 0, 'native prompt should not include json response protocol');
+  assert(nativeSystem.indexOf('{"type":"tool"') < 0, 'native prompt should not include json_action tool example');
+  assert(nativeSystem.indexOf('Legacy tool JSON') < 0, 'native prompt should not include legacy tool JSON');
+  assert(nativeSystem.indexOf('finish tool') < 0, 'native prompt should not mention finish tool guidance');
+  assert(nativeSystem.indexOf('Use typed observations and current tool evidence') >= 0, 'native prompt should keep evidence rules');
+  assert(nativeSystem.indexOf('actually call write') >= 0, 'native prompt should keep artifact write rule');
+
+  const legacyContext = buildTurnContext({
+    userPrompt: 'inspect current runtime',
+    tools: createDefaultTools(),
+    config: {
+      provider: 'openai-compatible',
+      providerProfile: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      nativeTools: false,
+    },
+  });
+  const legacySystem = buildMessagesWithAuditMetadata(legacyContext).messages[0].content;
+  assert(legacySystem.indexOf('Available tools:') >= 0, 'legacy prompt should embed tool list');
+  assert(legacySystem.indexOf('Response protocol:') >= 0, 'legacy prompt should include json response protocol');
+  assert(legacySystem.indexOf('{"type":"tool"') >= 0, 'legacy prompt should include json_action tool example');
 });
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');

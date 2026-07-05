@@ -9,7 +9,20 @@ const { loadSkillSummary } = require('./skills/file-skills');
 const { createTaskMemorySnapshot, renderTaskMemoryPromptBlock } = require('./agent/task-memory');
 const { renderSessionMemoryPromptBlock } = require('./agent/session-memory');
 
-const CORE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
+const CORE_RULES = `Core rules:
+- Never reveal secrets or API keys.
+- Use typed observations and current tool evidence for current-state answers; do not invent versions, measurements, paths, PIDs, addresses, or device state.
+- Use kb_topic, kb_search, risk_lookup, or session_summary for local knowledge. Treat draft, unknown, low-confidence, and 待确认 knowledge as uncertain supporting context, not fact.
+- For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.
+- Use read, write, edit, ls, grep, and find as the primary file tools. Use legacy read_file, list_directory, and search_files only for compatibility.
+- Use write for new files or complete rewrites, including multi-line scripts and CSV/logging helpers. Do not create large files with bash heredocs when write is available.
+- Use csv_html_report when the user asks to turn a CSV file into a web page, HTML report, chart, or dashboard. This avoids embedding large HTML/JS content in tool-call JSON.
+- When the user asks to create, generate, save, or export an HTML/web page/chart from data, you must actually call write or an equivalent file-creation tool before saying it was generated.
+- Use edit only after reading the file and matching exact oldText. If the text is uncertain, read again before editing.
+- User-specified absolute output paths are allowed. Record the exact path in the answer when creating or editing files.
+- After writing a script, use bash to execute it and read to inspect generated output files.`;
+
+const LEGACY_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
 
 Available tools:
 {{TOOLS}}
@@ -25,19 +38,20 @@ Response protocol:
 - To answer the user, return either natural language or strict JSON:
   {"type":"answer","answer":"final answer","status":"ok","evidence":[]}
 
-Core rules:
-- Never reveal secrets or API keys.
-- Use typed observations and current tool evidence for current-state answers; do not invent versions, measurements, paths, PIDs, addresses, or device state.
-- Use kb_topic, kb_search, risk_lookup, or session_summary for local knowledge. Treat draft, unknown, low-confidence, and 待确认 knowledge as uncertain supporting context, not fact.
-- For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.
-- Use read, write, edit, ls, grep, and find as the primary file tools. Use legacy read_file, list_directory, and search_files only for compatibility.
-- Use write for new files or complete rewrites, including multi-line scripts and CSV/logging helpers. Do not create large files with bash heredocs when write is available.
-- Use csv_html_report when the user asks to turn a CSV file into a web page, HTML report, chart, or dashboard. This avoids embedding large HTML/JS content in tool-call JSON.
-- When the user asks to create, generate, save, or export an HTML/web page/chart from data, you must actually call write or an equivalent file-creation tool before saying it was generated.
-- Use edit only after reading the file and matching exact oldText. If the text is uncertain, read again before editing.
-- User-specified absolute output paths are allowed. Record the exact path in the answer when creating or editing files.
-- After writing a script, use bash to execute it and read to inspect generated output files.
+${CORE_RULES}
 - The finish tool is legacy compatibility. Prefer type="answer" or natural language for final answers.`;
+
+const NATIVE_SYSTEM_PROMPT = `You are a lightweight coding and diagnostics agent.
+
+Extension guidelines:
+{{EXTENSION_GUIDELINES}}
+
+Native tool calling:
+- Use the provided API tools when current evidence, file inspection, command execution, or file changes are needed.
+- If no tool is needed, answer naturally and cite the evidence already present in context.
+- Do not invent tool results; wait for tool result messages before relying on tool output.
+
+${CORE_RULES}`;
 
 function defaultExtensionGuidelines() {
   try {
@@ -47,9 +61,17 @@ function defaultExtensionGuidelines() {
   }
 }
 
-function buildSystemPrompt(tools, extensionGuidelines) {
+function useNativePrompt(options) {
+  options = options || {};
+  const config = options.config || options;
+  if (!config || config.nativeTools !== true) return false;
+  return Boolean(safeProviderCapabilities(config).toolCalling);
+}
+
+function buildSystemPrompt(tools, extensionGuidelines, options) {
   const guidelines = extensionGuidelines === undefined ? defaultExtensionGuidelines() : extensionGuidelines;
-  return CORE_SYSTEM_PROMPT
+  const template = useNativePrompt(options) ? NATIVE_SYSTEM_PROMPT : LEGACY_SYSTEM_PROMPT;
+  return template
     .replace('{{TOOLS}}', formatToolsForPrompt(tools || createDefaultTools()))
     .replace('{{EXTENSION_GUIDELINES}}', String(guidelines || 'No extension-specific guidance.'));
 }
@@ -191,7 +213,7 @@ function buildTurnContext(options) {
     ? state.extensionRuntime.getPromptGuidelines()
     : '';
   return {
-    systemPrompt: buildSystemPrompt(tools, extensionGuidelines),
+    systemPrompt: buildSystemPrompt(tools, extensionGuidelines, { config }),
     messages: (state.messages || []).slice(),
     tools,
     kbSummary,
@@ -272,7 +294,9 @@ function buildMessagesWithAuditMetadata(turnContext) {
     parts.push([
       `Analysis depth hint: ${thinkingLevel}`,
       hints[thinkingLevel] || hints.medium,
-      'Do not reveal hidden chain-of-thought; return only a tool action JSON or a final answer.',
+      useNativePrompt(turnContext.config)
+        ? 'Do not reveal hidden chain-of-thought; use native tool calls when action is needed, otherwise return a final answer.'
+        : 'Do not reveal hidden chain-of-thought; return only a tool action JSON or a final answer.',
     ].join('\n'));
   }
 
@@ -283,7 +307,9 @@ function buildMessagesWithAuditMetadata(turnContext) {
   parts.forEach((part) => {
     if (part && typeof part === 'object' && part.name) namedPartChars[`${part.name}Chars`] = partText(part).length;
   });
-  const systemContent = turnContext.systemPrompt || buildSystemPrompt(turnContext.tools, turnContext.extensionGuidelines);
+  const systemContent = turnContext.systemPrompt || buildSystemPrompt(turnContext.tools, turnContext.extensionGuidelines, {
+    config: turnContext.config,
+  });
   const userContent = parts.map(partText).join('\n\n');
   const controlledContextChars = parts
     .map(partText)
@@ -397,7 +423,7 @@ function buildMessages(userPrompt, observations, tools, messages) {
 }
 
 module.exports = {
-  SYSTEM_PROMPT: CORE_SYSTEM_PROMPT,
+  SYSTEM_PROMPT: LEGACY_SYSTEM_PROMPT,
   buildSystemPrompt,
   buildMessages,
   buildMessagesFromTurnContext,
