@@ -8,6 +8,7 @@ const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
 const { handleCommand } = require('../src/tui/commands');
 const { handleApprovalKey, handlePanelKey } = require('../src/tui/interactions');
+const { completeCommandInput } = require('../src/tui/command-autocomplete-provider');
 const { createTuiState } = require('../src/tui/state');
 const { listSlashCommands } = require('../src/tui/slash-commands');
 const { shortcutHint } = require('../src/tui/keybindings');
@@ -131,6 +132,19 @@ test('registered extension slash command is intercepted and does not prompt LLM'
   assert(called && called.parsed.argsText === 'alpha beta', 'extension handler was not called with parsed args');
   assert(context.prompted === '', 'extension slash command should not start an LLM prompt');
   assert(context.state.status === 'extension ran', 'extension handler did not update state');
+  slash.unregisterSlashCommand('ext-run');
+});
+
+test('registered extension slash command appears in autocomplete candidates', async () => {
+  const slash = require('../src/tui/slash-commands');
+  slash.registerSlashCommand({
+    name: 'ext-run',
+    description: 'Run extension handler',
+    category: 'extension',
+    handler: async function() {},
+  });
+  const candidates = completeCommandInput('/ext', {});
+  assert(candidates.some((item) => item.command === '/ext-run'), 'registered extension command missing from autocomplete');
   slash.unregisterSlashCommand('ext-run');
 });
 

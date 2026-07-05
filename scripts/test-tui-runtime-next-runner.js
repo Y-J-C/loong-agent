@@ -3,6 +3,8 @@
 
 var EventEmitter = require('events').EventEmitter;
 var runRuntimeNextTui = require('../src/tui/runtime/app/runner').runRuntimeNextTui;
+var slashCommands = require('../src/tui/slash-commands');
+var CURSOR_MARKER = require('../src/tui/runtime/cursor').CURSOR_MARKER;
 var pass = 0;
 var fail = 0;
 
@@ -145,6 +147,7 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(capturedState.autoItems.length > 0, 'slash input builds autocomplete candidates');
   ok(terminal.output.indexOf('/model') >= 0 || terminal.output.indexOf('/commands') >= 0, 'slash autocomplete preview renders above input');
+  ok(terminal.output.indexOf(CURSOR_MARKER) < 0, 'terminal output does not leak cursor marker while autocomplete is open');
   terminal.inputHandler('\x1b');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.inputBuffer, '/', 'escape closes autocomplete preview before clearing input');
@@ -165,6 +168,29 @@ async function main() {
   terminal.inputHandler('\x15');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.inputBuffer, '', 'ctrl+u clears completed slash input');
+
+  slashCommands.registerSlashCommand({
+    name: 'ext-run',
+    description: 'Run extension handler',
+    category: 'extension',
+    handler: function() {},
+  });
+  terminal.inputHandler('/');
+  terminal.inputHandler('e');
+  terminal.inputHandler('x');
+  terminal.inputHandler('t');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.autoItems.some(function(item) {
+    return item.command === '/ext-run';
+  }), 'registered runtime slash command appears in runner autocomplete');
+  terminal.inputHandler('\t');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.inputBuffer, '/ext-run ', 'tab accepts registered runtime slash command');
+  ok(capturedState.inputBuffer.indexOf('\t') < 0, 'registered command completion does not insert literal tab');
+  slashCommands.unregisterSlashCommand('ext-run');
+  terminal.inputHandler('\x15');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.inputBuffer, '', 'ctrl+u clears registered command completion');
 
   terminal.inputHandler('h');
   terminal.inputHandler('i');

@@ -2,10 +2,10 @@
 
 const {
   autocompleteCommand,
-  completeSlashInput,
   scoreSlashCommand,
   slashCommandDefinitions,
 } = require('./slash-commands');
+const { completeCommandInput } = require('./command-autocomplete-provider');
 const { createSearchState } = require('./search');
 
 const SLASH_COMMAND_DEFINITIONS = slashCommandDefinitions();
@@ -156,7 +156,7 @@ function updateAutocomplete(state) {
     return;
   }
 
-  state.autoItems = completeSlashInput(input, { state });
+  state.autoItems = completeCommandInput(input, { state });
   if (!state.autoItems.length) {
     state.autoIndex = -1;
   } else if (state.autoIndex < 0) {

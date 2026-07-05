@@ -1,6 +1,7 @@
 'use strict';
 
 var Input = require('../src/tui/runtime/components/input').Input;
+var Editor = require('../src/tui/runtime/components/editor').Editor;
 var CURSOR_MARKER = require('../src/tui/runtime/cursor').CURSOR_MARKER;
 var stripCursorMarker = require('../src/tui/runtime/cursor').stripCursorMarker;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
@@ -25,19 +26,26 @@ function ok(value, msg) {
   console.error('FAIL: ' + msg);
 }
 
+function markerCount(text) {
+  return String(text || '').split(CURSOR_MARKER).length - 1;
+}
+
 var input = new Input({ value: '你好龙芯', cursor: 2, focused: true });
 var line = input.render(20)[0];
 ok(line.indexOf(CURSOR_MARKER) >= 0, 'focused input renders marker');
+equal(markerCount(line), 1, 'focused input renders exactly one marker');
 ok(stripCursorMarker(line).indexOf('你好') >= 0, 'CJK text renders');
 ok(visibleWidth(line) <= 20, 'focused input fits width');
 ok(line.indexOf('\x1b[7m') < 0, 'hardware cursor mode omits inverse software cursor');
 
 var softwareLine = input.render(20, { showHardwareCursor: false })[0];
 ok(softwareLine.indexOf(CURSOR_MARKER) >= 0, 'software cursor mode keeps marker');
+equal(markerCount(softwareLine), 1, 'software cursor mode renders exactly one marker');
 ok(softwareLine.indexOf('\x1b[7m') >= 0, 'software cursor mode renders inverse cursor');
 
 var blurred = new Input({ value: 'hello', cursor: 2, focused: false }).render(12)[0];
 ok(blurred.indexOf(CURSOR_MARKER) < 0, 'blurred input omits marker');
+equal(markerCount(blurred), 0, 'blurred input renders no marker');
 ok(visibleWidth(blurred) <= 12, 'blurred input fits width');
 
 var edit = new Input({ value: '你好', cursor: 2 });
@@ -61,6 +69,14 @@ var endCjkLine = endCjkInput.render(12)[0];
 ok(endCjkLine.indexOf(CURSOR_MARKER) >= 0, 'end CJK input renders marker');
 ok(visibleWidth(endCjkLine) <= 12, 'end CJK input fits width');
 ok(stripCursorMarker(endCjkLine).indexOf('\u9f99\u82af') >= 0, 'end CJK input keeps characters before cursor');
+
+var editor = new Editor({ value: 'hello\nworld', cursor: 7, focused: true });
+var editorLines = editor.render(20, { height: 3 });
+equal(markerCount(editorLines.join('\n')), 1, 'focused editor renders exactly one marker');
+
+var blurredEditor = new Editor({ value: 'hello\nworld', cursor: 7, focused: false });
+var blurredEditorLines = blurredEditor.render(20, { height: 3 });
+equal(markerCount(blurredEditorLines.join('\n')), 0, 'blurred editor renders no marker');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);
