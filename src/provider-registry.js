@@ -66,6 +66,35 @@ function jsonModeEnabled(config) {
   return !config || config.jsonMode !== false;
 }
 
+function normalizePrimitiveSchema(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+  const text = String(value || '').toLowerCase();
+  if (text.indexOf('number') === 0 || text.indexOf('integer') === 0) return { type: 'number' };
+  if (text.indexOf('boolean') === 0 || text.indexOf('bool') === 0) return { type: 'boolean' };
+  if (text.indexOf('array') === 0 || text.indexOf('list') === 0) return { type: 'array', items: { type: 'string' } };
+  if (text.indexOf('object') === 0) return { type: 'object', properties: {} };
+  return { type: 'string' };
+}
+
+function normalizeToolParametersSchema(parameters) {
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
+    return { type: 'object', properties: {} };
+  }
+  if (parameters.type === 'object' && parameters.properties && typeof parameters.properties === 'object' && !Array.isArray(parameters.properties)) {
+    return parameters;
+  }
+  const properties = {};
+  for (const key of Object.keys(parameters)) {
+    properties[key] = normalizePrimitiveSchema(parameters[key]);
+  }
+  return {
+    type: 'object',
+    properties,
+  };
+}
+
 function buildOpenAiPayload(config, messages, options) {
   config = config || {};
   options = options || {};
@@ -88,7 +117,7 @@ function buildOpenAiPayload(config, messages, options) {
       function: {
         name: tool.name,
         description: tool.description || '',
-        parameters: tool.parameters || {},
+        parameters: normalizeToolParametersSchema(tool.parameters),
       },
     }));
     payload.tool_choice = options.toolChoice || 'auto';

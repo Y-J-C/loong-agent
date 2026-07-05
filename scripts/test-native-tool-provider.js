@@ -4,6 +4,7 @@
 const http = require('http');
 const { chatCompletion, chatCompletionWithTools } = require('../src/llm');
 const { buildOpenAiPayload } = require('../src/provider-registry');
+const { createDefaultTools } = require('../src/tool-registry');
 
 const tests = [];
 
@@ -80,6 +81,75 @@ test('native payload includes OpenAI tools and disables json mode', () => {
   assert(payload.parallel_tool_calls === false, 'native payload should disable parallel tool calls');
   assert(payload.stream === false, 'native payload should force non-streaming');
   assert(!Object.prototype.hasOwnProperty.call(payload, 'response_format'), 'native payload should not send response_format');
+});
+
+test('native payload converts simple tool parameters to JSON Schema', () => {
+  const payload = buildOpenAiPayload(
+    config(),
+    [{ role: 'user', content: 'check board' }],
+    {
+      nativeTools: true,
+      tools: [{
+        name: 'board_profile',
+        description: 'Return board profile.',
+        parameters: { board_id: 'string' },
+      }],
+    }
+  );
+  const parameters = payload.tools[0].function.parameters;
+
+  assert(parameters.type === 'object', 'simple parameters should become object schema');
+  assert(parameters.properties && parameters.properties.board_id, 'board_id property missing');
+  assert(parameters.properties.board_id.type === 'string', 'board_id type mismatch');
+});
+
+test('native payload preserves existing JSON Schema tool parameters', () => {
+  const toolDefs = tools();
+  const original = toolDefs[0].parameters;
+  const payload = buildOpenAiPayload(
+    config(),
+    [{ role: 'user', content: 'check' }],
+    { nativeTools: true, tools: toolDefs }
+  );
+  const parameters = payload.tools[0].function.parameters;
+
+  assert(parameters === original, 'existing JSON schema should be preserved by reference');
+  assert(parameters.type === 'object', 'existing schema type mismatch');
+  assert(parameters.properties.command.type === 'string', 'existing schema property mismatch');
+  assert(parameters.required[0] === 'command', 'existing schema required mismatch');
+});
+
+test('native payload converts empty tool parameters to empty object schema', () => {
+  const payload = buildOpenAiPayload(
+    config(),
+    [{ role: 'user', content: 'runtime' }],
+    {
+      nativeTools: true,
+      tools: [{
+        name: 'runtime_health',
+        description: 'Return runtime health.',
+        parameters: {},
+      }],
+    }
+  );
+  const parameters = payload.tools[0].function.parameters;
+
+  assert(parameters.type === 'object', 'empty parameters should become object schema');
+  assert(parameters.properties && Object.keys(parameters.properties).length === 0, 'empty parameters properties mismatch');
+});
+
+test('native payload normalizes all default tool parameters to object schemas', () => {
+  const payload = buildOpenAiPayload(
+    config(),
+    [{ role: 'user', content: 'hello' }],
+    { nativeTools: true, tools: createDefaultTools() }
+  );
+
+  for (const tool of payload.tools) {
+    const parameters = tool.function && tool.function.parameters;
+    assert(parameters && parameters.type === 'object', `${tool.function.name} parameters should be object schema`);
+    assert(parameters.properties && typeof parameters.properties === 'object' && !Array.isArray(parameters.properties), `${tool.function.name} properties missing`);
+  }
 });
 
 test('native payload forwards explicit tool_choice strategy', () => {
