@@ -95,12 +95,12 @@ function buildOpenAiPayload(config, messages, options) {
     payload.parallel_tool_calls = false;
   }
   if (nativeTools) {
-    payload.stream = false;
+    payload.stream = Boolean(options.streaming);
   }
   if (!nativeTools && deepSeekV4Model && jsonModeEnabled(config)) {
     payload.response_format = { type: 'json_object' };
   }
-  if (!nativeTools && options.streaming && deepSeekV4Model) {
+  if (options.streaming && deepSeekV4Model) {
     payload.stream_options = { include_usage: true };
   }
   if (!reasonerModel && !(nativeThinkingModel && thinkingLevel !== 'off')) {
@@ -275,6 +275,20 @@ function extractOpenAiReasoningDelta(parsed) {
   return '';
 }
 
+function extractOpenAiToolCallDeltas(parsed) {
+  const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
+  const toolCalls = choice.delta && Array.isArray(choice.delta.tool_calls) ? choice.delta.tool_calls : [];
+  return toolCalls.map((toolCall) => {
+    const fn = toolCall && toolCall.function ? toolCall.function : {};
+    return {
+      index: Number.isInteger(toolCall.index) ? toolCall.index : 0,
+      id: toolCall.id || '',
+      name: fn.name || '',
+      arguments: typeof fn.arguments === 'string' ? fn.arguments : '',
+    };
+  });
+}
+
 function createAbortError() {
   const error = new Error('Model streaming request aborted');
   error.code = 'aborted';
@@ -322,6 +336,8 @@ function streamJson(urlString, apiKey, payload, handlers) {
     let usage = null;
     let reasoningContent = '';
     let receivedDelta = false;
+    let model = '';
+    let stopReason = '';
     let abortTimer = null;
     let req = null;
     function cleanup() {
@@ -353,6 +369,8 @@ function streamJson(urlString, apiKey, payload, handlers) {
         resolveOnce({
           usage,
           reasoningContent,
+          model,
+          stopReason,
           streamStatus: options.streamStatus || 'complete',
           streamError: options.streamError || '',
           partialContentAccepted: options.streamStatus === 'partial',
@@ -425,6 +443,11 @@ function streamJson(urlString, apiKey, payload, handlers) {
                 rejectOnce(new Error(message));
                 return;
               }
+              if (parsed && parsed.model) model = parsed.model;
+              const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
+              if (choice && choice.finish_reason) stopReason = choice.finish_reason;
+              if (handlers.onEvent) handlers.onEvent(parsed);
+              if (extractOpenAiToolCallDeltas(parsed).length) receivedDelta = true;
               const parsedUsage = extractOpenAiUsage(parsed);
               if (parsedUsage) usage = parsedUsage;
               reasoningContent += extractOpenAiReasoningDelta(parsed);
@@ -441,6 +464,11 @@ function streamJson(urlString, apiKey, payload, handlers) {
               if (data !== '[DONE]') {
                 try {
                   const parsed = JSON.parse(data);
+                  if (parsed && parsed.model) model = parsed.model;
+                  const choice = parsed && parsed.choices && parsed.choices[0] ? parsed.choices[0] : {};
+                  if (choice && choice.finish_reason) stopReason = choice.finish_reason;
+                  if (handlers.onEvent) handlers.onEvent(parsed);
+                  if (extractOpenAiToolCallDeltas(parsed).length) receivedDelta = true;
                   const parsedUsage = extractOpenAiUsage(parsed);
                   if (parsedUsage) usage = parsedUsage;
                   reasoningContent += extractOpenAiReasoningDelta(parsed);
@@ -477,6 +505,59 @@ function streamJson(urlString, apiKey, payload, handlers) {
     req.write(body);
     req.end();
   });
+}
+
+function createNativeToolCallAccumulator() {
+  return {
+    text: '',
+    toolCallsByIndex: {},
+    appendEvent(parsed) {
+      this.text += extractOpenAiDelta(parsed);
+      for (const delta of extractOpenAiToolCallDeltas(parsed)) {
+        const index = delta.index;
+        if (!this.toolCallsByIndex[index]) {
+          this.toolCallsByIndex[index] = {
+            id: '',
+            name: '',
+            arguments: '',
+          };
+        }
+        if (delta.id) this.toolCallsByIndex[index].id = delta.id;
+        if (delta.name) this.toolCallsByIndex[index].name = delta.name;
+        if (delta.arguments) this.toolCallsByIndex[index].arguments += delta.arguments;
+      }
+    },
+    toMessage(metadata) {
+      metadata = metadata || {};
+      if (metadata.partialContentAccepted) {
+        throw new Error(`Native streaming ended before a complete model response was available: ${metadata.streamError || 'partial stream'}`);
+      }
+      const content = [];
+      if (this.text) content.push({ type: 'text', text: this.text });
+      const indexes = Object.keys(this.toolCallsByIndex)
+        .map((value) => Number(value))
+        .sort((a, b) => a - b);
+      for (const index of indexes) {
+        const toolCall = this.toolCallsByIndex[index];
+        if (!toolCall.name) {
+          throw new Error(`Native streaming tool call at index ${index} did not contain a function name`);
+        }
+        content.push({
+          type: 'toolCall',
+          id: toolCall.id || '',
+          name: toolCall.name,
+          arguments: safeJsonParseToolArguments(toolCall.arguments || '{}'),
+        });
+      }
+      return {
+        role: 'assistant',
+        content,
+        usage: metadata.usage || null,
+        model: metadata.model || '',
+        stopReason: metadata.stopReason || '',
+      };
+    },
+  };
 }
 
 function joinUrl(baseUrl, suffix) {
@@ -594,6 +675,29 @@ registerProvider({
       partialContentAccepted: Boolean(metadata && metadata.partialContentAccepted),
     };
   },
+  streamChatCompletionWithTools: async (config, messages, options) => {
+    if (!config.apiKey) {
+      throw new Error('Missing LOONG_AGENT_API_KEY or DEEPSEEK_API_KEY');
+    }
+    const accumulator = createNativeToolCallAccumulator();
+    const metadata = await streamJson(
+      joinUrl(config.baseUrl, '/chat/completions'),
+      config.apiKey,
+      buildOpenAiPayload(config, messages, Object.assign({}, options || {}, {
+        nativeTools: true,
+        streaming: true,
+      })),
+      {
+        isAborted: options && options.isAborted,
+        onDelta: options && options.onDelta,
+        onEvent: (event) => {
+          accumulator.appendEvent(event);
+        },
+        onRequest: options && options.onRequest,
+      }
+    );
+    return accumulator.toMessage(metadata);
+  },
 });
 
 module.exports = {
@@ -601,6 +705,7 @@ module.exports = {
   extractOpenAiMessage,
   extractOpenAiUsage,
   extractOpenAiDelta,
+  extractOpenAiToolCallDeltas,
   extractOpenAiReasoning,
   extractOpenAiReasoningDelta,
   getProviderCapabilities,

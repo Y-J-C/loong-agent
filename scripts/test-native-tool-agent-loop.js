@@ -21,7 +21,7 @@ function baseConfig(overrides) {
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek-v4-flash',
     nativeTools: true,
-    streaming: true,
+    streaming: false,
     maxLoops: 4,
     contextBudgetChars: 12000,
     contextBudgetSource: 'provider_profile',

@@ -2,7 +2,10 @@
 
 const { buildMessagesWithAuditMetadata, buildTurnContext } = require('./prompts');
 const { compactMessages, estimateContextTokens, shouldCompact, mergeCompactionResult } = require('./compaction');
-const { chatCompletionWithTools: defaultChatCompletionWithTools } = require('./llm');
+const {
+  chatCompletionWithTools: defaultChatCompletionWithTools,
+  chatCompletionWithToolsAndEvents: defaultChatCompletionWithToolsAndEvents,
+} = require('./llm');
 const { toOpenAiMessages } = require('./messages');
 const { resolveProviderCapabilities } = require('./provider-registry');
 const {
@@ -1242,7 +1245,8 @@ function buildNativeModelMessages(state, built) {
   return messages;
 }
 
-function nativeModelMetadata(config, nativeMessage) {
+function nativeModelMetadata(config, nativeMessage, options) {
+  const streaming = Boolean(options && options.streaming);
   return {
     provider: config.provider || 'openai-compatible',
     providerProfile: config.providerProfile || 'custom',
@@ -1250,8 +1254,8 @@ function nativeModelMetadata(config, nativeMessage) {
     capabilities: safeProviderCapabilities(config),
     usage: nativeMessage && nativeMessage.usage ? nativeMessage.usage : null,
     thinkingLevel: config.thinkingLevel || 'off',
-    streaming: false,
-    streamStatus: 'disabled',
+    streaming,
+    streamStatus: streaming ? 'complete' : 'disabled',
   };
 }
 
@@ -1414,7 +1418,9 @@ async function endAssistantMessage(context, content, options) {
   const emit = context.emit;
   const isError = Boolean(options && options.isError);
   const errorCode = options && options.errorCode ? options.errorCode : undefined;
-  recordAssistantMessage(state, content);
+  recordAssistantMessage(state, content, {
+    toolCalls: options && Array.isArray(options.toolCalls) ? options.toolCalls : [],
+  });
   await emit({
     type: 'message_end',
     role: 'assistant',
@@ -1492,6 +1498,81 @@ async function emitStreamingAssistantMessage(context, messages, chatCompletion) 
   context.assistantMessageOpen = false;
   return {
     content,
+    emitted: true,
+  };
+}
+
+async function emitNativeStreamingAssistantMessage(context, messages, chatCompletion) {
+  let content = '';
+  let sequence = 0;
+  let emittedUpdate = false;
+  let pendingDelta = '';
+  let pendingDeltaCount = 0;
+  let lastFlushAt = Date.now();
+  const flushChars = 64;
+  const flushIntervalMs = 50;
+
+  async function flushDelta(isFinal) {
+    if (!pendingDelta) return;
+    sequence += 1;
+    if (!emittedUpdate) {
+      await startAssistantMessage(context, { streaming: true });
+      context.assistantMessageOpen = true;
+    }
+    emittedUpdate = true;
+    context.assistantStreamingContent = content;
+    await updateAssistantMessage(context, content, {
+      delta: pendingDelta,
+      sequence,
+      streaming: true,
+      isFinal: Boolean(isFinal),
+      coalesced: true,
+      coalescedDeltaCount: pendingDeltaCount,
+    });
+    pendingDelta = '';
+    pendingDeltaCount = 0;
+    lastFlushAt = Date.now();
+  }
+
+  let nativeMessage;
+  try {
+    nativeMessage = await chatCompletion(context.config, messages, {
+      isAborted: context.isAborted,
+      onDelta: async (delta) => {
+        delta = String(delta || '');
+        if (!delta) return;
+        content += delta;
+        context.assistantStreamingContent = content;
+        pendingDelta += delta;
+        pendingDeltaCount += 1;
+        const now = Date.now();
+        const shouldFlush =
+          pendingDelta.length >= flushChars ||
+          (lastFlushAt && now - lastFlushAt >= flushIntervalMs) ||
+          /\r|\n/.test(delta);
+        if (shouldFlush) await flushDelta(false);
+      },
+    });
+  } catch (error) {
+    await flushDelta(true);
+    throw error;
+  }
+  await flushDelta(true);
+  const finalContent = nativeMessageText(nativeMessage);
+  const toolCalls = nativeMessageToolCalls(nativeMessage);
+  if (!emittedUpdate) {
+    return {
+      nativeMessage,
+      emitted: false,
+    };
+  }
+  await endAssistantMessage(context, finalContent, {
+    streaming: emittedUpdate,
+    toolCalls,
+  });
+  context.assistantMessageOpen = false;
+  return {
+    nativeMessage,
     emitted: true,
   };
 }
@@ -1628,6 +1709,7 @@ async function runAgentLoop(options) {
   const registry = options.registry;
   const chatCompletion = options.chatCompletion;
   const chatCompletionWithTools = options.chatCompletionWithTools || defaultChatCompletionWithTools;
+  const chatCompletionWithToolsAndEvents = options.chatCompletionWithToolsAndEvents || defaultChatCompletionWithToolsAndEvents;
   const emit = options.emit;
   const isAborted = options.isAborted || (() => false);
   const getSteeringMessages = options.getSteeringMessages || (() => []);
@@ -1751,17 +1833,32 @@ async function runAgentLoop(options) {
       }), turn, messages, built.metadata);
       if (modelRequestEvent) await emit(modelRequestEvent);
       if (useNativeTools) {
-        const nativeMessage = await chatCompletionWithTools(config, messages, Object.assign({}, modelCallbacks, {
+        const nativeOptions = Object.assign({}, modelCallbacks, {
           isAborted,
           nativeTools: true,
-          streaming: false,
+          streaming: config.streaming !== false,
           toolChoice: resolveNativeToolChoice(config, state, currentUserPrompt || state.userPrompt, loop, config.maxLoops),
           tools: state.tools,
-        }));
+        });
+        let nativeMessage;
+        if (config.streaming !== false) {
+          const streamed = await emitNativeStreamingAssistantMessage(turnContext, messages, (cfg, msgs, callbacks) => {
+            return chatCompletionWithToolsAndEvents(cfg, msgs, Object.assign({}, nativeOptions, callbacks || {}));
+          });
+          nativeMessage = streamed.nativeMessage;
+          assistantAlreadyEmitted = streamed.emitted;
+        } else {
+          nativeMessage = await chatCompletionWithTools(config, messages, Object.assign({}, nativeOptions, {
+            streaming: false,
+          }));
+          assistantAlreadyEmitted = false;
+        }
         response = parseNativeAgentMessage(nativeMessage);
         content = response.assistantText !== undefined ? response.assistantText : nativeMessageText(nativeMessage);
         nativeAssistantToolCalls = response.toolCalls || nativeMessageToolCalls(nativeMessage);
-        if (!modelMetadata) modelMetadata = nativeModelMetadata(config, nativeMessage);
+        if (!modelMetadata) modelMetadata = nativeModelMetadata(config, nativeMessage, {
+          streaming: config.streaming !== false,
+        });
       } else if (config.streaming === false) {
         content = await chatCompletion(config, messages, modelCallbacks);
       } else {

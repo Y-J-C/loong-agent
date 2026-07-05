@@ -100,6 +100,21 @@ test('native payload forwards explicit tool_choice strategy', () => {
   assert(none.parallel_tool_calls === false, 'none should keep parallel disabled');
 });
 
+test('native streaming payload streams without json mode', () => {
+  const payload = buildOpenAiPayload(
+    config(),
+    [{ role: 'user', content: 'check' }],
+    { nativeTools: true, streaming: true, tools: tools(), toolChoice: 'required' }
+  );
+
+  assert(payload.stream === true, 'native streaming payload should stream');
+  assert(Array.isArray(payload.tools), 'native streaming payload missing tools');
+  assert(payload.tool_choice === 'required', 'native streaming tool_choice mismatch');
+  assert(payload.parallel_tool_calls === false, 'native streaming should disable parallel tool calls');
+  assert(!Object.prototype.hasOwnProperty.call(payload, 'response_format'), 'native streaming should not send response_format');
+  assert(payload.stream_options && payload.stream_options.include_usage === true, 'native streaming should request usage');
+});
+
 test('chatCompletionWithTools returns structured toolCall content', async () => {
   await withServer((payload, res) => {
     assert(Array.isArray(payload.tools), 'request payload missing tools');
