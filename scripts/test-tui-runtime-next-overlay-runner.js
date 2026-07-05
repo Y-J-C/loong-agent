@@ -160,23 +160,23 @@ async function main() {
   send(terminal, '/model');
   terminal.inputHandler('\r');
   await tick();
-  ok(terminal.output.indexOf('Model Selector') >= 0, 'model overlay renders');
-  equal(tuiRef.overlayStack.length, 1, 'model panel uses tui overlay stack');
-  equal(overlayControllerRef.getCurrentKind(), 'panel', 'panel controller kind is active');
+  ok(terminal.output.indexOf('Model Selector') >= 0, 'model input surface renders');
+  equal(tuiRef.overlayStack.length, 0, 'model panel does not use overlay stack');
+  equal(overlayControllerRef.getCurrentKind(), '', 'model panel leaves overlay controller inactive');
+  ok(terminal.output.indexOf('> /model') < 0, 'model input surface clears slash command text');
   terminal.inputHandler('\x1b');
   await tick();
-  equal(tuiRef.overlayStack.length, 0, 'model panel overlay closes through controller');
-  ok(terminal.output.indexOf('> /model') < terminal.output.lastIndexOf('Model Selector') || terminal.output.lastIndexOf('Model Selector') >= 0, 'model overlay was visible before close');
+  equal(tuiRef.overlayStack.length, 0, 'model panel closes without overlay stack');
 
   terminal.clear();
   send(terminal, '/commands');
   terminal.inputHandler('\r');
   await tick();
-  ok(terminal.output.indexOf('Command') >= 0, 'command panel overlay renders');
-  equal(tuiRef.overlayStack.length, 1, 'command panel uses tui overlay stack');
+  ok(terminal.output.indexOf('Command') >= 0, 'command panel input surface renders');
+  equal(tuiRef.overlayStack.length, 0, 'command panel does not use overlay stack');
   terminal.inputHandler('\r');
   await tick();
-  equal(tuiRef.overlayStack.length, 0, 'command panel overlay closes after enter');
+  equal(tuiRef.overlayStack.length, 0, 'command panel closes without overlay stack');
   ok(terminal.output.indexOf('> /') >= 0, 'command panel enter inserts command');
 
   inputExit:
@@ -187,12 +187,12 @@ async function main() {
     send(terminal, '/sessions');
     terminal.inputHandler('\r');
     await tick();
-    ok(terminal.output.indexOf('Session') >= 0, 'session selector overlay renders');
-    equal(tuiRef.overlayStack.length, 1, 'session selector uses tui overlay stack');
-    equal(overlayControllerRef.getCurrentKind(), 'selector', 'selector controller kind is active');
+    ok(terminal.output.indexOf('Session') >= 0, 'session selector input surface renders');
+    equal(tuiRef.overlayStack.length, 0, 'session selector does not use overlay stack');
+    equal(overlayControllerRef.getCurrentKind(), '', 'session selector leaves overlay controller inactive');
     terminal.inputHandler('\x1b');
     await tick();
-    equal(tuiRef.overlayStack.length, 0, 'session selector closes through controller');
+    equal(tuiRef.overlayStack.length, 0, 'session selector closes without overlay stack');
     break inputExit;
   }
 

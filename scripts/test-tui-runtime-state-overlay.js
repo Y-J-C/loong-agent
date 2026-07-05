@@ -105,21 +105,23 @@ async function main() {
   });
 
   controller.sync();
-  equal(tui.overlayStack.length, 1, 'controller shows one overlay');
-  equal(tui.hasCapturingOverlay(), true, 'capturing overlay is detected');
-  equal(tui.focusedComponent, tui.overlayStack[0].component, 'capturing overlay receives focus');
+  equal(tui.overlayStack.length, 0, 'selector state does not use overlay stack');
+  equal(tui.hasCapturingOverlay(), false, 'selector input surface does not create capturing overlay');
+  equal(tui.focusedComponent, input, 'selector input surface does not steal focus through overlay');
   controller.sync();
-  equal(tui.overlayStack.length, 1, 'same overlay kind is not pushed twice');
+  equal(tui.overlayStack.length, 0, 'selector input surface is still not pushed twice');
 
-  await tui.handleInput('\x1b');
+  state.selector = null;
+  state.activePanel = {
+    type: 'tool_detail',
+    title: 'Tool Detail Viewer',
+    lines: ['tool detail'],
+  };
   controller.sync();
-  equal(tui.overlayStack.length, 0, 'controller hides closed overlay');
-  equal(tui.focusedComponent, input, 'focus returns to previous component');
-
+  equal(tui.overlayStack.length, 1, 'viewer panel still uses overlay stack');
+  equal(tui.hasCapturingOverlay(), true, 'viewer panel overlay captures input');
   controller.sync();
-  state.selector = selectorState().selector;
-  controller.sync({ nonCapturing: true });
-  equal(tui.hasCapturingOverlay(), false, 'non-capturing overlay does not block app input');
+  equal(tui.overlayStack.length, 1, 'same viewer overlay kind is not pushed twice');
   controller.dispose();
   equal(tui.overlayStack.length, 0, 'controller dispose clears overlay');
 

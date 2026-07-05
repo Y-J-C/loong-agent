@@ -1,12 +1,13 @@
 'use strict';
 
 var interactions = require('../../interactions');
+var viewer = require('../../viewer');
 var StateOverlay = require('./state-overlay').StateOverlay;
 
 function overlayKind(state) {
   if (state && state.pendingToolApproval) return 'approval';
-  if (state && state.selector) return 'selector';
-  if (state && interactions.activePanel(state)) return 'panel';
+  var panel = state ? interactions.activePanel(state) : null;
+  if (panel && viewer.isViewerPanel(panel)) return 'panel';
   return '';
 }
 
@@ -88,4 +89,5 @@ function createStateOverlayController(options) {
 
 module.exports = {
   createStateOverlayController: createStateOverlayController,
+  overlayKind: overlayKind,
 };

@@ -3,6 +3,7 @@
 var Input = require('../components/input').Input;
 var Editor = require('../components/editor').Editor;
 var AutocompleteComponent = require('../../components').AutocompleteComponent;
+var inputSurface = require('./input-surface');
 
 function hasModal(state) {
   return Boolean(state && (
@@ -32,6 +33,9 @@ function renderRuntimeInputLine(state, width, options) {
 
 function renderRuntimeInputBlock(state, width, options) {
   options = options || {};
+  if (inputSurface.isInputSurfaceActive(state)) {
+    return inputSurface.renderRuntimeInputSurface(state, width, options);
+  }
   var value = state && state.inputBuffer ? state.inputBuffer : '';
   var autocomplete = renderRuntimeAutocompleteBlock(state, width, options);
   if (String(value).indexOf('\n') < 0) return autocomplete.concat([renderRuntimeInputLine(state, width, options)]);

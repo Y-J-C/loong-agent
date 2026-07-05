@@ -1,6 +1,7 @@
 'use strict';
 
 var interactions = require('../../interactions');
+var viewer = require('../../viewer');
 var utils = require('../utils');
 var Box = require('../components/box').Box;
 var SelectList = require('../components/select-list').SelectList;
@@ -155,10 +156,8 @@ function renderRuntimeOverlays(state, width, rows, context) {
       return [approvalOverlay];
     }
   }
-  if (state && state.selector) {
-    return [buildSelectorOverlay(state, overlayWidth, rows, context)];
-  }
-  if (state && activePanel(state)) {
+  var panel = state ? activePanel(state) : null;
+  if (panel && viewer.isViewerPanel(panel)) {
     return [buildPanelOverlay(state, overlayWidth, rows, context)];
   }
   return [];

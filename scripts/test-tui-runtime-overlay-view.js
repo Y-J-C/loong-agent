@@ -1,6 +1,9 @@
 'use strict';
 
-var renderRuntimeOverlays = require('../src/tui/runtime/app/overlay-view').renderRuntimeOverlays;
+var overlayView = require('../src/tui/runtime/app/overlay-view');
+var renderRuntimeOverlays = overlayView.renderRuntimeOverlays;
+var buildPanelOverlay = overlayView.buildPanelOverlay;
+var buildSelectorOverlay = overlayView.buildSelectorOverlay;
 var compositeOverlays = require('../src/tui/runtime/overlay').compositeOverlays;
 var resolveOverlayLayout = require('../src/tui/runtime/overlay').resolveOverlayLayout;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
@@ -75,8 +78,9 @@ var panelState = {
   },
 };
 var panel = renderRuntimeOverlays(panelState, 70, 16);
-equal(panel.length, 1, 'panel creates overlay');
-var panelFrame = compositeOverlays(['base'], panel, { columns: 70, rows: 16 }).join('\n');
+equal(panel.length, 0, 'menu panel does not create runtime overlay');
+var panelEntry = buildPanelOverlay(panelState, 58, 16);
+var panelFrame = panelEntry.lines.join('\n');
 ok(panelFrame.indexOf('Model Selector') >= 0, 'panel title renders');
 ok(panelFrame.indexOf('DeepSeek V4 Pro') >= 0, 'panel item renders');
 
@@ -92,10 +96,22 @@ var selectorState = {
   },
 };
 var selector = renderRuntimeOverlays(selectorState, 70, 16);
-equal(selector.length, 1, 'selector creates overlay');
-var selectorFrame = compositeOverlays(['base'], selector, { columns: 70, rows: 16 }).join('\n');
+equal(selector.length, 0, 'selector does not create runtime overlay');
+var selectorEntry = buildSelectorOverlay(selectorState, 58, 16);
+var selectorFrame = selectorEntry.lines.join('\n');
 ok(selectorFrame.indexOf('Session Selector') >= 0, 'selector title renders');
 ok(selectorFrame.indexOf('s1') >= 0, 'selector item renders');
+
+var viewerState = {
+  activePanel: {
+    type: 'tool_detail',
+    title: 'Tool Detail Viewer',
+    hint: 'Esc close',
+    lines: ['detail line'],
+  },
+};
+var viewerPanel = renderRuntimeOverlays(viewerState, 70, 16);
+equal(viewerPanel.length, 1, 'viewer panel still creates runtime overlay');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

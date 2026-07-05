@@ -36,6 +36,7 @@ ChatView.prototype.render = function render(width, context) {
   var inputLines = renderInputBlock(state, cols, {
     focused: overlays.length === 0,
     theme: theme,
+    rows: rows,
     showHardwareCursor: context && context.showHardwareCursor,
   });
   var footerLines = this.footer.render(cols, renderCtx);
