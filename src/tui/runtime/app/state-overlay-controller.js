@@ -1,13 +1,12 @@
 'use strict';
 
-var interactions = require('../../interactions');
-var viewer = require('../../viewer');
+var policy = require('./surface-policy');
 var StateOverlay = require('./state-overlay').StateOverlay;
 
 function overlayKind(state) {
-  if (state && state.pendingToolApproval) return 'approval';
-  var panel = state ? interactions.activePanel(state) : null;
-  if (panel && viewer.isViewerPanel(panel)) return 'panel';
+  var kind = policy.overlaySurfaceKind(state);
+  if (kind === 'viewer') return 'panel';
+  if (kind) return kind;
   return '';
 }
 

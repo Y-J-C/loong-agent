@@ -1,8 +1,8 @@
 'use strict';
 
 var interactions = require('../../interactions');
-var viewer = require('../../viewer');
 var utils = require('../utils');
+var policy = require('./surface-policy');
 var buildPanelOverlay = require('./overlay-view').buildPanelOverlay;
 var buildSelectorOverlay = require('./overlay-view').buildSelectorOverlay;
 
@@ -11,16 +11,11 @@ function activePanel(state) {
 }
 
 function surfaceKind(state) {
-  if (state && state.selector) return 'selector';
-  var panel = state ? activePanel(state) : null;
-  if (panel && !viewer.isViewerPanel(panel)) {
-    return panel.type || (panel.models ? 'model' : 'panel');
-  }
-  return '';
+  return policy.inputSurfaceKind(state);
 }
 
 function isInputSurfaceActive(state) {
-  return surfaceKind(state) !== '';
+  return policy.isInputSurfaceActive(state);
 }
 
 function maxSurfaceRows(rows) {
@@ -56,7 +51,7 @@ function renderRuntimeInputSurface(state, width, options) {
     entry = buildSelectorOverlay(state, surfaceWidth, rows + 8, context);
   } else if (state) {
     var panel = activePanel(state);
-    if (panel && !viewer.isViewerPanel(panel)) {
+    if (panel && policy.inputSurfaceKind(state)) {
       entry = buildPanelOverlay(state, surfaceWidth, rows + 8, context);
     }
   }

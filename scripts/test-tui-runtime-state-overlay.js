@@ -75,8 +75,8 @@ function approvalState() {
 async function main() {
   var handled = [];
   var overlay = new StateOverlay({
-    state: selectorState(),
-    kind: 'selector',
+    state: approvalState(),
+    kind: 'approval',
     handleKey: function(key) {
       handled.push(key.type);
       return true;
@@ -84,10 +84,16 @@ async function main() {
   });
   equal(overlay.focused, false, 'state overlay is focusable');
   var lines = overlay.render(60, { rows: 16, columns: 60 });
-  ok(lines.join('\n').indexOf('Session Selector') >= 0, 'selector state overlay renders');
-  ok(lines.every(function(line) { return visibleWidth(line) <= 60; }), 'selector overlay lines fit width');
+  ok(lines.join('\n').indexOf('Tool Approval') >= 0, 'approval state overlay renders');
+  ok(lines.every(function(line) { return visibleWidth(line) <= 60; }), 'approval overlay lines fit width');
   await overlay.handleInput('\x1b');
   equal(handled[0], 'escape', 'state overlay parses raw input and calls modal handler');
+
+  var legacySelectorOverlay = new StateOverlay({
+    state: selectorState(),
+    kind: 'selector',
+  });
+  equal(legacySelectorOverlay.render(60, { rows: 16, columns: 60 }).length, 0, 'selector state overlay is not a runtime-next render path');
 
   var terminal = new FakeTerminal();
   var tui = new TUI(terminal);

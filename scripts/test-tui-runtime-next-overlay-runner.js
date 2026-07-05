@@ -92,6 +92,11 @@ function createFakeSession(toolsRef) {
     steer: function() {},
     followUp: function() {},
     abort: function() {},
+    emit: function(event) {
+      subscribers.forEach(function(fn) {
+        fn(event);
+      });
+    },
     getSessionInfo: function() {
       return { id: 'session-overlay', path: '/tmp/session-overlay.jsonl' };
     },
@@ -195,6 +200,31 @@ async function main() {
     equal(tuiRef.overlayStack.length, 0, 'session selector closes without overlay stack');
     break inputExit;
   }
+
+  fakeSession.emit({
+    type: 'tool_execution_start',
+    toolName: 'bash',
+    toolCallId: 'detail-1',
+    callSummary: 'echo detail',
+    args: { command: 'echo detail' },
+  });
+  fakeSession.emit({
+    type: 'tool_execution_end',
+    toolName: 'bash',
+    toolCallId: 'detail-1',
+    result: { command: 'echo detail', stdout: 'detail output', exitCode: 0 },
+    durationMs: 12,
+  });
+  await tick();
+  terminal.clear();
+  send(terminal, '/details');
+  terminal.inputHandler('\r');
+  await tick();
+  equal(tuiRef.overlayStack.length, 1, 'details viewer uses tui overlay stack');
+  equal(overlayControllerRef.getCurrentKind(), 'panel', 'details viewer controller kind is panel');
+  terminal.inputHandler('\x1b');
+  await tick();
+  equal(tuiRef.overlayStack.length, 0, 'details viewer overlay closes through controller');
 
   send(terminal, '/exit');
   terminal.inputHandler('\r');

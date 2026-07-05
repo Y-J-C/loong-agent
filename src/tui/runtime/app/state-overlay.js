@@ -18,8 +18,6 @@ StateOverlay.prototype.render = function render(width, context) {
   var entry = null;
   if (this.kind === 'approval') {
     entry = overlayView.buildApprovalOverlay(this.state, cols, rows, context || {});
-  } else if (this.kind === 'selector') {
-    entry = overlayView.buildSelectorOverlay(this.state, cols, rows, context || {});
   } else if (this.kind === 'panel') {
     entry = overlayView.buildPanelOverlay(this.state, cols, rows, context || {});
   }

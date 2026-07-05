@@ -16,6 +16,7 @@ var TUI = require('../tui').TUI;
 var ChatView = require('./chat-view').ChatView;
 var createRuntimeInputDispatcher = require('./input-dispatcher').createRuntimeInputDispatcher;
 var createStateOverlayController = require('./state-overlay-controller').createStateOverlayController;
+var surfacePolicy = require('./surface-policy');
 
 function terminalSize(terminal) {
   return {
@@ -130,6 +131,8 @@ async function runRuntimeNextTui(config, options) {
   function updateLastRender(renderContext) {
     if (stopped) return;
     var size = renderContext || terminalSize(terminal);
+    var overlaySurface = surfacePolicy.overlaySurfaceKind(state);
+    var inputSurface = surfacePolicy.inputSurfaceKind(state);
     state.lastRender = {
       at: new Date().toISOString(),
       columns: size.columns,
@@ -139,8 +142,8 @@ async function runRuntimeNextTui(config, options) {
       runtime: 'next',
       renderPath: 'runtime-next',
       renderer: 'tui',
-      overlaySurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : '',
-      focusedSurface: state.pendingToolApproval ? 'approval' : state.selector ? 'selector' : interactions.activePanel(state) ? 'panel' : 'input',
+      overlaySurface: overlaySurface,
+      focusedSurface: overlaySurface || inputSurface || 'input',
       diffResetCount: diffResetCount,
       fullRedrawCount: tui ? tui.fullRedrawCount : 0,
       lastRenderError: state.lastRenderError || null,

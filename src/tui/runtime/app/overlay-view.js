@@ -1,8 +1,8 @@
 'use strict';
 
 var interactions = require('../../interactions');
-var viewer = require('../../viewer');
 var utils = require('../utils');
+var policy = require('./surface-policy');
 var Box = require('../components/box').Box;
 var SelectList = require('../components/select-list').SelectList;
 var SettingsList = require('../components/settings-list').SettingsList;
@@ -157,7 +157,7 @@ function renderRuntimeOverlays(state, width, rows, context) {
     }
   }
   var panel = state ? activePanel(state) : null;
-  if (panel && viewer.isViewerPanel(panel)) {
+  if (panel && policy.overlaySurfaceKind(state) === 'viewer') {
     return [buildPanelOverlay(state, overlayWidth, rows, context)];
   }
   return [];

@@ -4,16 +4,10 @@ var Input = require('../components/input').Input;
 var Editor = require('../components/editor').Editor;
 var AutocompleteComponent = require('../../components').AutocompleteComponent;
 var inputSurface = require('./input-surface');
+var policy = require('./surface-policy');
 
 function hasModal(state) {
-  return Boolean(state && (
-    state.pendingToolApproval ||
-    state.selector ||
-    state.activePanel ||
-    state.settingsMenu ||
-    state.modelSelector ||
-    state.commandPanel
-  ));
+  return Boolean(policy.isInputSurfaceActive(state) || policy.isOverlaySurfaceActive(state));
 }
 
 function renderRuntimeInputLine(state, width, options) {
