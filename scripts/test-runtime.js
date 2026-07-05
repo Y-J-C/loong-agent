@@ -23,7 +23,12 @@ const { buildMessagesFromTurnContext, buildMessagesWithAuditMetadata, buildSyste
 const { createModelRequestEvent } = require('../src/model-request-audit');
 const { streamJson } = require('../src/provider-registry');
 const { waitForChildProcess, spawnProcess } = require('../src/runtime/child-process');
-const { runShell } = require('../src/runtime/bash-executor');
+const {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  MAX_COMMAND_TIMEOUT_MS,
+  normalizeCommandTimeout,
+  runShell,
+} = require('../src/runtime/bash-executor');
 const { OutputAccumulator } = require('../src/runtime/output-accumulator');
 const { getShellConfig, killProcessTree, sanitizeBinaryOutput } = require('../src/runtime/shell');
 const { createSessionManager } = require('../src/session-manager');
@@ -2813,6 +2818,15 @@ test('runtime shell config resolves a usable shell', async () => {
   if (process.platform !== 'win32' && fs.existsSync('/bin/bash')) {
     assert(shell.shell === '/bin/bash', `expected /bin/bash, got ${shell.shell}`);
   }
+});
+
+test('runtime bash timeout defaults and max are normalized', () => {
+  assert(DEFAULT_COMMAND_TIMEOUT_MS === 60000, 'bash default timeout should be 60000ms');
+  assert(MAX_COMMAND_TIMEOUT_MS === 300000, 'bash max timeout should be 300000ms');
+  assert(normalizeCommandTimeout({}) === 60000, 'empty timeout should use default');
+  assert(normalizeCommandTimeout({ timeoutMs: -1 }) === 60000, 'invalid timeout should use default');
+  assert(normalizeCommandTimeout({ timeoutMs: 120000 }) === 120000, 'valid timeout should be preserved');
+  assert(normalizeCommandTimeout({ timeoutMs: 999999 }) === 300000, 'timeout should be capped at max');
 });
 
 test('runtime output accumulator preserves split utf8 chunks', async () => {
