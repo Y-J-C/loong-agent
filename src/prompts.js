@@ -48,6 +48,7 @@ Extension guidelines:
 
 Native tool calling:
 - Use the provided API tools when current evidence, file inspection, command execution, or file changes are needed.
+- Do not print DSML, XML, JSON tool-call markup, or pseudo tool-call tags in assistant text; use the API tool call channel.
 - If no tool is needed, answer naturally and cite the evidence already present in context.
 - Do not invent tool results; wait for tool result messages before relying on tool output.
 

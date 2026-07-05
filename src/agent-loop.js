@@ -7,7 +7,7 @@ const {
   chatCompletionWithToolsAndEvents: defaultChatCompletionWithToolsAndEvents,
 } = require('./llm');
 const { toOpenAiMessages } = require('./messages');
-const { resolveProviderCapabilities } = require('./provider-registry');
+const { createDsmlDeltaFilter, resolveProviderCapabilities } = require('./provider-registry');
 const {
   finishRun,
   recordAssistantMessage,
@@ -1506,6 +1506,7 @@ async function emitNativeStreamingAssistantMessage(context, messages, chatComple
   let content = '';
   let sequence = 0;
   let emittedUpdate = false;
+  const filterDsmlDelta = createDsmlDeltaFilter();
   let pendingDelta = '';
   let pendingDeltaCount = 0;
   let lastFlushAt = Date.now();
@@ -1539,7 +1540,7 @@ async function emitNativeStreamingAssistantMessage(context, messages, chatComple
     nativeMessage = await chatCompletion(context.config, messages, {
       isAborted: context.isAborted,
       onDelta: async (delta) => {
-        delta = String(delta || '');
+        delta = filterDsmlDelta(String(delta || ''));
         if (!delta) return;
         content += delta;
         context.assistantStreamingContent = content;

@@ -4,7 +4,8 @@
 const http = require('http');
 const { createAgentState } = require('../src/agent-state');
 const { runAgentLoop } = require('../src/agent-loop');
-const { chatCompletionWithEvents, chatCompletionWithToolsAndEvents, registerProvider } = require('../src/llm');
+const { chatCompletionWithEvents, chatCompletionWithTools, chatCompletionWithToolsAndEvents, registerProvider } = require('../src/llm');
+const { createDsmlDeltaFilter } = require('../src/provider-registry');
 
 const tests = [];
 
@@ -129,6 +130,29 @@ async function withSseServer(events, fn) {
   }
 }
 
+async function withJsonServer(response, fn) {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      requests.push({ req, body: body ? JSON.parse(body) : {} });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(response));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    return await fn(`http://127.0.0.1:${address.port}`, requests);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
 function toolDelta(index, fields) {
   return {
     id: 'chatcmpl-stream-test',
@@ -160,6 +184,16 @@ function finishDelta(reason) {
       total_tokens: 20,
     },
   };
+}
+
+function dsmlReadBlock(filePath) {
+  return [
+    '<｜｜DSML｜｜tool_calls>',
+    '<｜｜DSML｜｜invoke name="read">',
+    `<｜｜DSML｜｜parameter name="filePath" string="true">${filePath}</｜｜DSML｜｜parameter>`,
+    '</｜｜DSML｜｜invoke>',
+    '</｜｜DSML｜｜tool_calls>',
+  ].join('');
 }
 
 function textMessage(text) {
@@ -265,6 +299,73 @@ test('chatCompletionWithToolsAndEvents aggregates streaming tool_call deltas', a
     assert(message.model === 'deepseek-v4-flash', 'model mismatch');
     assert(message.stopReason === 'tool_calls', 'stopReason mismatch');
   });
+});
+
+test('chatCompletionWithTools converts non-streaming DSML content to toolCall blocks', async () => {
+  await withJsonServer({
+    id: 'chatcmpl-dsml-test',
+    model: 'deepseek-v4-flash',
+    choices: [{
+      message: {
+        role: 'assistant',
+        content: `I will inspect files.\n${dsmlReadBlock('/home/loongson/face_demo/run.log')}`,
+      },
+      finish_reason: 'stop',
+    }],
+    usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 },
+  }, async (baseUrl) => {
+    const message = await chatCompletionWithTools(
+      baseConfig({ baseUrl, streaming: false }),
+      [{ role: 'user', content: 'read log' }],
+      { tools: tools() }
+    );
+    const text = message.content.find((item) => item.type === 'text');
+    const toolCall = message.content.find((item) => item.type === 'toolCall');
+    assert(text && /I will inspect files/.test(text.text), 'visible text should be preserved');
+    assert(!/DSML/.test(text.text), 'DSML markup should be stripped from visible text');
+    assert(toolCall && toolCall.name === 'read', 'DSML invoke should become read toolCall');
+    assert(toolCall.arguments.path === '/home/loongson/face_demo/run.log', 'filePath should map to path');
+  });
+});
+
+test('chatCompletionWithToolsAndEvents buffers streaming DSML content and returns toolCall', async () => {
+  await withSseServer([
+    sseEvent(contentDelta('Checking files.\n<｜｜DSML｜｜tool_calls>')),
+    sseEvent(contentDelta('<｜｜DSML｜｜invoke name="read">')),
+    sseEvent(contentDelta('<｜｜DSML｜｜parameter name="filePath" string="true">/home/loongson/face_demo/faces.json</｜｜DSML｜｜parameter>')),
+    sseEvent(contentDelta('</｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>')),
+    sseEvent(finishDelta('stop')),
+    doneEvent(),
+  ], async (baseUrl) => {
+    const deltas = [];
+    const message = await chatCompletionWithToolsAndEvents(
+      baseConfig({ baseUrl }),
+      [{ role: 'user', content: 'read faces' }],
+      { tools: tools(), onDelta: (delta) => deltas.push(delta) }
+    );
+    const joinedDeltas = deltas.join('');
+    const text = message.content.find((item) => item.type === 'text');
+    const toolCall = message.content.find((item) => item.type === 'toolCall');
+    assert(joinedDeltas === 'Checking files.\n', 'streaming UI should only receive visible text before DSML');
+    assert(text && text.text === 'Checking files.\n', 'final text should strip DSML block');
+    assert(toolCall && toolCall.name === 'read', 'streaming DSML should become toolCall');
+    assert(toolCall.arguments.path === '/home/loongson/face_demo/faces.json', 'streaming filePath should map to path');
+  });
+});
+
+test('native DSML delta filter rejects repeated incomplete invoke markup', () => {
+  const filter = createDsmlDeltaFilter();
+  let failed = null;
+  try {
+    for (let index = 0; index < 30; index += 1) {
+      const visible = filter('<｜｜DSML｜｜invoke name="bash">');
+      assert(visible === '', 'incomplete DSML should not be emitted');
+    }
+  } catch (error) {
+    failed = error;
+  }
+  assert(failed, 'expected incomplete DSML safety failure');
+  assert(/incomplete tool call markup/.test(failed.message), 'unexpected incomplete DSML error');
 });
 
 test('chatCompletionWithToolsAndEvents accepts empty content with streaming tool_call', async () => {
