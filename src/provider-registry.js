@@ -52,6 +52,7 @@ function resolveProviderCapabilities(name, config) {
   const base = getProviderCapabilities(name);
   return Object.assign({}, base, {
     thinking: Boolean(base.thinking || supportsNativeThinking(config || {})),
+    toolCalling: Boolean(base.toolCalling || isDeepSeekProviderConfig(config || {})),
   });
 }
 

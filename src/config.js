@@ -120,6 +120,7 @@ function loadConfig() {
     contextBudgetProfileDefault,
     allowWrite: boolEnv('LOONG_AGENT_ALLOW_WRITE', false),
     allowCommands: boolEnv('LOONG_AGENT_ALLOW_COMMANDS', false),
+    nativeTools: boolEnv('LOONG_AGENT_NATIVE_TOOLS', false),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),
     recordModelRequest: normalizeRecordModelRequest(
       process.env.LOONG_AGENT_RECORD_MODEL_REQUEST || 'summary',

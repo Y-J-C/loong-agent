@@ -2,6 +2,8 @@
 
 const { buildMessagesWithAuditMetadata, buildTurnContext } = require('./prompts');
 const { compactMessages, estimateContextTokens, shouldCompact, mergeCompactionResult } = require('./compaction');
+const { chatCompletionWithTools: defaultChatCompletionWithTools } = require('./llm');
+const { toOpenAiMessages } = require('./messages');
 const { resolveProviderCapabilities } = require('./provider-registry');
 const {
   finishRun,
@@ -271,6 +273,85 @@ function parseAgentResponse(text) {
     kind: 'invalid_action',
     error: createLoopError('Model JSON must be a tool action or answer response', 'invalid_model_response'),
   };
+}
+
+function nativeMessageText(message) {
+  if (!message) return '';
+  if (typeof message.content === 'string') return message.content;
+  if (!Array.isArray(message.content)) return '';
+  return message.content
+    .filter((item) => item && item.type === 'text')
+    .map((item) => item.text || '')
+    .join('');
+}
+
+function nativeMessageToolCalls(message) {
+  if (!message || !Array.isArray(message.content)) return [];
+  return message.content
+    .filter((item) => item && item.type === 'toolCall')
+    .map((item) => ({
+      id: item.id || '',
+      name: item.name || '',
+      arguments: item.arguments,
+    }));
+}
+
+function parseNativeAgentMessage(message) {
+  if (!message || typeof message !== 'object') {
+    return {
+      kind: 'invalid_action',
+      error: createLoopError('Native model response must be an assistant message object', 'invalid_model_response'),
+    };
+  }
+  const text = nativeMessageText(message);
+  const toolCalls = nativeMessageToolCalls(message);
+  if (!toolCalls.length) {
+    if (!text.trim()) {
+      return {
+        kind: 'invalid_action',
+        error: createLoopError('Native model response contained neither text nor tool calls', 'empty_model_response'),
+      };
+    }
+    return {
+      kind: 'final_answer',
+      answer: {
+        summary: text,
+        status: 'ok',
+        evidence: [],
+      },
+      assistantText: text,
+      toolCalls,
+    };
+  }
+  const toolCall = toolCalls[0];
+  if (!toolCall.arguments || typeof toolCall.arguments !== 'object' || Array.isArray(toolCall.arguments)) {
+    return {
+      kind: 'invalid_action',
+      error: createLoopError('Native tool call arguments must be an object', 'invalid_tool_action'),
+      assistantText: text,
+      toolCalls,
+    };
+  }
+  try {
+    return {
+      kind: 'tool_action',
+      action: validateAction({
+        tool: toolCall.name,
+        input: toolCall.arguments,
+        reason: text || '',
+        toolCallId: toolCall.id || '',
+      }),
+      assistantText: text,
+      toolCalls,
+    };
+  } catch (error) {
+    return {
+      kind: 'invalid_action',
+      error,
+      assistantText: text,
+      toolCalls,
+    };
+  }
 }
 
 function balanceTrailingObjectBraces(text) {
@@ -1068,11 +1149,24 @@ function safeProviderCapabilities(config) {
 
 function agentToolProtocolMetadata(config, tools) {
   const capabilities = safeProviderCapabilities(config);
+  const nativeToolCalling = Boolean(config && config.nativeTools && capabilities.toolCalling);
   return {
-    nativeToolCalling: Boolean(capabilities.toolCalling),
-    agentToolProtocol: 'json_action',
+    nativeToolCalling,
+    agentToolProtocol: nativeToolCalling ? 'native_tool_calling' : 'json_action',
     availableToolCount: Array.isArray(tools) ? tools.length : 0,
   };
+}
+
+function shouldUseNativeTools(config) {
+  if (!config || !config.nativeTools) return false;
+  const capabilities = safeProviderCapabilities(config);
+  if (!capabilities.toolCalling) {
+    throw createLoopError(
+      `Provider ${(config && config.provider) || 'openai-compatible'} does not support native tool calling`,
+      'native_tool_calling_unsupported'
+    );
+  }
+  return true;
 }
 
 function defaultUsage(capabilities) {
@@ -1130,6 +1224,37 @@ function createModelUsageEvent(config, turn, metadata) {
 function addModelUsage(state, event) {
   if (!state.modelUsage) state.modelUsage = [];
   state.modelUsage.push(event);
+}
+
+function buildNativeModelMessages(state, built) {
+  const builtMessages = built && Array.isArray(built.messages) ? built.messages : [];
+  const systemMessages = builtMessages.filter((message) => message && message.role === 'system');
+  const currentRequestMessage = builtMessages.length ? builtMessages[builtMessages.length - 1] : null;
+  const history = toOpenAiMessages((state && state.messages) || [], {
+    nativeTools: true,
+    maxMessages: 200,
+    includeBashExecutions: true,
+    includeObservations: true,
+    includeToolResults: true,
+  });
+  const messages = systemMessages.concat(history);
+  if (currentRequestMessage && currentRequestMessage.role === 'user') {
+    messages.push(currentRequestMessage);
+  }
+  return messages;
+}
+
+function nativeModelMetadata(config, nativeMessage) {
+  return {
+    provider: config.provider || 'openai-compatible',
+    providerProfile: config.providerProfile || 'custom',
+    model: (nativeMessage && nativeMessage.model) || config.model || '',
+    capabilities: safeProviderCapabilities(config),
+    usage: nativeMessage && nativeMessage.usage ? nativeMessage.usage : null,
+    thinkingLevel: config.thinkingLevel || 'off',
+    streaming: false,
+    streamStatus: 'disabled',
+  };
 }
 
 function summarizeModelUsage(state) {
@@ -1203,7 +1328,9 @@ async function emitAssistantMessage(context, content, options) {
     isError,
     errorCode,
   });
-  recordAssistantMessage(state, content);
+  recordAssistantMessage(state, content, {
+    toolCalls: options && Array.isArray(options.toolCalls) ? options.toolCalls : [],
+  });
   await emit({
     type: 'message_update',
     role: 'assistant',
@@ -1398,7 +1525,7 @@ async function prepareForNextTurn(context, action, result, isError) {
         contextBudgetProfileDefault: context.config.contextBudgetProfileDefault || 0,
       },
       nativeToolCalling: agentToolProtocolMetadata(context.config, context.state.tools).nativeToolCalling,
-      agentToolProtocol: 'json_action',
+      agentToolProtocol: agentToolProtocolMetadata(context.config, context.state.tools).agentToolProtocol,
       availableToolCount: Array.isArray(context.state.tools) ? context.state.tools.length : 0,
     });
   }
@@ -1471,6 +1598,7 @@ async function runAgentLoop(options) {
   const state = options.state;
   const registry = options.registry;
   const chatCompletion = options.chatCompletion;
+  const chatCompletionWithTools = options.chatCompletionWithTools || defaultChatCompletionWithTools;
   const emit = options.emit;
   const isAborted = options.isAborted || (() => false);
   const getSteeringMessages = options.getSteeringMessages || (() => []);
@@ -1557,6 +1685,8 @@ async function runAgentLoop(options) {
     pendingMessages = [];
 
     let content;
+    let response;
+    let nativeAssistantToolCalls = [];
     let assistantAlreadyEmitted = false;
     let modelMetadata = null;
     const modelCallbacks = {
@@ -1583,14 +1713,26 @@ async function runAgentLoop(options) {
           reserveTokens: compactResult.reserveTokens,
         });
       }
-      const messages = built.messages;
+      const useNativeTools = shouldUseNativeTools(config);
+      const messages = useNativeTools ? buildNativeModelMessages(state, built) : built.messages;
       const modelRequestEvent = createModelRequestEvent(Object.assign({}, config, {
         nativeToolCalling: protocolMetadata.nativeToolCalling,
         agentToolProtocol: protocolMetadata.agentToolProtocol,
         availableToolCount: protocolMetadata.availableToolCount,
       }), turn, messages, built.metadata);
       if (modelRequestEvent) await emit(modelRequestEvent);
-      if (config.streaming === false) {
+      if (useNativeTools) {
+        const nativeMessage = await chatCompletionWithTools(config, messages, Object.assign({}, modelCallbacks, {
+          isAborted,
+          nativeTools: true,
+          streaming: false,
+          tools: state.tools,
+        }));
+        response = parseNativeAgentMessage(nativeMessage);
+        content = response.assistantText !== undefined ? response.assistantText : nativeMessageText(nativeMessage);
+        nativeAssistantToolCalls = response.toolCalls || nativeMessageToolCalls(nativeMessage);
+        if (!modelMetadata) modelMetadata = nativeModelMetadata(config, nativeMessage);
+      } else if (config.streaming === false) {
         content = await chatCompletion(config, messages, modelCallbacks);
       } else {
         const streamed = await emitStreamingAssistantMessage(turnContext, messages, (cfg, msgs, callbacks) => {
@@ -1605,7 +1747,7 @@ async function runAgentLoop(options) {
     if (isAborted()) {
       return failRun(turnContext, createLoopError('Agent run aborted', 'aborted'));
     }
-    const response = parseAgentResponse(content);
+    if (!response) response = parseAgentResponse(content);
     if (modelMetadata && modelMetadata.partialContentAccepted && response.kind === 'invalid_action') {
       const partialError = createLoopError(
         `Streaming ended with recoverable error before a complete model response was available: ${modelMetadata.streamError || errorMessage(response.error)}`,
@@ -1617,7 +1759,9 @@ async function runAgentLoop(options) {
       const displayContent = response.kind === 'final_answer'
         ? response.answer.summary
         : content;
-      await emitAssistantMessage(turnContext, displayContent);
+      await emitAssistantMessage(turnContext, displayContent, {
+        toolCalls: nativeAssistantToolCalls,
+      });
     }
 
     const usageEvent = createModelUsageEvent(config, turn, modelMetadata);
@@ -1928,6 +2072,7 @@ async function runAgentLoop(options) {
 module.exports = {
   balanceTrailingObjectBraces,
   parseAgentResponse,
+  parseNativeAgentMessage,
   parseToolCall,
   runAgentLoop,
 };
