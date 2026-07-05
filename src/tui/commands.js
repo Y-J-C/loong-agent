@@ -11,10 +11,13 @@ const { classifyToolApproval } = require('../tool-approval-policy');
 const { commandObservation } = require('../tools/bash');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
 const { addMessage, clearMessages } = require('./state');
+const { setInput } = require('./input');
 const {
   findSlashCommand,
   getKnownModels,
   commandUsage,
+  listFileSkills,
+  listPromptTemplates,
   listSlashCommands,
   parseSlashInput,
   suggestSlashCommands,
@@ -36,7 +39,7 @@ const {
   setViewerSearchQuery,
   updateViewerSearchMatches,
 } = require('./search');
-const { createTranscriptPanel, isViewerPanel } = require('./viewer');
+const { createToolDetailPanel, createTranscriptPanel, isViewerPanel } = require('./viewer');
 const { KEYBINDINGS, shortcutHint } = require('./keybindings');
 const { brandMotto, instructionFlow, section } = require('../cli-view');
 
@@ -736,6 +739,10 @@ async function dispatchSlashCommand(context, parsed) {
     });
     return;
   }
+  if (typeof command.handler === 'function') {
+    await command.handler(context, parsed);
+    return;
+  }
   if (command.name === 'settings') {
     openSettingsPanel(state);
     return;
@@ -769,12 +776,45 @@ async function dispatchSlashCommand(context, parsed) {
     return;
   }
   if (command.name === 'details') {
-    toggleSelectedToolDetail(state);
+    const tool = require('./tool-focus').ensureSelectedTool(state);
+    if (!tool) {
+      addMessage(state, { type: 'error', text: 'No tool message is available for /details.' });
+      return;
+    }
+    state.mode = 'panel';
+    state.activePanel = createToolDetailPanel(tool);
     return;
   }
   if (command.name === 'transcript') {
     state.mode = 'panel';
     state.activePanel = createTranscriptPanel(state);
+    return;
+  }
+  if (command.name === 'skill') {
+    const requestedSkill = parsed.args[0] || '';
+    const skills = listFileSkills({ config: context.config, state });
+    const skill = skills.find((item) => item.name === requestedSkill);
+    if (!requestedSkill || !skill) {
+      const names = skills.map((item) => item.name).join(', ') || '(none)';
+      addMessage(state, { type: 'error', text: `Usage: /skill <name>\nAvailable skills: ${names}` });
+      return;
+    }
+    const filePath = path.join(context.config.workspace || process.cwd(), skill.path);
+    const body = fs.readFileSync(filePath, 'utf8');
+    addMessage(state, { type: 'system', text: `Skill: ${skill.name}\nPath: ${skill.path}\n\n${body}` });
+    return;
+  }
+  if (command.name === 'template') {
+    const requestedTemplate = parsed.args[0] || '';
+    const templates = listPromptTemplates({ config: context.config, state });
+    const template = templates.find((item) => item.name === requestedTemplate);
+    if (!requestedTemplate || !template) {
+      const names = templates.map((item) => item.name).join(', ') || '(none)';
+      addMessage(state, { type: 'error', text: `Usage: /template <name>\nAvailable templates: ${names}` });
+      return;
+    }
+    setInput(state, template.prompt);
+    state.status = `template inserted: ${template.name}`;
     return;
   }
   if (command.name === 'theme') {
@@ -825,7 +865,13 @@ async function runSlashCommandLegacy(context, text) {
   }
 
   if (name === '/details') {
-    toggleSelectedToolDetail(state);
+    const tool = require('./tool-focus').ensureSelectedTool(state);
+    if (!tool) {
+      addMessage(state, { type: 'error', text: 'No tool message is available for /details.' });
+      return;
+    }
+    state.mode = 'panel';
+    state.activePanel = createToolDetailPanel(tool);
     return;
   }
 

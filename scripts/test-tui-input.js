@@ -185,3 +185,39 @@ test('slash autocomplete supports command arguments', () => {
   updateAutocomplete(state);
   assert(state.autoItems.some((item) => item.command === '/session latest'), 'missing session target completion');
 });
+
+test('slash autocomplete includes registered extension commands', () => {
+  const slash = require('../src/tui/slash-commands');
+  slash.registerSlashCommand({
+    name: 'hello-ext',
+    description: 'Extension hello command',
+    category: 'extension',
+    handler: async () => {},
+  });
+  const items = slash.completeSlashInput('/hello', {});
+  assert(items.some((item) => item.command === '/hello-ext' && item.kind === 'extension-command'), 'missing extension command completion');
+  slash.unregisterSlashCommand('hello-ext');
+});
+
+test('slash autocomplete includes file skills and prompt templates', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const slash = require('../src/tui/slash-commands');
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-slash-'));
+  fs.mkdirSync(path.join(workspace, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'skills', 'board-check.md'), '# board-check\n\nCheck board status.', 'utf8');
+  fs.writeFileSync(path.join(workspace, 'prompt-templates.json'), JSON.stringify([
+    { name: 'bug-report', description: 'Draft a bug report', prompt: 'Write a bug report' },
+  ]), 'utf8');
+
+  let state = createTuiState({ workspace });
+  setInput(state, '/skill ');
+  updateAutocomplete(state);
+  assert(state.autoItems.some((item) => item.command === '/skill board-check' && item.kind === 'skill-command'), 'missing skill completion');
+
+  state = createTuiState({ workspace });
+  setInput(state, '/template ');
+  updateAutocomplete(state);
+  assert(state.autoItems.some((item) => item.command === '/template bug-report' && item.kind === 'template-command'), 'missing template completion');
+});

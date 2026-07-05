@@ -91,10 +91,47 @@ const DISPLAY_COMMANDS = [
   { name: 'scoped-models', description: 'Not implemented: scoped models / 暂未实现：作用域模型', category: 'ui', unsupported: true },
 ];
 
-const COMMAND_PRIORITY = DISPLAY_COMMANDS.reduce((acc, item, index) => {
-  acc[item.name] = index;
-  return acc;
-}, {});
+const EXTRA_COMMANDS = [
+  { name: 'skill', description: 'Load file skill summary / 加载文件技能摘要', argumentHint: '<name>', category: 'skill' },
+  { name: 'template', description: 'Insert prompt template / 插入 prompt 模板', argumentHint: '<name>', category: 'template' },
+];
+const EXTENSION_COMMANDS = [];
+
+function normalizeRegisteredCommand(command, source) {
+  const item = Object.assign({}, command || {});
+  item.name = slashName(item.name || '').toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(item.name)) throw new Error('Invalid slash command name');
+  item.aliases = (item.aliases || []).map((alias) => slashName(alias).toLowerCase()).filter(Boolean);
+  item.description = item.description || '';
+  item.category = item.category || source || 'extension';
+  item.source = item.source || source || 'extension';
+  return item;
+}
+
+function allSlashCommands() {
+  return DISPLAY_COMMANDS.concat(EXTRA_COMMANDS).concat(EXTENSION_COMMANDS);
+}
+
+function commandPriorityMap() {
+  return allSlashCommands().reduce((acc, item, index) => {
+    acc[item.name] = index;
+    return acc;
+  }, {});
+}
+
+function registerSlashCommand(command) {
+  const item = normalizeRegisteredCommand(command, 'extension');
+  const existing = EXTENSION_COMMANDS.findIndex((entry) => entry.name === item.name);
+  if (existing >= 0) EXTENSION_COMMANDS.splice(existing, 1, item);
+  else EXTENSION_COMMANDS.push(item);
+  return item;
+}
+
+function unregisterSlashCommand(name) {
+  const target = slashName(name).toLowerCase();
+  const index = EXTENSION_COMMANDS.findIndex((entry) => entry.name === target);
+  if (index >= 0) EXTENSION_COMMANDS.splice(index, 1);
+}
 
 function slashName(value) {
   const text = String(value || '').trim();
@@ -110,11 +147,11 @@ function commandUsage(command) {
 }
 
 function listSlashCommands() {
-  return DISPLAY_COMMANDS.slice();
+  return allSlashCommands().slice();
 }
 
 function slashCommandDefinitions() {
-  return DISPLAY_COMMANDS.map((command) => ({
+  return allSlashCommands().map((command) => ({
     command: commandDisplayName(command),
     name: command.name,
     aliases: command.aliases || [],
@@ -122,13 +159,15 @@ function slashCommandDefinitions() {
     argumentHint: command.argumentHint || '',
     category: command.category || '',
     unsupported: Boolean(command.unsupported),
+    source: command.source || 'builtin',
+    handler: command.handler,
     usage: commandUsage(command),
   }));
 }
 
 function findSlashCommand(name) {
   const target = slashName(name).toLowerCase();
-  return DISPLAY_COMMANDS.find((command) => {
+  return allSlashCommands().find((command) => {
     if (command.name === target) return true;
     return (command.aliases || []).indexOf(target) >= 0;
   }) || null;
@@ -224,6 +263,67 @@ function staticTargetCompletions(commandName) {
   return [];
 }
 
+function workspaceRoot(context) {
+  return context && context.config && context.config.workspace
+    ? context.config.workspace
+    : context && context.state && context.state.cwd
+      ? context.state.cwd
+      : process.cwd();
+}
+
+function listFileSkills(context) {
+  const fs = require('fs');
+  const path = require('path');
+  const root = workspaceRoot(context);
+  const dir = path.join(root, 'skills');
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch (error) {
+    return [];
+  }
+  return entries
+    .filter((name) => /\.md$/i.test(name))
+    .map((name) => {
+      const skillName = name.replace(/\.md$/i, '');
+      return {
+        name: skillName,
+        description: 'File skill / 文件技能',
+        path: path.join('skills', name),
+      };
+    });
+}
+
+function normalizePromptTemplate(name, value) {
+  if (typeof value === 'string') return { name, description: '', prompt: value };
+  const item = value || {};
+  return {
+    name: item.name || name,
+    description: item.description || item.title || '',
+    prompt: item.prompt || item.template || item.text || '',
+  };
+}
+
+function listPromptTemplates(context) {
+  const fs = require('fs');
+  const path = require('path');
+  const filePath = path.join(workspaceRoot(context), 'prompt-templates.json');
+  let data = null;
+  try {
+    data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    return [];
+  }
+  if (Array.isArray(data)) {
+    return data
+      .map((item) => normalizePromptTemplate(item && item.name, item))
+      .filter((item) => item.name && item.prompt);
+  }
+  return Object.keys(data || {})
+    .map((name) => normalizePromptTemplate(name, data[name]))
+    .filter((item) => item.name && item.prompt);
+}
+
 function completeSlashArguments(command, argsText, context) {
   const query = String(argsText || '').trim().toLowerCase();
   if (command.name === 'model') {
@@ -250,6 +350,28 @@ function completeSlashArguments(command, argsText, context) {
       }))
       .filter((item) => !query || item.label.toLowerCase().indexOf(query) >= 0);
   }
+  if (command.name === 'skill') {
+    return listFileSkills(context)
+      .map((skill) => ({
+        command: `/${command.name} ${skill.name}`,
+        value: `${command.name} ${skill.name}`,
+        label: skill.name,
+        description: skill.description,
+        kind: 'skill-command',
+      }))
+      .filter((item) => !query || item.label.toLowerCase().indexOf(query) >= 0);
+  }
+  if (command.name === 'template') {
+    return listPromptTemplates(context)
+      .map((template) => ({
+        command: `/${command.name} ${template.name}`,
+        value: `${command.name} ${template.name}`,
+        label: template.name,
+        description: template.description,
+        kind: 'template-command',
+      }))
+      .filter((item) => !query || item.label.toLowerCase().indexOf(query) >= 0 || item.description.toLowerCase().indexOf(query) >= 0);
+  }
   return staticTargetCompletions(command.name)
     .map((target) => ({
       command: `/${command.name} ${target}`,
@@ -271,16 +393,17 @@ function completeSlashInput(input, context) {
     if (command) return completeSlashArguments(command, parsed.argsText, context);
   }
   const query = text.toLowerCase();
+  const priorities = commandPriorityMap();
   return slashCommandDefinitions()
     .map((item, index) => {
       const score = scoreSlashCommand(item.command, query);
       const unsupportedPenalty = item.unsupported ? 20 : 0;
-      const priority = Object.prototype.hasOwnProperty.call(COMMAND_PRIORITY, item.name) ? COMMAND_PRIORITY[item.name] : index;
+      const priority = Object.prototype.hasOwnProperty.call(priorities, item.name) ? priorities[item.name] : index;
       return score === null ? null : Object.assign({
         score: score + unsupportedPenalty,
         order: index,
         priority,
-        kind: 'slash-command',
+        kind: item.source === 'extension' ? 'extension-command' : 'slash-command',
       }, item);
     })
     .filter(Boolean)
@@ -306,9 +429,13 @@ module.exports = {
   completeSlashInput,
   findSlashCommand,
   getKnownModels,
+  listFileSkills,
+  listPromptTemplates,
   listSlashCommands,
   parseSlashInput,
+  registerSlashCommand,
   scoreSlashCommand,
   slashCommandDefinitions,
   suggestSlashCommands,
+  unregisterSlashCommand,
 };

@@ -113,6 +113,53 @@ test('commands panel opens from slash command and alias', async () => {
   assert(context.state.activePanel && context.state.activePanel.type === 'command', 'cmd alias did not open commands panel');
 });
 
+test('registered extension slash command is intercepted and does not prompt LLM', async () => {
+  const slash = require('../src/tui/slash-commands');
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  let called = null;
+  slash.registerSlashCommand({
+    name: 'ext-run',
+    description: 'Run extension handler',
+    category: 'extension',
+    handler: async function(ctx, parsed) {
+      called = { ctx, parsed };
+      ctx.state.status = 'extension ran';
+    },
+  });
+  await handleCommand(context, '/ext-run alpha beta');
+  assert(called && called.parsed.argsText === 'alpha beta', 'extension handler was not called with parsed args');
+  assert(context.prompted === '', 'extension slash command should not start an LLM prompt');
+  assert(context.state.status === 'extension ran', 'extension handler did not update state');
+  slash.unregisterSlashCommand('ext-run');
+});
+
+test('skill and template commands use workspace sources without prompting LLM', async () => {
+  const workspace = tempWorkspace();
+  fs.mkdirSync(path.join(workspace, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'skills', 'board-check.md'), [
+    '# board-check',
+    '',
+    'Check board status before running commands.',
+  ].join('\n'), 'utf8');
+  fs.writeFileSync(path.join(workspace, 'prompt-templates.json'), JSON.stringify({
+    review: {
+      description: 'Review current code',
+      prompt: 'Review the current change carefully.',
+    },
+  }), 'utf8');
+  const context = await makeContext(workspace);
+
+  await handleCommand(context, '/skill board-check');
+  let text = context.state.messages.map((message) => message.text).join('\n');
+  assert(text.indexOf('Skill: board-check') >= 0, 'skill command did not render skill content');
+  assert(context.prompted === '', 'skill command should not prompt LLM');
+
+  await handleCommand(context, '/template review');
+  assert(context.state.inputBuffer === 'Review the current change carefully.', 'template command should fill editor input');
+  assert(context.prompted === '', 'template command should not prompt LLM');
+});
+
 test('commands panel filters and inserts selected command without executing', async () => {
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);
