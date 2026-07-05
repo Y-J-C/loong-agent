@@ -70,8 +70,11 @@ function useNativePrompt(options) {
 
 function buildSystemPrompt(tools, extensionGuidelines, options) {
   const guidelines = extensionGuidelines === undefined ? defaultExtensionGuidelines() : extensionGuidelines;
-  const template = useNativePrompt(options) ? NATIVE_SYSTEM_PROMPT : LEGACY_SYSTEM_PROMPT;
-  return template
+  if (useNativePrompt(options)) {
+    return NATIVE_SYSTEM_PROMPT
+      .replace('{{EXTENSION_GUIDELINES}}', String(guidelines || 'No extension-specific guidance.'));
+  }
+  return LEGACY_SYSTEM_PROMPT
     .replace('{{TOOLS}}', formatToolsForPrompt(tools || createDefaultTools()))
     .replace('{{EXTENSION_GUIDELINES}}', String(guidelines || 'No extension-specific guidance.'));
 }

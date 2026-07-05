@@ -19,7 +19,7 @@ const { classifyRequestContext, selectContextMessages } = require('../src/contex
 const { bindClaims, extractClaims, validateFinalAnswerBinding } = require('../src/evidence-binding');
 const { bashExecutionToText, convertToLlm } = require('../src/messages');
 const { deriveObservations } = require('../src/observation');
-const { buildMessagesFromTurnContext, buildMessagesWithAuditMetadata, buildTurnContext } = require('../src/prompts');
+const { buildMessagesFromTurnContext, buildMessagesWithAuditMetadata, buildSystemPrompt, buildTurnContext } = require('../src/prompts');
 const { createModelRequestEvent } = require('../src/model-request-audit');
 const { streamJson } = require('../src/provider-registry');
 const { waitForChildProcess, spawnProcess } = require('../src/runtime/child-process');
@@ -142,6 +142,30 @@ test('prompt uses native protocol without embedded tool list or json_action inst
   assert(legacySystem.indexOf('Available tools:') >= 0, 'legacy prompt should embed tool list');
   assert(legacySystem.indexOf('Response protocol:') >= 0, 'legacy prompt should include json response protocol');
   assert(legacySystem.indexOf('{"type":"tool"') >= 0, 'legacy prompt should include json_action tool example');
+});
+
+test('native prompt does not format embedded tool list', () => {
+  const badTools = [{
+    name: 'bad_tool',
+    description: 'Bad tool',
+  }];
+  Object.defineProperty(badTools[0], 'parameters', {
+    get() {
+      throw new Error('native prompt should not read tool parameters');
+    },
+  });
+  const nativePrompt = buildSystemPrompt(badTools, '', {
+    config: {
+      provider: 'openai-compatible',
+      providerProfile: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      nativeTools: true,
+    },
+  });
+
+  assert(nativePrompt.indexOf('Native tool calling:') >= 0, 'native prompt missing native section');
+  assert(nativePrompt.indexOf('bad_tool') < 0, 'native prompt should not include embedded tool name');
 });
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
