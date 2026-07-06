@@ -56,6 +56,8 @@ var plain = stripAnsi(lines.join('\n'));
 equal(lines.length, 20, 'render fills terminal height');
 ok(plain.indexOf('hello user') >= 0, 'renders user message');
 ok(lines.join('\n').indexOf(themeMod.getTheme('loong-dark').user) >= 0, 'renders user message with pi-like background');
+var userLine = lines.filter(function(line) { return stripAnsi(line).indexOf('hello user') >= 0; })[0] || '';
+ok(userLine.indexOf(themeMod.getTheme('loong-dark').user) < userLine.indexOf('hello user'), 'user background starts before visible text');
 ok(plain.indexOf('hello assistant') >= 0, 'renders assistant message');
 ok(plain.indexOf('- markdown item') >= 0, 'renders assistant markdown item');
 ok(plain.indexOf('final answer') >= 0, 'renders final answer');

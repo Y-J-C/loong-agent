@@ -61,6 +61,17 @@ ok(tablePlain.indexOf('a|b') >= 0, 'renders escaped pipe inside table cell');
 ok(tablePlain.indexOf('| not | table |') >= 0, 'keeps pipe text inside code block');
 ok(tableLines.every(function(line) { return utils.visibleWidth(line) <= 36; }), 'table markdown lines fit width');
 
+var bashCode = new Markdown({
+  text: '```bash\n# 查看内存详细分布\ncat /proc/meminfo\n```',
+  maxLines: 20,
+});
+var bashCodeLines = bashCode.render(80, { theme: theme.getTheme('loong-dark') });
+var bashCodePlain = utils.stripAnsi(bashCodeLines.join('\n'));
+ok(bashCodePlain.indexOf('38;5;244m') < 0, 'syntax highlighting does not leak ANSI SGR params');
+ok(bashCodePlain.indexOf('# 查看内存详细分布') >= 0, 'code block comment remains visible');
+ok(bashCodeLines[0].indexOf(theme.getTheme('loong-dark').mdCodeBlockBorder) >= 0, 'code block border uses mdCodeBlockBorder token');
+ok(bashCodeLines[0].indexOf(theme.getTheme('loong-dark').borderMuted) < 0, 'code block border does not use generic table border token');
+
 var narrowTable = new Markdown({
   text: '| A | B |\n| --- | --- |\n| narrow | table |',
   maxLines: 20,
@@ -85,6 +96,7 @@ var customMarkdownTheme = {
   inlineCode: function(text) { return '[C]' + text + '[/C]'; },
   link: function(label, url) { return '[L]' + label + '|' + url + '[/L]'; },
   codeBlock: function(text) { return '[B]' + text + '[/B]'; },
+  codeBlockBorder: function(text) { return '[CB]' + text + '[/CB]'; },
   tableBorder: function(text) { return '[T]' + text + '[/T]'; },
   listMarker: function(text) { return '[M]' + text + '[/M]'; },
   syntax: function(token, text) { return '[S]' + text + '[/S]'; },
@@ -101,6 +113,7 @@ ok(themedText.indexOf('[M]- [/M]') >= 0, 'custom markdown theme styles list mark
 ok(themedText.indexOf('[C]code[/C]') >= 0, 'custom markdown theme styles inline code');
 ok(themedText.indexOf('[L]docs|u[/L]') >= 0, 'custom markdown theme styles link');
 ok(themedText.indexOf('[B]') >= 0 && themedText.indexOf('[S]const[/S]') >= 0, 'custom markdown theme styles code block syntax');
+ok(themedText.indexOf('[CB]+- js ') >= 0, 'custom markdown theme styles code block border separately');
 ok(themedLines.every(function(line) { return utils.visibleWidth(line) <= 80; }), 'custom themed markdown lines fit width');
 
 console.log(pass + '/' + (pass + fail) + ' passed');

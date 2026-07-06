@@ -188,10 +188,11 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
       var uContent = String(text || '');
       var uwrapped = utils.wrapTextWithAnsi(uContent, Math.max(4, maxWidth - 2));
       if (!uwrapped.length) uwrapped = [''];
-      var userFgBg = themeMod.paint(theme, 'user', '');
+      var userFgBg = theme && theme.user ? theme.user : '';
+      var userReset = userFgBg ? '\x1b[0m' : '';
       for (var ui = 0; ui < uwrapped.length; ui += 1) {
         var uPadded = ' ' + uwrapped[ui] + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(' ' + uwrapped[ui])));
-        lines.push(userFgBg + uPadded + (userFgBg ? '\x1b[0m' : ''));
+        lines.push(userFgBg + uPadded + userReset);
       }
     } else if (message.type === 'tool') {
       var toolTitle = message.toolName || 'tool';

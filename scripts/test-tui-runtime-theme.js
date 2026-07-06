@@ -37,6 +37,9 @@ ok(theme.THEME_DEFINITIONS['loong-dark'].tokens, 'dark theme definition has toke
 ok(Boolean(dark.toolPendingBg), 'dark theme has pending tool background');
 ok(Boolean(dark.toolSuccessBg), 'dark theme has success tool background');
 ok(Boolean(dark.toolErrorBg), 'dark theme has error tool background');
+equal(dark.toolPendingBg, '\x1b[48;2;40;40;50m', 'pending tool background matches pi #282832');
+equal(dark.toolSuccessBg, '\x1b[48;2;40;50;40m', 'success tool background matches pi #283228');
+equal(dark.toolErrorBg, '\x1b[48;2;60;40;40m', 'error tool background matches pi #3c2828');
 equal(dark.user, '\x1b[38;5;252m\x1b[48;2;52;53;65m', 'dark user message uses pi-like #343541 background');
 ok(dark.toolPendingBg !== dark.toolSuccessBg, 'pending and success tool backgrounds differ');
 ok(dark.toolSuccessBg !== dark.toolErrorBg, 'success and error tool backgrounds differ');

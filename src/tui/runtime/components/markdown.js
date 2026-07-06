@@ -80,18 +80,22 @@ function highlightSyntax(text, markdownTheme) {
   var md = markdownTheme || themeMod.createMarkdownTheme(themeMod.getTheme());
   // Only highlight inside code blocks (when mdCodeBlock token is used)
   var result = String(text || '');
-  // Strings: "..." or '...'
-  result = result.replace(/("(?:[^"\\]|\\.)*")/g, function(m) { return md.syntax('syntaxString', m); });
-  result = result.replace(/('(?:[^'\\]|\\.)*')/g, function(m) { return md.syntax('syntaxString', m); });
-  // Comments: #...  or //...
-  result = result.replace(/(#.*)$/gm, function(m) { return md.syntax('syntaxComment', m); });
-  result = result.replace(/(\/\/.*)$/gm, function(m) { return md.syntax('syntaxComment', m); });
-  // Numbers: 123, 0xFF, 3.14
+  // Apply broad token rules before injecting ANSI. Later regexes must not scan SGR params.
   result = result.replace(/(\b[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b)/g, function(m) { return md.syntax('syntaxNumber', m); });
-  // Keywords
   var keywords = '\\b(if|else|for|while|do|switch|case|break|continue|return|function|def|class|import|export|from|const|let|var|async|await|try|catch|throw|new|delete|typeof|instanceof|in|of|true|false|null|this|super|yield|with|void)\\b';
   result = result.replace(new RegExp(keywords, 'g'), function(m) { return md.syntax('syntaxKeyword', m); });
+  // Strings and comments are last so their inserted ANSI is not reprocessed.
+  result = result.replace(/("(?:[^"\\]|\\.)*")/g, function(m) { return md.syntax('syntaxString', m); });
+  result = result.replace(/('(?:[^'\\]|\\.)*')/g, function(m) { return md.syntax('syntaxString', m); });
+  result = result.replace(/(#.*)$/gm, function(m) { return md.syntax('syntaxComment', m); });
+  result = result.replace(/(\/\/.*)$/gm, function(m) { return md.syntax('syntaxComment', m); });
   return result;
+}
+
+function codeBlockBorder(markdownTheme, text) {
+  return markdownTheme && typeof markdownTheme.codeBlockBorder === 'function'
+    ? markdownTheme.codeBlockBorder(text)
+    : markdownTheme.tableBorder(text);
 }
 
 function pushWrapped(output, raw, width, theme, markdownTheme, token, options) {
@@ -208,7 +212,7 @@ Markdown.prototype.render = function render(width, context) {
     if (fence) {
       if (inCode) {
         var bottomFill = Math.max(0, maxWidth - 2);
-        output.push(markdownTheme.tableBorder('+' + '-'.repeat(bottomFill) + '+'));
+        output.push(codeBlockBorder(markdownTheme, '+' + '-'.repeat(bottomFill) + '+'));
         inCode = false;
         codeLang = '';
         continue;
@@ -217,7 +221,7 @@ Markdown.prototype.render = function render(width, context) {
       codeLang = String(fence[1] || '').trim();
       var label = codeLang ? ' ' + codeLang + ' ' : '';
       var fillLen = Math.max(0, maxWidth - utils.visibleWidth(label) - 2);
-      var border = markdownTheme.tableBorder('+-' + label + '-'.repeat(fillLen) + '+');
+      var border = codeBlockBorder(markdownTheme, '+-' + label + '-'.repeat(fillLen) + '+');
       var innerPad = markdownTheme.codeBlock(pad('', maxWidth));
       output.push(border);
       output.push(innerPad);
@@ -282,7 +286,7 @@ Markdown.prototype.render = function render(width, context) {
 
   if (inCode) {
     var endFill = Math.max(0, maxWidth - 2);
-    output.push(markdownTheme.tableBorder('+' + '-'.repeat(endFill) + '+'));
+    output.push(codeBlockBorder(markdownTheme, '+' + '-'.repeat(endFill) + '+'));
   }
   if (this.thinking && output.length) {
     // Thinking block: wrap with italic style

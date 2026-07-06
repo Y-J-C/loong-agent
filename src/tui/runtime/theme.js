@@ -21,9 +21,9 @@ var ANSI = {
   userBg: '\x1b[48;2;52;53;65m',
   userFg: '\x1b[38;5;252m',
   toolBg: '\x1b[48;5;235m',
-  toolPendingBg: '\x1b[48;5;235m',
-  toolSuccessBg: '\x1b[48;5;22m',
-  toolErrorBg: '\x1b[48;5;52m',
+  toolPendingBg: '\x1b[48;2;40;40;50m',
+  toolSuccessBg: '\x1b[48;2;40;50;40m',
+  toolErrorBg: '\x1b[48;2;60;40;40m',
   mdHeading: '\x1b[38;5;221m',
   mdLink: '\x1b[38;5;117m',
   mdListBullet: '\x1b[38;5;116m',
@@ -302,6 +302,9 @@ function createMarkdownTheme(runtimeTheme) {
     },
     codeBlock: function codeBlock(text) {
       return paint(runtime, 'mdCodeBlock', text);
+    },
+    codeBlockBorder: function codeBlockBorder(text) {
+      return paint(runtime, 'mdCodeBlockBorder', text);
     },
     tableBorder: function tableBorder(text) {
       return paint(runtime, 'borderMuted', text);
