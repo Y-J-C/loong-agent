@@ -34,6 +34,7 @@ function TUI(terminal, options) {
   this.renderTimer = undefined;
   this.lastRenderAt = 0;
   this.fullRedrawCount = 0;
+  this.lastDiffMode = 'none';
   this.stopped = false;
   this.clearOnShrink = true;
 
@@ -173,6 +174,7 @@ TUI.prototype.doRender = function doRender() {
     showHardwareCursor: this.showHardwareCursor,
   };
   var newLines;
+  var hasVisibleOverlays = false;
   try {
     // 1. Render component tree
     newLines = this.render(width, renderContext);
@@ -185,6 +187,7 @@ TUI.prototype.doRender = function doRender() {
         if (this._isOverlayVisible(entry, width, height)) visibleEntries.push(entry);
       }
       if (visibleEntries.length > 0) {
+        hasVisibleOverlays = true;
         var overlayEntries = visibleEntries.map(function(e) {
           return { component: e.component, lines: null, options: e.options, context: renderContext };
         }, this);
@@ -212,7 +215,7 @@ TUI.prototype.doRender = function doRender() {
   else if (widthChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (heightChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (clear) { this._fullRender(newLines, width, height, cursorPos, true); }
-  else { this._diffRender(newLines, width, height, cursorPos, viewportTop); }
+  else { this._diffRender(newLines, width, height, cursorPos, viewportTop, hasVisibleOverlays); }
 
   // 6. Position hardware cursor
   this._positionHardwareCursor(cursorPos, newLines.length);
@@ -224,6 +227,7 @@ TUI.prototype.doRender = function doRender() {
 };
 
 TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursorPos, clear) {
+  this.lastDiffMode = 'full';
   this.fullRedrawCount += 1;
   var buffer = '\x1b[?2026h'; // Synchronized output begin
 
@@ -250,7 +254,31 @@ TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursor
   this.previousViewportTop = Math.max(0, bufferLength - height);
 };
 
-TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursorPos, viewportTop) {
+TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursorPos, viewportTop, hasVisibleOverlays) {
+  if (!hasVisibleOverlays && newLines.length > this.previousLines.length) {
+    var appendOnly = true;
+    for (var prefix = 0; prefix < this.previousLines.length; prefix += 1) {
+      if (this.previousLines[prefix] !== newLines[prefix]) {
+        appendOnly = false;
+        break;
+      }
+    }
+    if (appendOnly) {
+      var startRow = this.previousLines.length;
+      var appendBuffer = '\x1b[?2026h\x1b[?25l\x1b[' + (startRow + 1) + ';1H';
+      for (var ai = startRow; ai < newLines.length; ai += 1) {
+        if (ai > startRow) appendBuffer += '\n';
+        appendBuffer += '\x1b[2K' + newLines[ai];
+      }
+      appendBuffer += '\x1b[?2026l';
+      this.terminal.write(appendBuffer);
+      this.hardwareCursorRow = Math.max(0, newLines.length - 1);
+      this.previousViewportTop = viewportTop;
+      this.lastDiffMode = 'append';
+      return;
+    }
+  }
+
   // Find changed range
   var firstChanged = -1;
   var lastChanged = -1;
@@ -267,6 +295,7 @@ TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursor
   // No changes — just update cursor position
   if (firstChanged < 0) {
     this.previousViewportTop = viewportTop;
+    this.lastDiffMode = 'unchanged';
     return;
   }
 
@@ -281,6 +310,8 @@ TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursor
 
   this.hardwareCursorRow = Math.min(lastChanged, newLines.length - 1);
   this.previousViewportTop = viewportTop;
+  this.lastDiffMode = newLines.length < this.previousLines.length && lastChanged >= newLines.length
+    ? 'clear-tail' : 'range';
 };
 
 // ─── Line resets ──────────────────────────────────────────────────────────────

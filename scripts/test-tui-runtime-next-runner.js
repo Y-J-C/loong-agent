@@ -144,6 +144,9 @@ async function main() {
   ok(terminal.started, 'terminal starts');
   ok(terminal.output.indexOf('mock/m') >= 0, 'initial render includes status');
   equal(capturedState.lastRender.renderer, 'tui', 'runner records TUI renderer');
+  equal(capturedState.lastRender.messageListMode, 'default', 'runner records default message list mode');
+  ok(capturedState.lastRender.messageComponentCache, 'runner records message component cache stats');
+  ok(capturedState.lastRender.diffMode, 'runner records diff mode');
 
   terminal.columns = 62;
   terminal.resizeHandler();

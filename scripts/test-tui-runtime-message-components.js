@@ -6,6 +6,9 @@ var MessageComponentList = require('../src/tui/runtime/app/message-component-lis
 var renderMessageList = require('../src/tui/runtime/app/message-list').renderRuntimeMessageList;
 var theme = require('../src/tui/runtime/theme');
 var utils = require('../src/tui/runtime/utils');
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
 var pass = 0;
 var fail = 0;
 
@@ -58,6 +61,14 @@ var firstRenderCount = cacheList.renderCount;
 cacheList.render(state, 60, 12, context);
 equal(cacheList.renderCount, firstRenderCount, 'unchanged messages reuse cached lines');
 
+var signatureList = new MessageComponentList();
+signatureList.render(state, 60, 12, context);
+var beforeSignatureChange = signatureList.renderCount;
+signatureList.render(state, 60, 12, Object.assign({}, context, {
+  theme: Object.assign({}, dark, { signature: dark.signature + ':changed' }),
+}));
+equal(signatureList.renderCount, beforeSignatureChange + Object.keys(signatureList.entries).length, 'theme signature change refreshes cached entries');
+
 state.messages[1].text = '# Heading\n\n- changed';
 cacheList.render(state, 60, 12, context);
 equal(cacheList.renderCount, firstRenderCount + 1, 'changed message refreshes one cache entry');
@@ -93,6 +104,22 @@ var chatView = new ChatView(chatState, { messageListMode: 'component-cache', ren
 var frame = chatView.render(60, { rows: 18, theme: dark });
 ok(frame.every(function(line) { return utils.visibleWidth(line) <= 60; }), 'chat view component cache frame fits width');
 ok(visibleText(frame).indexOf('changed') >= 0, 'chat view can opt into component cache');
+equal(chatView.getMessageComponentCacheStats().entryCount > 0, true, 'chat view exposes component cache stats');
+
+var shadowView = new ChatView(chatState, { messageListMode: 'shadow', renderStateOverlays: false });
+var shadowFrame = shadowView.render(60, { rows: 18, theme: dark });
+var defaultFrame = (new ChatView(chatState, { renderStateOverlays: false })).render(60, { rows: 18, theme: dark });
+equal(visibleText(shadowFrame), visibleText(defaultFrame), 'shadow mode writes default visible output');
+
+var diagRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-shadow-'));
+var diagState = Object.assign({}, chatState, { cwd: diagRoot });
+var mismatchView = new ChatView(diagState, { messageListMode: 'shadow', renderStateOverlays: false });
+mismatchView.messageComponentList.render = function() { return ['different']; };
+var mismatchFrame = mismatchView.render(60, { rows: 18, theme: dark });
+ok(visibleText(mismatchFrame).indexOf('different') < 0, 'shadow mismatch still writes default output');
+ok(Boolean(mismatchView.getMessageComponentCacheStats().lastMismatchAt), 'shadow mismatch updates cache stats');
+var logPath = path.join(diagRoot, '.loong-agent', 'logs', 'tui-render-crash.log');
+ok(fs.existsSync(logPath), 'shadow mismatch writes diagnostic log');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

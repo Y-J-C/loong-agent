@@ -12,6 +12,7 @@ var toolFocus = require('../../tool-focus');
 var openJsonlSession = require('../../../session').openJsonlSession;
 var createSessionManager = require('../../../session-manager').createSessionManager;
 var ProcessTerminal = require('../terminal').ProcessTerminal;
+var runtimeTheme = require('../theme');
 var TUI = require('../tui').TUI;
 var ChatView = require('./chat-view').ChatView;
 var createRuntimeInputDispatcher = require('./input-dispatcher').createRuntimeInputDispatcher;
@@ -58,7 +59,12 @@ async function runRuntimeNextTui(config, options) {
 
   var terminal = options.terminal || new ProcessTerminal({ input: inputStream, output: outputStream });
   var state = stateModule.createTuiState(config);
-  var chatView = new ChatView(state, { renderStateOverlays: false });
+  var themeLoadResult = runtimeTheme.loadRuntimeThemeFiles(config && config.runtimeThemeFiles);
+  (themeLoadResult.warnings || []).forEach(function(warning) {
+    stateModule.addMessage(state, { type: 'system', text: 'runtime theme warning: ' + warning });
+  });
+  var messageListMode = options.messageListMode || config && config.messageListMode || 'default';
+  var chatView = new ChatView(state, { renderStateOverlays: false, messageListMode: messageListMode });
   var tui = new TUI(terminal, {
     onBeforeRender: updateLastRender,
     onRenderError: handleRenderError,
@@ -146,7 +152,11 @@ async function runRuntimeNextTui(config, options) {
       overlaySurface: overlaySurface,
       focusedSurface: overlaySurface || inputSurface || 'input',
       diffResetCount: diffResetCount,
+      diffMode: tui ? tui.lastDiffMode : 'none',
       fullRedrawCount: tui ? tui.fullRedrawCount : 0,
+      messageListMode: chatView ? chatView.messageListMode : 'default',
+      messageComponentCache: chatView && chatView.getMessageComponentCacheStats
+        ? chatView.getMessageComponentCacheStats() : null,
       lastRenderError: state.lastRenderError || null,
     };
   }
@@ -212,6 +222,20 @@ async function runRuntimeNextTui(config, options) {
   }
 
   async function runCommand(value) {
+    var rawCommand = String(value || '').trim();
+    if (rawCommand.indexOf('/theme') === 0) {
+      var parts = rawCommand.split(/\s+/);
+      var nextTheme = parts[1];
+      if (!nextTheme) {
+        stateModule.addMessage(state, { type: 'system', text: 'Themes: ' + runtimeTheme.listThemes().join(', ') });
+        return;
+      }
+      if (runtimeTheme.hasTheme(nextTheme)) {
+        state.theme = nextTheme;
+        stateModule.addMessage(state, { type: 'system', text: 'Theme set: ' + nextTheme });
+        return;
+      }
+    }
     await handleCommand({
       config: activeConfig,
       state: state,

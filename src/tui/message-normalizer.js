@@ -88,8 +88,8 @@ function textContainsRepeatedToolBlock() {
 }
 
 function isLiveMessageVisible(message, state) {
+  if (message && message.ephemeral) return Boolean(state && state.mode === 'running');
   if (!message || message.hidden) return false;
-  if (message.ephemeral && state && state.mode !== 'running') return false;
   return true;
 }
 

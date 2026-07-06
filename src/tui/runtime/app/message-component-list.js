@@ -32,13 +32,15 @@ function trimTrailingBlankLines(lines) {
 function MessageComponentList() {
   this.entries = {};
   this.renderCount = 0;
+  this.lastMismatchAt = null;
 }
 
 MessageComponentList.prototype._signature = function _signature(message, width, state, context) {
   return stableStringify({
     message: message,
     width: width,
-    theme: context && context.theme && context.theme.name || '',
+    theme: context && context.theme && (context.theme.signature || context.theme.name) || '',
+    markdownTheme: context && context.markdownTheme && context.markdownTheme.signature || '',
     expandedTools: Boolean(state && state.expandedTools),
   });
 };
@@ -97,6 +99,14 @@ MessageComponentList.prototype.render = function render(state, width, height, co
 
 MessageComponentList.prototype.invalidate = function invalidate() {
   this.entries = {};
+};
+
+MessageComponentList.prototype.stats = function stats() {
+  return {
+    entryCount: Object.keys(this.entries).length,
+    renderCount: this.renderCount,
+    lastMismatchAt: this.lastMismatchAt,
+  };
 };
 
 module.exports = {

@@ -1,5 +1,7 @@
 'use strict';
 
+var fs = require('fs');
+var path = require('path');
 var utils = require('../utils');
 var themeMod = require('../theme');
 var component = require('../component');
@@ -10,6 +12,27 @@ var compositeOverlays = require('../overlay').compositeOverlays;
 var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
 var Loader = require('../components/loader').Loader;
 var MessageComponentList = require('./message-component-list').MessageComponentList;
+
+function trimLine(line) {
+  var text = utils.stripAnsi(String(line || '')).replace(/\s+/g, ' ').trim();
+  return text.length > 120 ? text.slice(0, 117) + '...' : text;
+}
+
+function writeShadowDiagnostic(state, details) {
+  try {
+    var root = state && state.cwd ? state.cwd : process.cwd();
+    var logDir = path.join(root, '.loong-agent', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(path.join(logDir, 'tui-render-crash.log'), [
+      '[' + details.at + '] component=ChatView messageListMode=shadow',
+      'defaultLines=' + details.defaultLines,
+      'componentLines=' + details.componentLines,
+      'preview=' + JSON.stringify(details.preview),
+    ].join(' ') + '\n', 'utf8');
+  } catch (error) {
+    // Diagnostics must not break rendering.
+  }
+}
 
 function ChatView(state, options) {
   component.Container.call(this);
@@ -45,9 +68,7 @@ ChatView.prototype.render = function render(width, context) {
   var runningLines = this._renderRunningLines(cols, Object.assign({}, renderCtx, { tui: context && context.tui }));
 
   var bodyHeight = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length);
-  var body = this.messageListMode === 'component-cache'
-    ? this.messageComponentList.render(state, cols, bodyHeight, renderCtx)
-    : renderMessageList(state, cols, bodyHeight, renderCtx);
+  var body = this._renderMessageBody(state, cols, bodyHeight, renderCtx);
 
   var lines = body.concat(runningLines).concat(inputLines).concat(footerLines).slice(0, rows);
   while (lines.length < rows) lines.push('');
@@ -64,6 +85,33 @@ ChatView.prototype.render = function render(width, context) {
     return utils.truncateToWidth(String(line || ''), cols)
       + ' '.repeat(Math.max(0, cols - utils.visibleWidth(String(line || ''))));
   });
+};
+
+ChatView.prototype._renderMessageBody = function _renderMessageBody(state, cols, bodyHeight, renderCtx) {
+  if (this.messageListMode === 'component-cache') {
+    return this.messageComponentList.render(state, cols, bodyHeight, renderCtx);
+  }
+  if (this.messageListMode === 'shadow') {
+    var defaultBody = renderMessageList(state, cols, bodyHeight, renderCtx);
+    var componentBody = this.messageComponentList.render(state, cols, bodyHeight, renderCtx);
+    var defaultText = utils.stripAnsi(defaultBody.join('\n')).replace(/[ ]+$/gm, '');
+    var componentText = utils.stripAnsi(componentBody.join('\n')).replace(/[ ]+$/gm, '');
+    var widthMismatch = componentBody.some(function(line) {
+      return utils.visibleWidth(line) > cols;
+    });
+    if (defaultText !== componentText || widthMismatch) {
+      var at = new Date().toISOString();
+      this.messageComponentList.lastMismatchAt = at;
+      writeShadowDiagnostic(state, {
+        at: at,
+        defaultLines: defaultBody.length,
+        componentLines: componentBody.length,
+        preview: trimLine(defaultBody[0]) + ' | ' + trimLine(componentBody[0]),
+      });
+    }
+    return defaultBody;
+  }
+  return renderMessageList(state, cols, bodyHeight, renderCtx);
 };
 
 ChatView.prototype._renderRunningLines = function _renderRunningLines(width, context) {
@@ -95,6 +143,11 @@ ChatView.prototype.invalidate = function invalidate() {
     this.messageComponentList.invalidate();
   }
   this.footer.invalidate();
+};
+
+ChatView.prototype.getMessageComponentCacheStats = function getMessageComponentCacheStats() {
+  return this.messageComponentList && typeof this.messageComponentList.stats === 'function'
+    ? this.messageComponentList.stats() : null;
 };
 
 module.exports = {

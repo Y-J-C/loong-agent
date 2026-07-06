@@ -1,5 +1,8 @@
 'use strict';
 
+var fs = require('fs');
+var path = require('path');
+
 var ANSI = {
   reset: '\x1b[0m',
   dim: '\x1b[2m',
@@ -127,6 +130,12 @@ var THEME_DEFINITIONS = {
 };
 
 var THEME_CACHE = {};
+var THEME_NAME_RE = /^[a-zA-Z0-9_.-]{1,48}$/;
+
+function knownTokenMap() {
+  return THEME_DEFINITIONS.plain && THEME_DEFINITIONS.plain.tokens
+    ? THEME_DEFINITIONS.plain.tokens : {};
+}
 
 function stableStringify(value) {
   if (value === null || value === undefined) return '';
@@ -173,6 +182,89 @@ function getTheme(name) {
 
 function hasTheme(name) {
   return Boolean(THEME_DEFINITIONS[name]);
+}
+
+function normalizeThemeDefinition(definition) {
+  var warnings = [];
+  if (!definition || typeof definition !== 'object') {
+    throw new Error('theme definition must be an object');
+  }
+  var name = String(definition.name || '').trim();
+  if (!THEME_NAME_RE.test(name)) {
+    throw new Error('invalid runtime theme name: ' + (name || '<empty>'));
+  }
+
+  var vars = {};
+  Object.keys(definition.vars || {}).forEach(function(key) {
+    if (typeof definition.vars[key] !== 'string') {
+      warnings.push('ignored non-string var: ' + key);
+      return;
+    }
+    vars[key] = definition.vars[key];
+  });
+
+  var known = knownTokenMap();
+  var tokens = {};
+  Object.keys(definition.tokens || {}).forEach(function(token) {
+    if (!Object.prototype.hasOwnProperty.call(known, token)) {
+      warnings.push('ignored unknown token: ' + token);
+      return;
+    }
+    if (typeof definition.tokens[token] !== 'string') {
+      warnings.push('ignored non-string token: ' + token);
+      return;
+    }
+    tokens[token] = definition.tokens[token];
+  });
+
+  return {
+    definition: { name: name, vars: vars, tokens: tokens },
+    warnings: warnings,
+  };
+}
+
+function registerThemeDefinition(definition, options) {
+  options = options || {};
+  var normalized = normalizeThemeDefinition(definition);
+  var baseTokens = options.inherit === false ? {} : knownTokenMap();
+  THEME_DEFINITIONS[normalized.definition.name] = {
+    name: normalized.definition.name,
+    vars: normalized.definition.vars,
+    tokens: Object.assign({}, baseTokens, normalized.definition.tokens),
+  };
+  delete THEME_CACHE[normalized.definition.name];
+  return {
+    name: normalized.definition.name,
+    warnings: normalized.warnings,
+  };
+}
+
+function loadThemeDefinitionFromFile(filePath) {
+  var resolved = path.resolve(String(filePath || ''));
+  var raw = fs.readFileSync(resolved, 'utf8');
+  return JSON.parse(raw);
+}
+
+function loadRuntimeThemeFiles(paths) {
+  var loaded = [];
+  var warnings = [];
+  if (!Array.isArray(paths)) return { loaded: loaded, warnings: warnings };
+  paths.forEach(function(filePath) {
+    if (typeof filePath !== 'string' || !filePath.trim()) {
+      warnings.push('ignored non-string runtime theme file path');
+      return;
+    }
+    try {
+      var result = registerThemeDefinition(loadThemeDefinitionFromFile(filePath));
+      loaded.push(result.name);
+      result.warnings.forEach(function(warning) {
+        warnings.push(path.basename(filePath) + ': ' + warning);
+      });
+    } catch (error) {
+      warnings.push(path.basename(filePath) + ': ' + (error && error.message ? error.message : String(error)));
+    }
+  });
+  return { loaded: loaded, warnings: warnings };
 }
 
 function paint(theme, token, text) {
@@ -229,8 +321,11 @@ module.exports = {
   createMarkdownTheme: createMarkdownTheme,
   getTheme: getTheme,
   hasTheme: hasTheme,
+  loadRuntimeThemeFiles: loadRuntimeThemeFiles,
+  loadThemeDefinitionFromFile: loadThemeDefinitionFromFile,
   listThemes: listThemes,
   paint: paint,
+  registerThemeDefinition: registerThemeDefinition,
   fg: fg,
   bg: bg,
   themeSignature: themeSignature,
