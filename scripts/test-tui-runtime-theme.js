@@ -37,6 +37,7 @@ ok(theme.THEME_DEFINITIONS['loong-dark'].tokens, 'dark theme definition has toke
 ok(Boolean(dark.toolPendingBg), 'dark theme has pending tool background');
 ok(Boolean(dark.toolSuccessBg), 'dark theme has success tool background');
 ok(Boolean(dark.toolErrorBg), 'dark theme has error tool background');
+equal(dark.user, '\x1b[38;5;252m\x1b[48;2;52;53;65m', 'dark user message uses pi-like #343541 background');
 ok(dark.toolPendingBg !== dark.toolSuccessBg, 'pending and success tool backgrounds differ');
 ok(dark.toolSuccessBg !== dark.toolErrorBg, 'success and error tool backgrounds differ');
 equal(plain.toolPendingBg, '', 'plain pending tool background is empty');
@@ -50,6 +51,7 @@ equal(theme.paint(plain, 'error', 'boom'), 'boom', 'plain paint is raw text');
 equal(theme.paint(null, 'missing', 'text'), 'text', 'missing token paint is raw text');
 ok(theme.themeSignature(dark).indexOf('theme:') === 0, 'theme signature is available');
 ok(theme.themeSignature(dark) !== theme.themeSignature(plain), 'theme signature differs by theme');
+ok(dark.finalAnswer.indexOf('\x1b[48;') < 0, 'final answer theme does not use broad background');
 
 var mdTheme = theme.createMarkdownTheme(dark);
 ok(mdTheme.signature.indexOf('markdown:') === 0, 'markdown theme signature is available');

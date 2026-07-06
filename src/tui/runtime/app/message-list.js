@@ -217,7 +217,9 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
         var tLine = (ti === 0 ? (asciiToolStatus(message) + ' ' + toolTitle + '  ') : '   ') + twrapped[ti];
         tLine = fit(tLine, maxWidth);
         var tPadded = tLine + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(tLine)));
-        lines.push(toolBgCode + (ti === 0 ? tPadded : themeMod.paint(theme, 'dim', tPadded)) + toolBgReset);
+        lines.push(ti === 0
+          ? toolBgCode + tPadded + toolBgReset
+          : themeMod.paint(theme, 'dim', tPadded));
       }
       if (expanded && renderedTool.detailLines && renderedTool.detailLines.length) {
         for (var detailLineIndex = 0; detailLineIndex < renderedTool.detailLines.length; detailLineIndex += 1) {
@@ -237,7 +239,8 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
       var owrapped = utils.wrapTextWithAnsi(String(text || ''), Math.max(1, maxWidth - prefixWidth));
       if (!owrapped.length) owrapped = [''];
       for (var oi = 0; oi < owrapped.length; oi += 1) {
-        lines.push(fit((oi === 0 ? prefixText : ' '.repeat(prefixWidth)) + owrapped[oi], maxWidth));
+        var otherLine = fit((oi === 0 ? prefixText : ' '.repeat(prefixWidth)) + owrapped[oi], maxWidth);
+        lines.push(message.type === 'system' ? themeMod.paint(theme, 'dim', otherLine) : otherLine);
       }
     }
 

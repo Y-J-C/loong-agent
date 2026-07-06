@@ -55,6 +55,7 @@ var lines = renderRuntimeChatView(state, { columns: 60, rows: 20 });
 var plain = stripAnsi(lines.join('\n'));
 equal(lines.length, 20, 'render fills terminal height');
 ok(plain.indexOf('hello user') >= 0, 'renders user message');
+ok(lines.join('\n').indexOf(themeMod.getTheme('loong-dark').user) >= 0, 'renders user message with pi-like background');
 ok(plain.indexOf('hello assistant') >= 0, 'renders assistant message');
 ok(plain.indexOf('- markdown item') >= 0, 'renders assistant markdown item');
 ok(plain.indexOf('final answer') >= 0, 'renders final answer');
@@ -228,8 +229,20 @@ var errorToolLines = renderRuntimeMessageList({ messages: [{ type: 'tool', toolN
 ok(pendingToolLines.join('\n').indexOf(darkTheme.toolPendingBg) >= 0, 'pending tool uses pending background');
 ok(successToolLines.join('\n').indexOf(darkTheme.toolSuccessBg) >= 0, 'successful tool uses success background');
 ok(errorToolLines.join('\n').indexOf(darkTheme.toolErrorBg) >= 0, 'failed tool uses error background');
+equal(successToolLines.filter(function(line) { return line.indexOf(darkTheme.toolSuccessBg) >= 0; }).length, 1, 'successful tool background is limited to header line');
 var plainToolLines = renderRuntimeMessageList({ messages: [{ type: 'tool', toolName: 'bash', status: 'ok', done: true, summary: 'plain' }] }, 60, 6, { theme: themeMod.getTheme('plain') });
 ok(plainToolLines.join('\n').indexOf('\x1b[') < 0, 'plain tool backgrounds emit no ANSI');
+
+var finalMarkdownLines = renderRuntimeMessageList({
+  messages: [{
+    type: 'assistant_final',
+    text: '| 项目 | 数值 |\n| --- | --- |\n| 内存 | 1.4 GiB |\n\n1. 第一项\n2. 第二项',
+  }],
+}, 60, 12, { theme: darkTheme });
+ok(finalMarkdownLines.join('\n').indexOf('\x1b[48;') < 0, 'final markdown table and list do not use broad background');
+
+var systemLine = renderRuntimeMessageList({ messages: [{ type: 'system', text: '已允许本次工具调用。' }] }, 60, 3, { theme: darkTheme });
+ok(systemLine.join('\n').indexOf(darkTheme.dim) >= 0, 'system message is dimmed');
 
 var bashOutputLines = [];
 for (var bashLine = 0; bashLine < 14; bashLine += 1) {
