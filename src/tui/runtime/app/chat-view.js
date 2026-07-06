@@ -6,6 +6,7 @@ var utils = require('../utils');
 var themeMod = require('../theme');
 var component = require('../component');
 var renderMessageList = require('./message-list').renderRuntimeMessageList;
+var renderMessageListFull = require('./message-list').renderRuntimeMessageListFull;
 var renderInputBlock = require('./input-line').renderRuntimeInputBlock;
 var Footer = require('./status-bar').Footer;
 var compositeOverlays = require('../overlay').compositeOverlays;
@@ -68,6 +69,24 @@ ChatView.prototype.render = function render(width, context) {
   var runningLines = this._renderRunningLines(cols, Object.assign({}, renderCtx, { tui: context && context.tui }));
 
   var bodyHeight = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length);
+  var appendStream = Boolean(context && context.runtimeAppendStream) && overlays.length === 0;
+  if (appendStream) {
+    var appendBody = this._renderMessageBody(state, cols, bodyHeight, renderCtx, true);
+    var appendLines = appendBody.concat(runningLines).concat(inputLines).concat(footerLines);
+    var volatileTailLineCount = runningLines.length + inputLines.length + footerLines.length;
+    if (context) {
+      context.volatileTailLineCount = volatileTailLineCount;
+      context.runtimeAppendStreamFrameFallback = false;
+    }
+    return appendLines.map(function(line) {
+      return utils.truncateToWidth(String(line || ''), cols)
+        + ' '.repeat(Math.max(0, cols - utils.visibleWidth(String(line || ''))));
+    });
+  }
+  if (context) {
+    context.volatileTailLineCount = 0;
+    context.runtimeAppendStreamFrameFallback = Boolean(context.runtimeAppendStream);
+  }
   var body = this._renderMessageBody(state, cols, bodyHeight, renderCtx);
 
   var lines = body.concat(runningLines).concat(inputLines).concat(footerLines).slice(0, rows);
@@ -87,8 +106,11 @@ ChatView.prototype.render = function render(width, context) {
   });
 };
 
-ChatView.prototype._renderMessageBody = function _renderMessageBody(state, cols, bodyHeight, renderCtx) {
+ChatView.prototype._renderMessageBody = function _renderMessageBody(state, cols, bodyHeight, renderCtx, fullHistory) {
   if (this.messageListMode === 'component-cache') {
+    if (fullHistory && this.messageComponentList && typeof this.messageComponentList.renderFull === 'function') {
+      return this.messageComponentList.renderFull(state, cols, renderCtx);
+    }
     return this.messageComponentList.render(state, cols, bodyHeight, renderCtx);
   }
   if (this.messageListMode === 'shadow') {
@@ -111,6 +133,7 @@ ChatView.prototype._renderMessageBody = function _renderMessageBody(state, cols,
     }
     return defaultBody;
   }
+  if (fullHistory) return renderMessageListFull(state, cols, renderCtx);
   return renderMessageList(state, cols, bodyHeight, renderCtx);
 };
 

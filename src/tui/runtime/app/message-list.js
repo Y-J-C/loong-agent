@@ -171,7 +171,8 @@ function renderDetailBlock(message, maxWidth, theme) {
   });
 }
 
-function renderRuntimeMessageListAscii(state, width, height, context) {
+function renderRuntimeMessageListAscii(state, width, height, context, options) {
+  options = options || {};
   var messages = state && Array.isArray(state.messages) ? state.messages : [];
   var lines = [];
   var maxWidth = Math.max(1, Number(width) || 80);
@@ -247,6 +248,8 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
 
   }
 
+  if (options.fullHistory) return lines;
+
   var visibleHeight = Math.max(0, Number(height) || 0);
   if (visibleHeight <= 0) return [];
   var totalLines = lines.length;
@@ -263,5 +266,8 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
 
 module.exports = {
   clearRuntimeMessageCaches: clearRuntimeMessageCaches,
+  renderRuntimeMessageListFull: function renderRuntimeMessageListFull(state, width, context) {
+    return renderRuntimeMessageListAscii(state, width, 0, context, { fullHistory: true });
+  },
   renderRuntimeMessageList: renderRuntimeMessageListAscii,
 };

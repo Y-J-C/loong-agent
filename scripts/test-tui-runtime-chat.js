@@ -3,6 +3,8 @@
 
 var renderRuntimeChatView = require('../src/tui/runtime/app/chat-view').renderRuntimeChatView;
 var renderRuntimeMessageList = require('../src/tui/runtime/app/message-list').renderRuntimeMessageList;
+var renderRuntimeMessageListFull = require('../src/tui/runtime/app/message-list').renderRuntimeMessageListFull;
+var ChatView = require('../src/tui/runtime/app/chat-view').ChatView;
 var themeMod = require('../src/tui/runtime/theme');
 var stripAnsi = require('../src/tui/runtime/utils').stripAnsi;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
@@ -193,6 +195,34 @@ var tinyState = {
 var tinyLines = renderRuntimeMessageList(tinyState, 20, 1, {});
 equal(tinyLines.length, 1, 'tiny message list fills requested height');
 ok(tinyState.scrollOffset >= 0, 'tiny message list offset is not negative');
+
+var fullHistoryState = {
+  scrollOffset: 999,
+  messages: [],
+};
+for (var fullIndex = 0; fullIndex < 12; fullIndex += 1) {
+  fullHistoryState.messages.push({ type: 'system', text: 'full-history-' + fullIndex });
+}
+var fullHistoryLines = renderRuntimeMessageListFull(fullHistoryState, 40, {});
+var fullHistoryPlain = stripAnsi(fullHistoryLines.join('\n'));
+ok(fullHistoryPlain.indexOf('full-history-0') >= 0, 'full-history render keeps oldest message');
+ok(fullHistoryPlain.indexOf('full-history-11') >= 0, 'full-history render keeps newest message');
+equal(fullHistoryState.scrollOffset, 999, 'full-history render does not update scroll metrics');
+
+var appendChatState = Object.assign({}, state, {
+  inputBuffer: 'tail input',
+  messages: [],
+});
+for (var appendIndex = 0; appendIndex < 18; appendIndex += 1) {
+  appendChatState.messages.push({ type: 'system', text: 'append-line-' + appendIndex });
+}
+var appendContext = { rows: 8, runtimeAppendStream: true, showHardwareCursor: true };
+var appendLines = (new ChatView(appendChatState)).render(50, appendContext);
+var appendPlain = stripAnsi(appendLines.join('\n'));
+ok(appendLines.length > 8, 'append-stream chat view returns full logical stream');
+ok(appendPlain.indexOf('append-line-0') >= 0, 'append-stream chat view includes old history');
+ok(appendPlain.indexOf('tail input') >= 0, 'append-stream chat view keeps input tail');
+ok(appendContext.volatileTailLineCount > 0, 'append-stream chat view records volatile tail lines');
 
 var longToolText = [];
 for (var toolLine = 0; toolLine < 20; toolLine += 1) {

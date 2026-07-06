@@ -97,6 +97,12 @@ MessageComponentList.prototype.render = function render(state, width, height, co
   return lines;
 };
 
+MessageComponentList.prototype.renderFull = function renderFull(state, width, context) {
+  return this.render(state, width, Number.MAX_SAFE_INTEGER, context).filter(function(line) {
+    return String(line || '') !== '';
+  });
+};
+
 MessageComponentList.prototype.invalidate = function invalidate() {
   this.entries = {};
 };

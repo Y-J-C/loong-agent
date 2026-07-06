@@ -17,6 +17,7 @@ function TUI(terminal, options) {
   options = options || {};
   this.terminal = terminal || new terminalModule.ProcessTerminal();
   this.onBeforeRender = typeof options.onBeforeRender === 'function' ? options.onBeforeRender : null;
+  this.onAfterRender = typeof options.onAfterRender === 'function' ? options.onAfterRender : null;
   this.onRenderError = typeof options.onRenderError === 'function' ? options.onRenderError : null;
   this.onInputError = typeof options.onInputError === 'function' ? options.onInputError : null;
 
@@ -28,6 +29,9 @@ function TUI(terminal, options) {
   this.hardwareCursorRow = 0;
   this.cursorRow = 0;
   this.maxLinesRendered = 0;
+  this.previousVolatileTailLineCount = 0;
+  this.currentViewportTop = 0;
+  this.runtimeAppendStream = Boolean(options.runtimeAppendStream);
 
   // Rendering control
   this.renderRequested = false;
@@ -115,6 +119,8 @@ TUI.prototype.requestRender = function requestRender(force) {
     this.hardwareCursorRow = 0;
     this.maxLinesRendered = 0;
     this.previousViewportTop = 0;
+    this.previousVolatileTailLineCount = 0;
+    this.currentViewportTop = 0;
     if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = undefined; }
     this.renderRequested = true;
     process.nextTick(this._doImmediateRender.bind(this));
@@ -172,6 +178,9 @@ TUI.prototype.doRender = function doRender() {
     tui: this,
     terminal: this.terminal,
     showHardwareCursor: this.showHardwareCursor,
+    runtimeAppendStream: this.runtimeAppendStream,
+    volatileTailLineCount: 0,
+    runtimeAppendStreamFrameFallback: false,
   };
   var newLines;
   var hasVisibleOverlays = false;
@@ -210,20 +219,29 @@ TUI.prototype.doRender = function doRender() {
   // 5. Full vs diff render
   var first = this.previousLines.length === 0;
   var clear = this.clearOnShrink && newLines.length < this.maxLinesRendered && this.overlayStack.length === 0;
+  var volatileTailLineCount = Math.max(0, Math.min(newLines.length, Number(renderContext.volatileTailLineCount) || 0));
+  var appendStreamActive = this.runtimeAppendStream && !hasVisibleOverlays && !renderContext.runtimeAppendStreamFrameFallback;
+  var appendViewportTop = Math.max(0, newLines.length - height);
+  if (appendStreamActive) viewportTop = appendViewportTop;
+  this.currentViewportTop = viewportTop;
 
   if (first) { this._fullRender(newLines, width, height, cursorPos, false); }
   else if (widthChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (heightChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (clear) { this._fullRender(newLines, width, height, cursorPos, true); }
-  else { this._diffRender(newLines, width, height, cursorPos, viewportTop, hasVisibleOverlays); }
+  else if (appendStreamActive) {
+    this._appendStreamRender(newLines, width, height, cursorPos, viewportTop, volatileTailLineCount);
+  } else { this._diffRender(newLines, width, height, cursorPos, viewportTop, hasVisibleOverlays); }
 
   // 6. Position hardware cursor
-  this._positionHardwareCursor(cursorPos, newLines.length);
+  this._positionHardwareCursor(cursorPos, newLines.length, height);
 
   // 7. Save state
   this.previousLines = newLines;
   this.previousWidth = width;
   this.previousHeight = height;
+  this.previousVolatileTailLineCount = volatileTailLineCount;
+  if (this.onAfterRender) this.onAfterRender({ columns: width, rows: height, tui: this, terminal: this.terminal });
 };
 
 TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursorPos, clear) {
@@ -244,7 +262,7 @@ TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursor
   this.terminal.write(buffer);
 
   this.cursorRow = Math.max(0, newLines.length - 1);
-  this.hardwareCursorRow = this.cursorRow;
+  this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.cursorRow);
   if (clear) {
     this.maxLinesRendered = newLines.length;
   } else {
@@ -252,6 +270,82 @@ TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursor
   }
   var bufferLength = Math.max(height, newLines.length);
   this.previousViewportTop = Math.max(0, bufferLength - height);
+};
+
+TUI.prototype._screenRowForLogicalRow = function _screenRowForLogicalRow(logicalRow, viewportTop, height) {
+  if (logicalRow < viewportTop) return null;
+  if (logicalRow >= viewportTop + height) return null;
+  return logicalRow - viewportTop;
+};
+
+TUI.prototype._moveToScreenRow = function _moveToScreenRow(screenRow) {
+  var target = Math.max(0, Number(screenRow) || 0);
+  var delta = target - this.hardwareCursorRow;
+  this.hardwareCursorRow = target;
+  if (delta > 0) return '\x1b[' + delta + 'B\r';
+  if (delta < 0) return '\x1b[' + (-delta) + 'A\r';
+  return '\r';
+};
+
+TUI.prototype._isPrefix = function _isPrefix(prefixLines, lines) {
+  if (prefixLines.length > lines.length) return false;
+  for (var index = 0; index < prefixLines.length; index += 1) {
+    if (prefixLines[index] !== lines[index]) return false;
+  }
+  return true;
+};
+
+TUI.prototype._appendStreamRender = function _appendStreamRender(newLines, width, height, cursorPos, viewportTop, volatileTailLineCount) {
+  var oldTail = Math.max(0, Math.min(this.previousLines.length, Number(this.previousVolatileTailLineCount) || 0));
+  var newTail = Math.max(0, Math.min(newLines.length, Number(volatileTailLineCount) || 0));
+  var oldStable = this.previousLines.slice(0, this.previousLines.length - oldTail);
+  var newStable = newLines.slice(0, newLines.length - newTail);
+  var tailLines = newLines.slice(newLines.length - newTail);
+  var stablePrefix = this._isPrefix(oldStable, newStable);
+  var stableAdded = stablePrefix ? newStable.slice(oldStable.length) : [];
+  var buffer = '';
+
+  if (stablePrefix && stableAdded.length > 0) {
+    buffer = '\x1b[?2026h\x1b[?25l' + this._moveToScreenRow(Math.max(0, height - 1));
+    for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
+      buffer += '\r\n' + stableAdded[addedIndex];
+      this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+    }
+    for (var tailIndex = 0; tailIndex < tailLines.length; tailIndex += 1) {
+      buffer += '\r\n' + tailLines[tailIndex];
+      this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+    }
+    buffer += '\x1b[?2026l';
+    this.terminal.write(buffer);
+    this.previousViewportTop = viewportTop;
+    this.lastDiffMode = 'append-stream';
+    return;
+  }
+
+  if (stablePrefix && stableAdded.length === 0) {
+    var tailStartLogical = Math.max(0, newLines.length - newTail);
+    var startRow = this._screenRowForLogicalRow(tailStartLogical, viewportTop, height);
+    if (startRow !== null) {
+      buffer = '\x1b[?2026h\x1b[?25l' + '\x1b[' + (startRow + 1) + ';1H';
+      this.hardwareCursorRow = startRow;
+      for (var redrawIndex = 0; redrawIndex < tailLines.length; redrawIndex += 1) {
+        if (redrawIndex > 0) {
+          buffer += '\n';
+          this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+        }
+        buffer += '\x1b[2K' + tailLines[redrawIndex];
+      }
+      buffer += '\x1b[?2026l';
+      this.terminal.write(buffer);
+      this.previousViewportTop = viewportTop;
+      this.lastDiffMode = 'append-stream-tail';
+      return;
+    }
+  }
+
+  this._fullRender(newLines, width, height, cursorPos, true);
+  this.previousViewportTop = viewportTop;
+  this.lastDiffMode = 'append-stream-full';
 };
 
 TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursorPos, viewportTop, hasVisibleOverlays) {
@@ -324,12 +418,20 @@ TUI.prototype._applyLineResets = function _applyLineResets(lines) {
 
 // ─── Cursor ───────────────────────────────────────────────────────────────────
 
-TUI.prototype._positionHardwareCursor = function _positionHardwareCursor(cursorPos, totalLines) {
+TUI.prototype._positionHardwareCursor = function _positionHardwareCursor(cursorPos, totalLines, height) {
   if (!cursorPos || totalLines <= 0) {
     if (this.terminal && typeof this.terminal.hideCursor === 'function') this.terminal.hideCursor();
     return;
   }
   var targetRow = Math.max(0, Math.min(cursorPos.row, totalLines - 1));
+  if (this.runtimeAppendStream) {
+    var mapped = this._screenRowForLogicalRow(targetRow, this.currentViewportTop || 0, Math.max(1, Number(height) || this.previousHeight || 1));
+    if (mapped === null) {
+      if (this.terminal && typeof this.terminal.hideCursor === 'function') this.terminal.hideCursor();
+      return;
+    }
+    targetRow = mapped;
+  }
   var targetCol = Math.max(0, cursorPos.column || 0);
   var rowDelta = targetRow - this.hardwareCursorRow;
   var buf = '';
@@ -430,6 +532,10 @@ TUI.prototype.stop = function stop() {
 
 TUI.prototype.setClearOnShrink = function setClearOnShrink(flag) {
   this.clearOnShrink = Boolean(flag);
+};
+
+TUI.prototype.setAppendStream = function setAppendStream(flag) {
+  this.runtimeAppendStream = Boolean(flag);
 };
 
 // Legacy aliases

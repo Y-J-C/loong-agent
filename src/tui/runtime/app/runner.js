@@ -59,6 +59,9 @@ async function runRuntimeNextTui(config, options) {
 
   var terminal = options.terminal || new ProcessTerminal({ input: inputStream, output: outputStream });
   var state = stateModule.createTuiState(config);
+  var runtimeAppendStream = options.runtimeAppendStream !== undefined
+    ? Boolean(options.runtimeAppendStream)
+    : config && config.runtimeAppendStream !== false;
   var themeLoadResult = runtimeTheme.loadRuntimeThemeFiles(config && config.runtimeThemeFiles);
   (themeLoadResult.warnings || []).forEach(function(warning) {
     stateModule.addMessage(state, { type: 'system', text: 'runtime theme warning: ' + warning });
@@ -66,7 +69,9 @@ async function runRuntimeNextTui(config, options) {
   var messageListMode = options.messageListMode || config && config.messageListMode || 'default';
   var chatView = new ChatView(state, { renderStateOverlays: false, messageListMode: messageListMode });
   var tui = new TUI(terminal, {
+    runtimeAppendStream: runtimeAppendStream,
     onBeforeRender: updateLastRender,
+    onAfterRender: updateLastRender,
     onRenderError: handleRenderError,
     onInputError: handleInputError,
   });
@@ -154,6 +159,9 @@ async function runRuntimeNextTui(config, options) {
       diffResetCount: diffResetCount,
       diffMode: tui ? tui.lastDiffMode : 'none',
       fullRedrawCount: tui ? tui.fullRedrawCount : 0,
+      runtimeAppendStream: runtimeAppendStream,
+      volatileTailLines: tui ? tui.previousVolatileTailLineCount || 0 : 0,
+      viewportTop: tui ? tui.previousViewportTop || 0 : 0,
       messageListMode: chatView ? chatView.messageListMode : 'default',
       messageComponentCache: chatView && chatView.getMessageComponentCacheStats
         ? chatView.getMessageComponentCacheStats() : null,
@@ -457,6 +465,13 @@ async function runRuntimeNextTui(config, options) {
     }
 
     if (key.type === 'page_up') {
+      if (runtimeAppendStream) {
+        state.status = 'Use terminal scrollback for history in append-stream mode';
+        state.viewingHistory = false;
+        state.scrollOffset = 0;
+        requestRender();
+        return;
+      }
       var scrollPage = require('../../scroll');
       scrollPage.scrollByPages(state, -1);
       stateModule.updateAutocomplete(state);
@@ -465,6 +480,13 @@ async function runRuntimeNextTui(config, options) {
     }
 
     if (key.type === 'page_down') {
+      if (runtimeAppendStream) {
+        state.status = 'At latest output';
+        state.viewingHistory = false;
+        state.scrollOffset = 0;
+        requestRender();
+        return;
+      }
       var scrollPage = require('../../scroll');
       scrollPage.scrollByPages(state, 1);
       stateModule.updateAutocomplete(state);

@@ -81,5 +81,33 @@ try {
 }
 ok(threw, 'render throws on width overflow');
 
+var appendWrites = [];
+var appendTerminal = {
+  columns: 30,
+  rows: 4,
+  write: function(data) { appendWrites.push(String(data || '')); },
+  clearScreen: function() {},
+  start: function() {},
+  stop: function() {},
+  hideCursor: function() {},
+  showCursor: function() {},
+};
+var appendLines = ['history-0', 'input', 'footer'];
+var appendTui = new runtime.TUI(appendTerminal, { runtimeAppendStream: true });
+appendTui.add({
+  render: function(width, context) {
+    context.volatileTailLineCount = 2;
+    return appendLines;
+  },
+});
+appendTui.doRender();
+appendLines = ['history-0', 'history-1', 'history-2', 'input', 'footer'];
+appendWrites = [];
+appendTui.doRender();
+var appendOutput = appendWrites.join('');
+ok(appendOutput.indexOf('history-2') >= 0, 'append-stream render writes appended stable line');
+ok(appendOutput.indexOf('\x1b[5;1H') < 0, 'append-stream render does not address logical row beyond screen');
+equal(appendTui.lastDiffMode, 'append-stream', 'append-stream render records diff mode');
+
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

@@ -243,13 +243,15 @@ async function main() {
   }
   terminal.inputHandler('\x0c');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  ok(capturedState.scrollMaxOffset > 0, 'long message list creates scrollable history');
+  equal(capturedState.lastRender.runtimeAppendStream, true, 'runner records default append-stream mode');
+  ok(capturedState.lastRender.viewportTop > 0, 'append-stream long message list advances viewport');
   terminal.inputHandler('\x1b[5~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  ok(capturedState.scrollOffset > 0 && capturedState.viewingHistory, 'page up scrolls history through TUI dispatcher');
+  equal(capturedState.scrollOffset, 0, 'append-stream page up keeps latest output');
+  equal(capturedState.viewingHistory, false, 'append-stream page up does not enter history view');
   fakeSession.emit({ type: 'assistant_final', text: 'reply while viewing history' });
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  ok(capturedState.scrollOffset > 0 && capturedState.viewingHistory, 'new session event preserves history view');
+  equal(capturedState.scrollOffset, 0, 'append-stream new session event stays at latest output');
   terminal.inputHandler('\x1b[6~');
   terminal.inputHandler('\x1b[6~');
   terminal.inputHandler('\x1b[6~');
@@ -260,6 +262,32 @@ async function main() {
   fakeSession.emit({ type: 'assistant_final', text: 'reply after bottom' });
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.scrollOffset, 0, 'new session event stays at bottom after history is cleared');
+
+  var legacyScrollTerminal = new FakeTerminal();
+  var legacyScrollSession = createFakeSession();
+  var legacyScrollState = null;
+  var legacyScrollPromise = runRuntimeNextTui({
+    workspace: '/tmp/ws',
+    provider: 'mock',
+    model: 'm',
+    runtimeAppendStream: false,
+  }, {
+    terminal: legacyScrollTerminal,
+    createAgentSession: function() { return legacyScrollSession; },
+    onState: function(state) { legacyScrollState = state; },
+    skipBoardStatus: true,
+    runtimeAppendStream: false,
+  });
+  for (var legacyMsgIndex = 0; legacyMsgIndex < 20; legacyMsgIndex += 1) {
+    legacyScrollState.messages.push({ type: 'system', text: 'legacy scroll line ' + legacyMsgIndex });
+  }
+  legacyScrollTerminal.inputHandler('\x0c');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  legacyScrollTerminal.inputHandler('\x1b[5~');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(legacyScrollState.scrollOffset > 0 && legacyScrollState.viewingHistory, 'disabled append-stream keeps page up history scrolling');
+  legacyScrollTerminal.inputHandler('\x04');
+  await legacyScrollPromise;
 
   terminal.inputHandler('t');
   terminal.inputHandler('o');
