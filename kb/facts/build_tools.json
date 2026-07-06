@@ -1,0 +1,157 @@
+[
+  {
+    "id": "toolchain.gcc.status",
+    "value": {
+      "tool": "gcc",
+      "status": "available",
+      "scope": "C compiler is available in the current curated board knowledge"
+    },
+    "status": "sourced",
+    "confidence": "medium",
+    "last_updated": "2026-07-06",
+    "sourceTopics": [
+      "software_stack",
+      "build_guide"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/build_guide.md"
+    ],
+    "rawEvidence": [
+      "kb/software_stack.md",
+      "kb/build_guide.md"
+    ],
+    "unknowns": [
+      "Exact gcc version and target triple should be rechecked on the board before project-specific decisions."
+    ]
+  },
+  {
+    "id": "toolchain.gpp.status",
+    "value": {
+      "tool": "g++ / c++",
+      "status": "missing",
+      "impact": "C++ projects cannot be assumed to build on the board without additional dependency review"
+    },
+    "status": "sourced",
+    "confidence": "high",
+    "last_updated": "2026-07-06",
+    "sourceTopics": [
+      "software_stack",
+      "build_guide"
+    ],
+    "sourcePaths": [
+      "kb/software_stack.md",
+      "kb/playbooks/gpp.md",
+      "kb/build_guide.md"
+    ],
+    "rawEvidence": [
+      "kb/playbooks/gpp.md",
+      "kb/build_guide.md"
+    ],
+    "unknowns": [
+      "Install cost and package dependency footprint are not verified in this phase."
+    ]
+  },
+  {
+    "id": "toolchain.make.status",
+    "value": {
+      "tool": "make",
+      "status": "available",
+      "scope": "Use conservatively for board-side builds"
+    },
+    "status": "sourced",
+    "confidence": "medium",
+    "last_updated": "2026-07-06",
+    "sourceTopics": [
+      "build_guide"
+    ],
+    "sourcePaths": [
+      "kb/build_guide.md",
+      "kb/playbooks/openblas-build.md"
+    ],
+    "rawEvidence": [
+      "kb/build_guide.md",
+      "kb/playbooks/openblas-build.md"
+    ],
+    "unknowns": [
+      "Exact make version should be confirmed on the current board before relying on version-specific features."
+    ]
+  },
+  {
+    "id": "toolchain.cmake.status",
+    "value": {
+      "tool": "cmake",
+      "status": "available_old",
+      "impact": "Modern CMake projects may require host-side or cross-build preparation"
+    },
+    "status": "sourced",
+    "confidence": "medium",
+    "last_updated": "2026-07-06",
+    "sourceTopics": [
+      "build_guide",
+      "compatibility_matrix"
+    ],
+    "sourcePaths": [
+      "kb/build_guide.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "rawEvidence": [
+      "kb/build_guide.md",
+      "kb/compatibility_matrix.md"
+    ],
+    "unknowns": [
+      "Exact CMake version compatibility should be checked against each project."
+    ]
+  },
+  {
+    "id": "toolchain.openblas.experience",
+    "value": {
+      "project": "OpenBLAS",
+      "status": "playbook_added",
+      "evidenceBoundary": "Project build experience is documented as a playbook, but raw build logs are not yet stored in the repository."
+    },
+    "status": "sourced",
+    "confidence": "low",
+    "last_updated": "2026-07-06",
+    "sourceTopics": [
+      "build_guide"
+    ],
+    "sourcePaths": [
+      "kb/playbooks/openblas-build.md",
+      "kb/build_guide.md"
+    ],
+    "rawEvidence": [
+      "kb/playbooks/openblas-build.md",
+      "kb/build_guide.md"
+    ],
+    "unknowns": [
+      "OpenBLAS source version, build parameters, logs, artifacts, and validation results are pending repository evidence."
+    ]
+  },
+  {
+    "id": "toolchain.recommended.parallelism",
+    "value": {
+      "default": "make -j1",
+      "reason": "Conservative default for memory and disk constrained board-side builds"
+    },
+    "status": "sourced",
+    "confidence": "medium",
+    "last_updated": "2026-07-06",
+    "sourceTopics": [
+      "build_guide"
+    ],
+    "sourcePaths": [
+      "kb/build_guide.md",
+      "kb/playbooks/openblas-build.md",
+      "kb/playbooks/disk-space.md"
+    ],
+    "rawEvidence": [
+      "kb/build_guide.md",
+      "kb/playbooks/openblas-build.md",
+      "kb/playbooks/disk-space.md"
+    ],
+    "unknowns": [
+      "Safe parallelism may differ by project, memory pressure, swap configuration, and build directory location."
+    ]
+  }
+]

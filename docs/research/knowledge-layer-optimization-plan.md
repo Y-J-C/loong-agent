@@ -1,7 +1,7 @@
 # Loong Agent 知识层优化方案
 
 status: draft
-last_updated: 2026-07-05
+last_updated: 2026-07-06
 scope: `loong-agent` 本地知识层、检索元数据、板端知识验证流程
 
 ## 1. 目标
@@ -557,6 +557,16 @@ needs_board_check：不排除，但给 warning
 | `software` 过大导致分类混乱 | 拆分 `toolchain` 和 `runtime` |
 | 过早做复杂搜索导致维护成本上升 | 第一阶段只透传元数据和 warning |
 | 现有知识与新增知识重复 | 用 `_replaces` / `_superseded_by` 预留生命周期字段 |
+
+## 阶段完成情况
+
+| Phase | 状态 | 完成内容 | 验证 |
+|---|---|---|---|
+| Phase A：元数据骨架 | 已完成 | `kb/index.json` 已补 `_domain/_arch/_source/_verification` 等元数据；运行时已透传 metadata；测试已覆盖 | 本地与板端 `node scripts/test-knowledge-layer.js` 通过 |
+| Phase B：MVP 内容扩展 | 已完成 | 已新增 3 个 MVP playbook、2 个 topic 和 `facts/build_tools.json`，并更新索引、入口、证据和来源文档 | 本地与板端 `node scripts/test-knowledge-layer.js` 通过 |
+| Phase C：书稿系统层 | 未开始 | 启动、显示、网络、SSH、基础工具链相关书稿知识尚未入库 | 待 Phase B 完成 |
+| Phase D：工具链、运行时、外设和项目 | 未开始 | 交叉编译、Python venv、GPIO/PWM、摄像头、libmodbus 等扩展尚未入库 | 待 Phase C 或明确需求 |
+| Phase E：生态状态层 | 未开始 | areweloongyet、loong123、社区 issue/PR 尚未入库 | 待外部来源审核流程 |
 
 ## 17. 建议实施路线
 

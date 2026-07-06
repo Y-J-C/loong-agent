@@ -12,6 +12,7 @@ These files are not an automatic ingestion layer. They are manually maintained a
 - `storage_boot.json`: disk, partitions, mounts, boot arguments, and boot/storage warnings.
 - `peripherals.json`: GPIO, I2C, SPI, UART, USB, DRM, audio, RTC, and PCI observations.
 - `risks.json`: safety boundaries and unresolved high-risk areas.
+- `build_tools.json`: build tool availability, missing compiler boundaries, and project build guidance.
 
 ## Fact Schema
 

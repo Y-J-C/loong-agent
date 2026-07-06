@@ -23,4 +23,9 @@
 | Docker / Podman are not usable default board paths | `software_stack`, `compatibility_matrix` | `kb/software_stack.md`, `kb/compatibility_matrix.md`, `kb/playbooks/containers.md` | high |
 | Package candidates must not be treated as installed or safe to install | `risk_list`, `software_stack`, `compatibility_matrix` | `kb/risk_list.md`, `kb/software_stack.md`, `kb/compatibility_matrix.md` | high |
 | Local `test-rpc` can fail with `spawn EPERM` under the Codex sandbox; this is a local execution boundary, not board RPC proof | `troubleshooting`, `source_index`, `unknowns` | `kb/playbooks/rpc-spawn-eperm.md`, `scripts/test-rpc.js` | high |
+| Root partition space is limited; disk-heavy work requires read-only space checks first | `board_profile`, `environment_report`, `build_guide` | `kb/facts/storage_boot.json`, `kb/playbooks/disk-space.md`, `kb/build_guide.md` | high |
+| Current build constraints require conservative loongarch64 toolchain handling | `software_stack`, `build_guide` | `kb/software_stack.md`, `kb/compatibility_matrix.md`, `kb/facts/build_tools.json`, `kb/build_guide.md` | high |
+| OpenBLAS build guidance exists, but raw project logs are not yet repository evidence | `build_guide` | `kb/playbooks/openblas-build.md`, `kb/facts/build_tools.json` | low |
+| Serial nodes exist, but UART wiring and external communication remain unverified | `board_profile`, `unknowns` | `kb/facts/peripherals.json`, `kb/playbooks/serial-communication.md`, `kb/playbooks/gpio-i2c-spi-uart.md` | medium |
+| loongarch64 and mips64el knowledge must not be mixed without explicit verification | `loongarch_isa`, `build_guide` | `kb/loongarch_isa.md`, `kb/build_guide.md`, `kb/board_profile.md` | high |
 | Board `test-rpc` passed after the cleanup-boundary fix; current board status must be re-tested when asked | `troubleshooting`, `source_index` | `kb/playbooks/rpc-spawn-eperm.md`, `scripts/test-rpc.js` | high |

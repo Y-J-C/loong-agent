@@ -7,6 +7,16 @@
 
 这不是 RAG 系统，不使用向量库、embedding、数据库、外部抓取或自动采集。它也不是系统修复手册，不能作为直接修改系统、修复分区、安装软件、同步板端项目或操作外设的执行依据。
 
+## Phase B MVP 内容
+
+Phase B 在元数据骨架上新增 3 个 MVP playbook、2 个 agent topic 和 1 个 structured fact 文件：
+
+- Agent topics: `kb/build_guide.md`, `kb/loongarch_isa.md`
+- Playbooks: `kb/playbooks/disk-space.md`, `kb/playbooks/openblas-build.md`, `kb/playbooks/serial-communication.md`
+- Structured facts: `kb/facts/build_tools.json`
+
+这些条目仍然遵守只读知识层边界，不新增书稿 `book_reference`，也不改变 `kb_topic` / `kb_search` API 签名。
+
 ## P6 知识分层
 
 | 层级 | 职责 | 默认检索 |

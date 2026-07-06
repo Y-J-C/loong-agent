@@ -17,6 +17,8 @@ Agent topic sources:
 - Network: `kb/environment_report.md`, `kb/playbooks/eth1.md`.
 - Peripheral profile: `kb/board_profile.md`, `kb/troubleshooting.md`, `kb/playbooks/audio.md`, `kb/playbooks/display.md`, `kb/playbooks/gpio-i2c-spi-uart.md`.
 - Software and package state: `kb/software_stack.md`, `kb/compatibility_matrix.md`, `kb/playbooks/npm.md`, `kb/playbooks/gpp.md`, `kb/playbooks/pip.md`, `kb/playbooks/containers.md`.
+- Build and architecture: `kb/build_guide.md`, `kb/loongarch_isa.md`, `kb/facts/build_tools.json`, `kb/playbooks/disk-space.md`, `kb/playbooks/openblas-build.md`.
+- Serial communication: `kb/playbooks/serial-communication.md`, `kb/facts/peripherals.json`, `kb/playbooks/gpio-i2c-spi-uart.md`.
 - Risk and uncertainty: `kb/risk_list.md`, `kb/unknowns.md`, `kb/maintenance_guide.md`.
 
 Structured sources:

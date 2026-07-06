@@ -13,6 +13,8 @@ const KB_TOPICS = {
   command_reference: 'command_reference.md',
   source_index: 'source_index.md',
   unknowns: 'unknowns.md',
+  build_guide: 'build_guide.md',
+  loongarch_isa: 'loongarch_isa.md',
 };
 
 const METADATA_FIELDS = ['status', 'last_updated', 'sources', 'confidence'];

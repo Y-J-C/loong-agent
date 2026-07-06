@@ -104,7 +104,7 @@ function assertWorkspaceRelativePathExists(relativePath, label) {
 
 test('knowledge skeleton contains required topic files and metadata', () => {
   const topics = listTopics();
-  assert(topics.length >= 8, 'missing required topics');
+  assert(topics.length >= 10, 'missing required topics');
   topics.forEach((topic) => {
     const filePath = path.join(ROOT, 'kb', `${topic}.md`);
     assert(fs.existsSync(filePath), `missing topic file: ${topic}`);
@@ -115,6 +115,16 @@ test('knowledge skeleton contains required topic files and metadata', () => {
     assert(/^## Unknowns/m.test(text), `missing unknowns section: ${topic}`);
   });
   assert(fs.existsSync(path.join(ROOT, 'kb', 'raw', 'README.md')), 'missing kb/raw README');
+});
+
+test('Phase B topics are registered and loadable', () => {
+  const topics = listTopics();
+  ['build_guide', 'loongarch_isa'].forEach((topic) => {
+    assert(topics.indexOf(topic) >= 0, `missing Phase B topic: ${topic}`);
+    const loaded = readTopic(config(), topic);
+    assert(loaded.ok === true, `Phase B topic should load: ${topic}`);
+    assert(loaded.record.content.indexOf('loongarch64') >= 0, `Phase B topic missing loongarch64 context: ${topic}`);
+  });
 });
 
 test('knowledge topic source paths exist when they reference local kb files', () => {
@@ -197,6 +207,7 @@ test('P6 structured facts are valid, sourced, and evidence-backed', () => {
     'kb/facts/storage_boot.json',
     'kb/facts/peripherals.json',
     'kb/facts/risks.json',
+    'kb/facts/build_tools.json',
   ];
   const required = ['id', 'value', 'status', 'confidence', 'last_updated', 'sourceTopics', 'sourcePaths', 'rawEvidence', 'unknowns'];
   let factCount = 0;
@@ -464,6 +475,30 @@ test('P2 knowledge index lists existing workspace-local knowledge files', () => 
   });
 });
 
+test('Phase B MVP playbooks have fixed sections and safe boundaries', () => {
+  const playbooks = {
+    'disk space': 'kb/playbooks/disk-space.md',
+    OpenBLAS: 'kb/playbooks/openblas-build.md',
+    serial: 'kb/playbooks/serial-communication.md',
+  };
+  const sections = ['## 结论', '## 当前状态', '## 历史证据', '## 风险', '## 禁止操作', '## 允许的只读排查', '## 待确认', '## 证据路径'];
+  Object.keys(playbooks).forEach((label) => {
+    const relativePath = playbooks[label];
+    assertWorkspaceRelativePathExists(relativePath, `Phase B playbook ${label}`);
+    const text = readWorkspaceFile(relativePath);
+    assert(text.toLowerCase().indexOf(label.toLowerCase()) >= 0, `Phase B playbook does not mention issue label: ${label}`);
+    sections.forEach((section) => {
+      assert(text.indexOf(section) >= 0, `Phase B playbook ${label} missing section: ${section}`);
+    });
+    assert(/只读|read-only/i.test(text), `Phase B playbook ${label} must state read-only diagnostics`);
+    assert(/禁止操作/.test(text), `Phase B playbook ${label} must state forbidden operations`);
+  });
+  const diskSpace = readWorkspaceFile('kb/playbooks/disk-space.md');
+  assert(diskSpace.indexOf('rm -rf') >= 0 && diskSpace.indexOf('不执行') >= 0, 'disk-space playbook must explicitly forbid destructive cleanup');
+  const serial = readWorkspaceFile('kb/playbooks/serial-communication.md');
+  assert(serial.indexOf('不写串口') >= 0, 'serial playbook must forbid writing serial devices');
+});
+
 test('Phase A knowledge index preserves metadata skeleton', () => {
   const entries = readKnowledgeIndex(config());
   const allowedDomains = ['board_system', 'toolchain', 'runtime', 'peripheral', 'ecosystem', 'project'];
@@ -491,6 +526,26 @@ test('Phase A knowledge index preserves metadata skeleton', () => {
   assert(entries.some((entry) => entry._domain === 'toolchain'), 'metadata skeleton should include toolchain domain');
   assert(entries.some((entry) => entry._domain === 'runtime'), 'metadata skeleton should include runtime domain');
   assert(entries.some((entry) => entry._domain === 'peripheral'), 'metadata skeleton should include peripheral domain');
+});
+
+test('Phase B knowledge index includes MVP content entries', () => {
+  const entries = readKnowledgeIndex(config());
+  const expected = {
+    'topic.build_guide': { kind: 'topic', path: 'kb/build_guide.md', _domain: 'toolchain' },
+    'topic.loongarch_isa': { kind: 'topic', path: 'kb/loongarch_isa.md', _domain: 'board_system' },
+    'facts.build_tools': { kind: 'fact', path: 'kb/facts/build_tools.json', _domain: 'toolchain', defaultSearch: false },
+    'playbook.disk_space': { kind: 'playbook', path: 'kb/playbooks/disk-space.md', _domain: 'board_system' },
+    'playbook.openblas_build': { kind: 'playbook', path: 'kb/playbooks/openblas-build.md', _domain: 'project' },
+    'playbook.serial_communication': { kind: 'playbook', path: 'kb/playbooks/serial-communication.md', _domain: 'peripheral' },
+  };
+  Object.keys(expected).forEach((id) => {
+    const entry = entries.find((item) => item.id === id);
+    assert(entry, `missing Phase B index entry: ${id}`);
+    Object.keys(expected[id]).forEach((field) => {
+      assert(entry[field] === expected[id][field], `unexpected ${field} for ${id}: ${entry[field]}`);
+    });
+    assertWorkspaceRelativePathExists(entry.path, `Phase B index entry ${id}`);
+  });
 });
 
 test('P6 facts are indexed but excluded from default search', () => {
@@ -531,6 +586,22 @@ test('Phase A kb_search returns metadata for indexed matches', () => {
   assert(match._verification === 'verified', `unexpected eth1 _verification: ${match._verification}`);
   assert(match.evidence._domain === 'board_system', 'eth1 evidence missing _domain');
   assert(match.evidence._verification === 'verified', 'eth1 evidence missing _verification');
+});
+
+test('Phase B kb_search finds MVP content', () => {
+  const cases = [
+    ['disk space', 'kb/playbooks/disk-space.md'],
+    ['OpenBLAS', 'kb/playbooks/openblas-build.md'],
+    ['serial', 'kb/playbooks/serial-communication.md'],
+    ['build guide', 'kb/build_guide.md'],
+  ];
+  cases.forEach(([query, expectedPath]) => {
+    const results = searchKnowledge(config(), query, { limit: 10 });
+    const match = results.find((item) => item.path === expectedPath);
+    assert(match, `kb_search did not return ${expectedPath} for query: ${query}`);
+    assert(match._domain, `Phase B search match missing _domain: ${expectedPath}`);
+    assert(match._verification, `Phase B search match missing _verification: ${expectedPath}`);
+  });
 });
 
 test('P2 raw evidence remains absent after compacting the knowledge layout', () => {

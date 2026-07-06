@@ -887,5 +887,171 @@
     "_replaces": null,
     "_superseded_by": null,
     "_domain": "project"
+  },
+  {
+    "id": "topic.build_guide",
+    "kind": "topic",
+    "path": "kb/build_guide.md",
+    "title": "???????",
+    "stage": "phaseB",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "build",
+      "toolchain",
+      "gcc",
+      "cmake"
+    ],
+    "_triggers": [
+      "build guide",
+      "gcc",
+      "g++",
+      "cmake",
+      "cross compile"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "toolchain"
+  },
+  {
+    "id": "topic.loongarch_isa",
+    "kind": "topic",
+    "path": "kb/loongarch_isa.md",
+    "title": "LoongArch ISA ?????",
+    "stage": "phaseB",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "loongarch64",
+      "isa",
+      "abi",
+      "architecture"
+    ],
+    "_triggers": [
+      "loongarch64",
+      "LoongArch",
+      "ABI",
+      "mips64el",
+      "architecture boundary"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
+  },
+  {
+    "id": "facts.build_tools",
+    "kind": "fact",
+    "path": "kb/facts/build_tools.json",
+    "title": "?????????",
+    "stage": "phaseB",
+    "sourceType": "structured_fact",
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "facts",
+      "toolchain",
+      "build"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "toolchain"
+  },
+  {
+    "id": "playbook.disk_space",
+    "kind": "playbook",
+    "path": "kb/playbooks/disk-space.md",
+    "title": "??????",
+    "stage": "phaseB",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "storage",
+      "disk",
+      "rootfs"
+    ],
+    "_triggers": [
+      "disk space",
+      "df -h",
+      "root partition",
+      "storage full"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
+  },
+  {
+    "id": "playbook.openblas_build",
+    "kind": "playbook",
+    "path": "kb/playbooks/openblas-build.md",
+    "title": "OpenBLAS loongarch64 ????",
+    "stage": "phaseB",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "build_deploy",
+    "_arch": "loongarch64",
+    "_source": "repo_derived",
+    "_verification": "needs_board_check",
+    "_priority": "P0",
+    "_tags": [
+      "openblas",
+      "build",
+      "loongarch64"
+    ],
+    "_triggers": [
+      "OpenBLAS",
+      "openblas build",
+      "make -j1",
+      "BLAS",
+      "loongarch64 build"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
+  },
+  {
+    "id": "playbook.serial_communication",
+    "kind": "playbook",
+    "path": "kb/playbooks/serial-communication.md",
+    "title": "??????",
+    "stage": "phaseB",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "serial",
+      "uart",
+      "pyserial"
+    ],
+    "_triggers": [
+      "serial",
+      "UART",
+      "/dev/ttyS",
+      "pyserial",
+      "??"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
   }
 ]
