@@ -94,11 +94,25 @@ function themeName(context) {
   return 'loong-dark';
 }
 
+function themeSignature(context) {
+  if (context && context.markdownTheme && context.markdownTheme.signature) return context.markdownTheme.signature;
+  if (context && context.theme) {
+    try {
+      var themeMod = require('./theme');
+      if (themeMod && typeof themeMod.themeSignature === 'function') return themeMod.themeSignature(context.theme);
+    } catch (error) {
+      return context.theme.name || 'theme';
+    }
+  }
+  return themeName(context);
+}
+
 function messageCacheKey(message, width, context, extra) {
   return stableHash({
     kind: 'runtime-message',
     width: width,
     theme: themeName(context),
+    themeSignature: themeSignature(context),
     message: {
       id: message && message.id,
       type: message && message.type,
@@ -119,6 +133,7 @@ function listCacheKey(width, context, extra) {
     kind: 'runtime-list',
     width: width,
     theme: themeName(context),
+    themeSignature: themeSignature(context),
     extra: extra || {},
   });
 }

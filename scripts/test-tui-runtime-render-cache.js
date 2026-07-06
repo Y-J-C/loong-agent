@@ -43,8 +43,13 @@ ok(cache.stats().misses >= 1, 'cache records misses');
 var keyOne = cacheMod.messageCacheKey({ id: 'm', type: 'assistant', text: 'one' }, 80, { theme: { name: 'loong-dark' } });
 var keyTwo = cacheMod.messageCacheKey({ id: 'm', type: 'assistant', text: 'two' }, 80, { theme: { name: 'loong-dark' } });
 var keyPlain = cacheMod.messageCacheKey({ id: 'm', type: 'assistant', text: 'one' }, 80, { theme: { name: 'plain' } });
+var keyDarkSigOne = cacheMod.messageCacheKey({ id: 'm', type: 'assistant', text: 'one' }, 80, { theme: { name: 'loong-dark', signature: 'sig-one' } });
+var keyDarkSigTwo = cacheMod.messageCacheKey({ id: 'm', type: 'assistant', text: 'one' }, 80, { theme: { name: 'loong-dark', signature: 'sig-two' } });
+var keyMarkdownSig = cacheMod.messageCacheKey({ id: 'm', type: 'assistant', text: 'one' }, 80, { theme: { name: 'loong-dark', signature: 'sig-one' }, markdownTheme: { signature: 'md-sig' } });
 ok(keyOne !== keyTwo, 'message cache key changes with text');
 ok(keyOne !== keyPlain, 'message cache key changes with theme');
+ok(keyDarkSigOne !== keyDarkSigTwo, 'message cache key changes with theme signature');
+ok(keyDarkSigOne !== keyMarkdownSig, 'message cache key changes with markdown theme signature');
 
 cache.clear();
 equal(cache.size(), 0, 'clear removes entries');

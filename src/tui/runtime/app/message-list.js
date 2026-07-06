@@ -5,6 +5,7 @@ var themeMod = require('../theme');
 var Markdown = require('../components/markdown').Markdown;
 var cacheMod = require('../render-cache');
 var scroll = require('../../scroll');
+var renderToolMessage = require('./tool-renderers').renderToolMessage;
 
 var markdownCache = cacheMod.createRenderCache(200);
 
@@ -197,10 +198,13 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
       var MAX_TOOL_LINES = 8;
       var expanded = isExpandedTool(state, message);
       var contentWidth = Math.max(4, maxWidth - 4);
-      var toolContent = String(text || '');
-      var twrapped = isBashTool(message)
-        ? renderBashToolLines(message, contentWidth, expanded, theme)
-        : utils.wrapTextWithAnsi(toolContent, contentWidth);
+      var renderedTool = renderToolMessage(message, {
+        contentWidth: contentWidth,
+        expanded: expanded,
+        maxWidth: maxWidth,
+        theme: theme,
+      });
+      var twrapped = renderedTool.lines || [];
       if (!twrapped.length) twrapped = [''];
       var originalLength = twrapped.length;
       if (!expanded && !isBashTool(message) && twrapped.length > MAX_TOOL_LINES) {
@@ -214,6 +218,11 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
         tLine = fit(tLine, maxWidth);
         var tPadded = tLine + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(tLine)));
         lines.push(toolBgCode + (ti === 0 ? tPadded : themeMod.paint(theme, 'dim', tPadded)) + toolBgReset);
+      }
+      if (expanded && renderedTool.detailLines && renderedTool.detailLines.length) {
+        for (var detailLineIndex = 0; detailLineIndex < renderedTool.detailLines.length; detailLineIndex += 1) {
+          lines.push(renderedTool.detailLines[detailLineIndex]);
+        }
       }
     } else if (message.type === 'assistant' || message.type === 'assistant_final') {
       var awrapped = renderMarkdownMessage(message, maxWidth, renderContext);
@@ -232,12 +241,6 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
       }
     }
 
-    if (message.type === 'tool' && isExpandedTool(state, message) && !isBashTool(message)) {
-      var detailLines = renderDetailBlock(message, maxWidth, theme);
-      for (var detailIndex = 0; detailIndex < detailLines.length; detailIndex += 1) {
-        lines.push(detailLines[detailIndex]);
-      }
-    }
   }
 
   var visibleHeight = Math.max(0, Number(height) || 0);

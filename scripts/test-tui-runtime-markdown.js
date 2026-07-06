@@ -79,5 +79,29 @@ ok(nestedPlain.indexOf('  - child item') >= 0, 'renders nested unordered list in
 ok(nestedPlain.indexOf('    3. numbered child') >= 0, 'preserves ordered nested number');
 ok(nestedLines.every(function(line) { return utils.visibleWidth(line) <= 30; }), 'nested list lines fit width');
 
+var customMarkdownTheme = {
+  signature: 'custom-md-theme',
+  style: function(token, text) { return token === 'mdHeading' ? '[H]' + text + '[/H]' : String(text || ''); },
+  inlineCode: function(text) { return '[C]' + text + '[/C]'; },
+  link: function(label, url) { return '[L]' + label + '|' + url + '[/L]'; },
+  codeBlock: function(text) { return '[B]' + text + '[/B]'; },
+  tableBorder: function(text) { return '[T]' + text + '[/T]'; },
+  listMarker: function(text) { return '[M]' + text + '[/M]'; },
+  syntax: function(token, text) { return '[S]' + text + '[/S]'; },
+};
+var themed = new Markdown({
+  text: '# Title\n\n- item with `code` and [docs](u)\n```js\nconst x = 1\n```',
+  maxLines: 30,
+  markdownTheme: customMarkdownTheme,
+});
+var themedLines = themed.render(80, { theme: theme.getTheme('plain') });
+var themedText = themedLines.join('\n');
+ok(themedText.indexOf('[H]# Title[/H]') >= 0, 'custom markdown theme styles heading text');
+ok(themedText.indexOf('[M]- [/M]') >= 0, 'custom markdown theme styles list marker');
+ok(themedText.indexOf('[C]code[/C]') >= 0, 'custom markdown theme styles inline code');
+ok(themedText.indexOf('[L]docs|u[/L]') >= 0, 'custom markdown theme styles link');
+ok(themedText.indexOf('[B]') >= 0 && themedText.indexOf('[S]const[/S]') >= 0, 'custom markdown theme styles code block syntax');
+ok(themedLines.every(function(line) { return utils.visibleWidth(line) <= 80; }), 'custom themed markdown lines fit width');
+
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

@@ -37,103 +37,142 @@ var ANSI = {
   syntaxFunction: '\x1b[38;5;117m',
 };
 
-var THEMES = {
+var THEME_DEFINITIONS = {
   'loong-dark': {
     name: 'loong-dark',
-    header: ANSI.cyan,
-    dim: ANSI.dim,
-    user: ANSI.userFg + ANSI.userBg,
-    assistant: '',
-    finalAnswer: '\x1b[38;5;16m\x1b[48;5;250m',
-    system: ANSI.dim,
-    error: ANSI.red,
-    toolRunning: ANSI.dim,  // subtle gray, status shown by icon
-    toolOk: ANSI.dim,
-    toolError: ANSI.dim,
-    toolBg: ANSI.toolBg,
-    toolPendingBg: ANSI.toolPendingBg,
-    toolSuccessBg: ANSI.toolSuccessBg,
-    toolErrorBg: ANSI.toolErrorBg,
-    muted: ANSI.muted,
-    accent: ANSI.accent,
-    borderMuted: ANSI.borderMuted,
-    editorBorder: ANSI.editorBorder,
-    editorActiveBorder: ANSI.editorActiveBorder,
-    selectedBg: ANSI.selectedBg,
-    mdHeading: ANSI.mdHeading,
-    mdLink: ANSI.mdLink,
-    mdListBullet: ANSI.mdListBullet,
-    mdCode: ANSI.mdCode,
-    mdCodeBlock: ANSI.mdCodeBlock,
-    mdCodeBlockBorder: ANSI.mdCodeBlockBorder,
-    mdQuote: ANSI.mdQuote,
-    mdQuoteBorder: ANSI.mdQuoteBorder,
-    selector: ANSI.inverse,
-    cursor: ANSI.inverse,
-    status: ANSI.dim,
-    divider: ANSI.cyan,
-    syntaxComment: ANSI.syntaxComment,
-    syntaxKeyword: ANSI.syntaxKeyword,
-    syntaxString: ANSI.syntaxString,
-    syntaxNumber: ANSI.syntaxNumber,
-    syntaxFunction: ANSI.syntaxFunction,
+    vars: ANSI,
+    tokens: {
+      header: '$cyan',
+      dim: '$dim',
+      user: '$userFg$userBg',
+      assistant: '',
+      finalAnswer: '\x1b[38;5;16m\x1b[48;5;250m',
+      system: '$dim',
+      error: '$red',
+      toolRunning: '$dim',
+      toolOk: '$dim',
+      toolError: '$dim',
+      toolBg: '$toolBg',
+      toolPendingBg: '$toolPendingBg',
+      toolSuccessBg: '$toolSuccessBg',
+      toolErrorBg: '$toolErrorBg',
+      muted: '$muted',
+      accent: '$accent',
+      borderMuted: '$borderMuted',
+      editorBorder: '$editorBorder',
+      editorActiveBorder: '$editorActiveBorder',
+      selectedBg: '$selectedBg',
+      mdHeading: '$mdHeading',
+      mdLink: '$mdLink',
+      mdListBullet: '$mdListBullet',
+      mdCode: '$mdCode',
+      mdCodeBlock: '$mdCodeBlock',
+      mdCodeBlockBorder: '$mdCodeBlockBorder',
+      mdQuote: '$mdQuote',
+      mdQuoteBorder: '$mdQuoteBorder',
+      selector: '$inverse',
+      cursor: '$inverse',
+      status: '$dim',
+      divider: '$cyan',
+      syntaxComment: '$syntaxComment',
+      syntaxKeyword: '$syntaxKeyword',
+      syntaxString: '$syntaxString',
+      syntaxNumber: '$syntaxNumber',
+      syntaxFunction: '$syntaxFunction',
+    },
   },
   plain: {
     name: 'plain',
-    header: '',
-    dim: '',
-    user: '',
-    assistant: '',
-    finalAnswer: '',
-    system: '',
-    error: '',
-    toolRunning: '',
-    toolOk: '',
-    toolError: '',
-    toolBg: '',
-    toolPendingBg: '',
-    toolSuccessBg: '',
-    toolErrorBg: '',
-    muted: '',
-    accent: '',
-    borderMuted: '',
-    editorBorder: '',
-    editorActiveBorder: '',
-    selectedBg: '',
-    mdHeading: '',
-    mdLink: '',
-    mdListBullet: '',
-    mdCode: '',
-    mdCodeBlock: '',
-    mdCodeBlockBorder: '',
-    mdQuote: '',
-    mdQuoteBorder: '',
-    selector: '',
-    cursor: '',
-    status: '',
-    divider: '',
-    syntaxComment: '',
-    syntaxKeyword: '',
-    syntaxString: '',
-    syntaxNumber: '',
-    syntaxFunction: '',
+    vars: {},
+    tokens: {
+      header: '',
+      dim: '',
+      user: '',
+      assistant: '',
+      finalAnswer: '',
+      system: '',
+      error: '',
+      toolRunning: '',
+      toolOk: '',
+      toolError: '',
+      toolBg: '',
+      toolPendingBg: '',
+      toolSuccessBg: '',
+      toolErrorBg: '',
+      muted: '',
+      accent: '',
+      borderMuted: '',
+      editorBorder: '',
+      editorActiveBorder: '',
+      selectedBg: '',
+      mdHeading: '',
+      mdLink: '',
+      mdListBullet: '',
+      mdCode: '',
+      mdCodeBlock: '',
+      mdCodeBlockBorder: '',
+      mdQuote: '',
+      mdQuoteBorder: '',
+      selector: '',
+      cursor: '',
+      status: '',
+      divider: '',
+      syntaxComment: '',
+      syntaxKeyword: '',
+      syntaxString: '',
+      syntaxNumber: '',
+      syntaxFunction: '',
+    },
   },
 };
+
+var THEME_CACHE = {};
+
+function stableStringify(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  if (typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(function(key) {
+      return JSON.stringify(key) + ':' + stableStringify(value[key]);
+    }).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
+function resolveTokenValue(value, vars) {
+  if (!value) return '';
+  return String(value).replace(/\$([A-Za-z0-9_]+)/g, function(match, name) {
+    return Object.prototype.hasOwnProperty.call(vars || {}, name) ? String(vars[name] || '') : '';
+  });
+}
+
+function resolveThemeDefinition(definition) {
+  var def = definition || THEME_DEFINITIONS['loong-dark'];
+  var tokens = def.tokens || {};
+  var theme = { name: def.name || 'loong-dark' };
+  Object.keys(tokens).forEach(function(token) {
+    theme[token] = resolveTokenValue(tokens[token], def.vars || {});
+  });
+  theme.signature = themeSignature({ name: theme.name, tokens: theme });
+  return theme;
+}
 
 function color(code, text) {
   return code ? code + String(text || '') + ANSI.reset : String(text || '');
 }
 
 function listThemes() {
-  return Object.keys(THEMES);
+  return Object.keys(THEME_DEFINITIONS);
 }
 
 function getTheme(name) {
-  return THEMES[name] || THEMES['loong-dark'];
+  var key = THEME_DEFINITIONS[name] ? name : 'loong-dark';
+  if (!THEME_CACHE[key]) THEME_CACHE[key] = resolveThemeDefinition(THEME_DEFINITIONS[key]);
+  return THEME_CACHE[key];
 }
 
 function hasTheme(name) {
-  return Boolean(THEMES[name]);
+  return Boolean(THEME_DEFINITIONS[name]);
 }
 
 function paint(theme, token, text) {
@@ -150,12 +189,49 @@ function bg(theme, token, text) {
   return paint(theme, token, String(text || ''));
 }
 
+function themeSignature(theme) {
+  if (theme && theme.signature) return theme.signature;
+  if (!theme) return 'theme:none';
+  return 'theme:' + stableStringify(theme);
+}
+
+function createMarkdownTheme(runtimeTheme) {
+  var runtime = runtimeTheme || getTheme();
+  return {
+    signature: 'markdown:' + themeSignature(runtime),
+    style: function style(token, text) {
+      return paint(runtime, token, text);
+    },
+    inlineCode: function inlineCode(text) {
+      return paint(runtime, 'mdCode', text);
+    },
+    link: function link(label, url) {
+      return paint(runtime, 'mdLink', label) + '(' + paint(runtime, 'muted', url) + ')';
+    },
+    codeBlock: function codeBlock(text) {
+      return paint(runtime, 'mdCodeBlock', text);
+    },
+    tableBorder: function tableBorder(text) {
+      return paint(runtime, 'borderMuted', text);
+    },
+    listMarker: function listMarker(text) {
+      return paint(runtime, 'mdListBullet', text);
+    },
+    syntax: function syntax(token, text) {
+      return paint(runtime, token, text);
+    },
+  };
+}
+
 module.exports = {
   ANSI: ANSI,
+  THEME_DEFINITIONS: THEME_DEFINITIONS,
+  createMarkdownTheme: createMarkdownTheme,
   getTheme: getTheme,
   hasTheme: hasTheme,
   listThemes: listThemes,
   paint: paint,
   fg: fg,
   bg: bg,
+  themeSignature: themeSignature,
 };

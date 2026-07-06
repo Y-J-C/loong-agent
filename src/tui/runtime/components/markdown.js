@@ -5,12 +5,13 @@ var themeMod = require('../theme');
 
 var DEFAULT_MAX_LINES = 80;
 
-function renderInlineMarkup(text) {
+function renderInlineMarkup(text, markdownTheme) {
+  var md = markdownTheme || themeMod.createMarkdownTheme(themeMod.getTheme());
   return String(text || '')
-    .replace(/\*\*([^*]+)\*\*/g, '\x1b[1m$1\x1b[22m')
-    .replace(/__([^_]+)__/g, '\x1b[3m$1\x1b[23m')
-    .replace(/`([^`]+)`/g, '\x1b[38;5;116m\x1b[48;5;236m$1\x1b[0m')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '\x1b[38;5;117m$1\x1b[0m(\x1b[38;5;244m$2\x1b[0m)');
+    .replace(/\*\*([^*]+)\*\*/g, function(_, textValue) { return md.style('assistant', textValue); })
+    .replace(/__([^_]+)__/g, function(_, textValue) { return md.style('assistant', textValue); })
+    .replace(/`([^`]+)`/g, function(_, textValue) { return md.inlineCode(textValue); })
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, label, url) { return md.link(label, url); });
 }
 
 function countIndentSpaces(text) {
@@ -75,45 +76,51 @@ function pad(line, width) {
   return text + ' '.repeat(Math.max(0, width - utils.visibleWidth(text)));
 }
 
-function highlightSyntax(text, theme) {
+function highlightSyntax(text, markdownTheme) {
+  var md = markdownTheme || themeMod.createMarkdownTheme(themeMod.getTheme());
   // Only highlight inside code blocks (when mdCodeBlock token is used)
   var result = String(text || '');
   // Strings: "..." or '...'
-  result = result.replace(/("(?:[^"\\]|\\.)*")/g, function(m) { return themeMod.paint(theme, 'syntaxString', m); });
-  result = result.replace(/('(?:[^'\\]|\\.)*')/g, function(m) { return themeMod.paint(theme, 'syntaxString', m); });
+  result = result.replace(/("(?:[^"\\]|\\.)*")/g, function(m) { return md.syntax('syntaxString', m); });
+  result = result.replace(/('(?:[^'\\]|\\.)*')/g, function(m) { return md.syntax('syntaxString', m); });
   // Comments: #...  or //...
-  result = result.replace(/(#.*)$/gm, function(m) { return themeMod.paint(theme, 'syntaxComment', m); });
-  result = result.replace(/(\/\/.*)$/gm, function(m) { return themeMod.paint(theme, 'syntaxComment', m); });
+  result = result.replace(/(#.*)$/gm, function(m) { return md.syntax('syntaxComment', m); });
+  result = result.replace(/(\/\/.*)$/gm, function(m) { return md.syntax('syntaxComment', m); });
   // Numbers: 123, 0xFF, 3.14
-  result = result.replace(/(\b[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b)/g, function(m) { return themeMod.paint(theme, 'syntaxNumber', m); });
+  result = result.replace(/(\b[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b)/g, function(m) { return md.syntax('syntaxNumber', m); });
   // Keywords
   var keywords = '\\b(if|else|for|while|do|switch|case|break|continue|return|function|def|class|import|export|from|const|let|var|async|await|try|catch|throw|new|delete|typeof|instanceof|in|of|true|false|null|this|super|yield|with|void)\\b';
-  result = result.replace(new RegExp(keywords, 'g'), function(m) { return themeMod.paint(theme, 'syntaxKeyword', m); });
+  result = result.replace(new RegExp(keywords, 'g'), function(m) { return md.syntax('syntaxKeyword', m); });
   return result;
 }
 
-function pushWrapped(output, raw, width, theme, token, options) {
+function pushWrapped(output, raw, width, theme, markdownTheme, token, options) {
   var opts = options || {};
   var prefix = opts.prefix || '';
   var fill = Boolean(opts.fill);
   var contentWidth = Math.max(1, width - utils.visibleWidth(prefix));
-  var rawText = token === 'mdCodeBlock' ? highlightSyntax(raw, theme) : renderInlineMarkup(raw);
+  var rawText = token === 'mdCodeBlock' ? highlightSyntax(raw, markdownTheme) : renderInlineMarkup(raw, markdownTheme);
   var wrapped = utils.wrapTextWithAnsi(rawText, contentWidth);
   if (!wrapped.length) wrapped = [''];
   for (var index = 0; index < wrapped.length; index += 1) {
     var text = fit(prefix + wrapped[index], width);
-    output.push(themeMod.paint(theme, token, fill ? pad(text, width) : text));
+    var rendered = fill ? pad(text, width) : text;
+    output.push(token === 'mdCodeBlock'
+      ? markdownTheme.codeBlock(rendered)
+      : token.indexOf('md') === 0
+        ? markdownTheme.style(token, rendered)
+        : themeMod.paint(theme, token, rendered));
   }
 }
 
-function pushNestedList(output, marker, text, indent, width, theme, token) {
+function pushNestedList(output, marker, text, indent, width, theme, markdownTheme, token) {
   var level = Math.floor(Math.max(0, indent) / 2);
   var prefix = '  '.repeat(level) + marker;
   var contentWidth = Math.max(1, width - utils.visibleWidth(prefix));
-  var wrapped = utils.wrapTextWithAnsi(renderInlineMarkup(text), contentWidth);
+  var wrapped = utils.wrapTextWithAnsi(renderInlineMarkup(text, markdownTheme), contentWidth);
   if (!wrapped.length) wrapped = [''];
   for (var index = 0; index < wrapped.length; index += 1) {
-    var line = (index === 0 ? themeMod.paint(theme, 'mdListBullet', prefix) : ' '.repeat(utils.visibleWidth(prefix))) + wrapped[index];
+    var line = (index === 0 ? markdownTheme.listMarker(prefix) : ' '.repeat(utils.visibleWidth(prefix))) + wrapped[index];
     output.push(themeMod.paint(theme, token, fit(line, width)));
   }
 }
@@ -136,7 +143,7 @@ function tableColumnWidths(rows, width) {
   return widths;
 }
 
-function renderTableRows(rows, width, theme, token) {
+function renderTableRows(rows, width, theme, markdownTheme, token) {
   var widths = tableColumnWidths(rows, width);
   if (!widths) return null;
   var output = [];
@@ -144,7 +151,7 @@ function renderTableRows(rows, width, theme, token) {
     var wrappedCells = [];
     var rowHeight = 1;
     for (var col = 0; col < widths.length; col += 1) {
-      var wrapped = utils.wrapTextWithAnsi(renderInlineMarkup(rows[row][col] || ''), widths[col]);
+      var wrapped = utils.wrapTextWithAnsi(renderInlineMarkup(rows[row][col] || '', markdownTheme), widths[col]);
       if (!wrapped.length) wrapped = [''];
       wrappedCells[col] = wrapped;
       rowHeight = Math.max(rowHeight, wrapped.length);
@@ -162,7 +169,7 @@ function renderTableRows(rows, width, theme, token) {
       for (var sepIndex = 0; sepIndex < widths.length; sepIndex += 1) {
         sep += ' ' + '-'.repeat(widths[sepIndex]) + ' |';
       }
-      output.push(themeMod.paint(theme, 'borderMuted', fit(sep, width)));
+      output.push(markdownTheme.tableBorder(fit(sep, width)));
     }
   }
   return output;
@@ -183,11 +190,13 @@ function Markdown(options) {
   this.maxLines = options.maxLines || DEFAULT_MAX_LINES;
   this.token = options.token || 'assistant';
   this.thinking = options.thinking || false;
+  this.markdownTheme = options.markdownTheme || null;
 }
 
 Markdown.prototype.render = function render(width, context) {
   var maxWidth = Math.max(1, Number(width) || 80);
   var theme = context && context.theme ? context.theme : themeMod.getTheme();
+  var markdownTheme = this.markdownTheme || (context && context.markdownTheme) || themeMod.createMarkdownTheme(theme);
   var output = [];
   var lines = String(this.text || '').replace(/\r\n/g, '\n').split('\n');
   var inCode = false;
@@ -199,7 +208,7 @@ Markdown.prototype.render = function render(width, context) {
     if (fence) {
       if (inCode) {
         var bottomFill = Math.max(0, maxWidth - 2);
-        output.push(themeMod.paint(theme, 'mdCodeBlockBorder', '+' + '-'.repeat(bottomFill) + '+'));
+        output.push(markdownTheme.tableBorder('+' + '-'.repeat(bottomFill) + '+'));
         inCode = false;
         codeLang = '';
         continue;
@@ -208,15 +217,15 @@ Markdown.prototype.render = function render(width, context) {
       codeLang = String(fence[1] || '').trim();
       var label = codeLang ? ' ' + codeLang + ' ' : '';
       var fillLen = Math.max(0, maxWidth - utils.visibleWidth(label) - 2);
-      var border = themeMod.paint(theme, 'mdCodeBlockBorder', '+-' + label + '-'.repeat(fillLen) + '+');
-      var innerPad = themeMod.paint(theme, 'mdCodeBlock', pad('', maxWidth));
+      var border = markdownTheme.tableBorder('+-' + label + '-'.repeat(fillLen) + '+');
+      var innerPad = markdownTheme.codeBlock(pad('', maxWidth));
       output.push(border);
       output.push(innerPad);
       continue;
     }
 
     if (inCode) {
-      pushWrapped(output, line, maxWidth, theme, 'mdCodeBlock', { prefix: '  ', fill: true });
+      pushWrapped(output, line, maxWidth, theme, markdownTheme, 'mdCodeBlock', { prefix: '  ', fill: true });
       continue;
     }
 
@@ -233,47 +242,47 @@ Markdown.prototype.render = function render(width, context) {
         index += 1;
       }
       index -= 1;
-      var tableOutput = renderTableRows(tableRows, maxWidth, theme, this.token);
+      var tableOutput = renderTableRows(tableRows, maxWidth, theme, markdownTheme, this.token);
       if (tableOutput) {
         output = output.concat(tableOutput);
         continue;
       }
       for (var tableIndex = 0; tableIndex < tableRows.length; tableIndex += 1) {
-        pushWrapped(output, tableRows[tableIndex].join(' | '), maxWidth, theme, this.token);
+        pushWrapped(output, tableRows[tableIndex].join(' | '), maxWidth, theme, markdownTheme, this.token);
       }
       continue;
     }
 
     var heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
-      pushWrapped(output, heading[2], maxWidth, theme, 'mdHeading', { prefix: heading[1] + ' ' });
+      pushWrapped(output, heading[2], maxWidth, theme, markdownTheme, 'mdHeading', { prefix: heading[1] + ' ' });
       continue;
     }
 
     var quote = line.match(/^>\s?(.*)$/);
     if (quote) {
-      pushWrapped(output, quote[1], maxWidth, theme, 'mdQuote', { prefix: '> ' });
+      pushWrapped(output, quote[1], maxWidth, theme, markdownTheme, 'mdQuote', { prefix: '> ' });
       continue;
     }
 
     var unordered = line.match(/^(\s*)[-*+]\s+(.+)$/);
     if (unordered) {
-      pushNestedList(output, '- ', unordered[2], countIndentSpaces(unordered[1]), maxWidth, theme, this.token);
+      pushNestedList(output, '- ', unordered[2], countIndentSpaces(unordered[1]), maxWidth, theme, markdownTheme, this.token);
       continue;
     }
 
     var ordered = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
     if (ordered) {
-      pushNestedList(output, ordered[2] + '. ', ordered[3], countIndentSpaces(ordered[1]), maxWidth, theme, this.token);
+      pushNestedList(output, ordered[2] + '. ', ordered[3], countIndentSpaces(ordered[1]), maxWidth, theme, markdownTheme, this.token);
       continue;
     }
 
-    pushWrapped(output, line, maxWidth, theme, this.token);
+    pushWrapped(output, line, maxWidth, theme, markdownTheme, this.token);
   }
 
   if (inCode) {
     var endFill = Math.max(0, maxWidth - 2);
-    output.push(themeMod.paint(theme, 'mdCodeBlockBorder', '+' + '-'.repeat(endFill) + '+'));
+    output.push(markdownTheme.tableBorder('+' + '-'.repeat(endFill) + '+'));
   }
   if (this.thinking && output.length) {
     // Thinking block: wrap with italic style
