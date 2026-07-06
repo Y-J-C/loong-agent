@@ -30,6 +30,21 @@ function fit(line, width) {
   return utils.truncateToWidth(String(line || ''), width);
 }
 
+function wrapTextBlocks(text, width) {
+  var rawLines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  var output = [];
+  for (var index = 0; index < rawLines.length; index += 1) {
+    var wrapped = utils.wrapTextWithAnsi(rawLines[index], Math.max(1, width));
+    if (!wrapped.length) wrapped = [''];
+    for (var wi = 0; wi < wrapped.length; wi += 1) output.push(wrapped[wi]);
+  }
+  return output;
+}
+
+function isExpandedTool(state, message) {
+  return Boolean(message && (message.expanded || state && state.expandedTools));
+}
+
 function themedLabel(label, message, theme) {
   var token = 'system';
   if (message && message.type === 'user') token = 'user';
@@ -76,6 +91,78 @@ function toolBgToken(message) {
   return 'toolPendingBg';
 }
 
+function isBashTool(message) {
+  return Boolean(message && message.type === 'tool' && message.toolName === 'bash');
+}
+
+function bashDetailObject(message) {
+  var detail = message && message.detail;
+  return detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : {};
+}
+
+function bashCommand(message) {
+  var detail = bashDetailObject(message);
+  var args = message && message.args && typeof message.args === 'object' ? message.args : {};
+  return detail.command || args.command || message.command || '';
+}
+
+function bashOutputText(message, expanded) {
+  var detail = bashDetailObject(message);
+  var parts = [];
+  if (detail.output) parts.push(String(detail.output));
+  else {
+    if (detail.stdout) parts.push(String(detail.stdout));
+    if (detail.stderr) parts.push(String(detail.stderr));
+  }
+  if (!parts.length) {
+    var text = messageText(message);
+    if (text) parts.push(text);
+  }
+  if (!expanded && parts.length > 1) return parts.join('\n');
+  return parts.join('\n');
+}
+
+function hasStructuredBashDetail(message) {
+  var detail = bashDetailObject(message);
+  return Boolean(detail.command || detail.output || detail.stdout || detail.stderr);
+}
+
+function renderBashToolLines(message, contentWidth, expanded, theme) {
+  var maxVisualLines = 8;
+  var command = bashCommand(message);
+  var outputText = bashOutputText(message, expanded);
+  var outputLines = wrapTextBlocks(outputText, contentWidth);
+  var lines = command ? ['$ ' + command] : [];
+  if (expanded) {
+    if (!hasStructuredBashDetail(message) && detailText(message)) {
+      var detailLines = renderDetailBlock(message, contentWidth, theme);
+      return detailLines.length ? detailLines : [messageText(message)];
+    }
+    lines = lines.concat(outputLines);
+    return lines.length ? lines : [messageText(message)];
+  }
+  var hiddenCount = Math.max(0, outputLines.length - maxVisualLines);
+  if (hiddenCount > 0) outputLines = outputLines.slice(outputLines.length - maxVisualLines);
+  lines = lines.concat(outputLines);
+  if (hiddenCount > 0) {
+    lines.push(themeMod.paint(theme, 'dim', '... (' + hiddenCount + ' more visual lines hidden)'));
+  }
+  return lines.length ? lines : [messageText(message)];
+}
+
+function renderDetailBlock(message, maxWidth, theme) {
+  var detail = detailText(message);
+  if (!detail) return [];
+  var output = ['  detail:'];
+  var detailLines = wrapTextBlocks(detail, Math.max(1, maxWidth - 4));
+  for (var index = 0; index < detailLines.length; index += 1) {
+    output.push(fit('    ' + detailLines[index], maxWidth));
+  }
+  return output.map(function(line, index) {
+    return index === 0 ? fit(line, maxWidth) : themeMod.paint(theme, 'dim', fit(line, maxWidth));
+  });
+}
+
 function renderRuntimeMessageListAscii(state, width, height, context) {
   var messages = state && Array.isArray(state.messages) ? state.messages : [];
   var lines = [];
@@ -101,11 +188,15 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
     } else if (message.type === 'tool') {
       var toolTitle = message.toolName || 'tool';
       var MAX_TOOL_LINES = 8;
+      var expanded = isExpandedTool(state, message);
+      var contentWidth = Math.max(4, maxWidth - 4);
       var toolContent = String(text || '');
-      var twrapped = utils.wrapTextWithAnsi(toolContent, Math.max(4, maxWidth - 4));
+      var twrapped = isBashTool(message)
+        ? renderBashToolLines(message, contentWidth, expanded, theme)
+        : utils.wrapTextWithAnsi(toolContent, contentWidth);
       if (!twrapped.length) twrapped = [''];
       var originalLength = twrapped.length;
-      if (twrapped.length > MAX_TOOL_LINES) {
+      if (!expanded && !isBashTool(message) && twrapped.length > MAX_TOOL_LINES) {
         twrapped = twrapped.slice(0, MAX_TOOL_LINES);
         twrapped.push('... (' + (originalLength - MAX_TOOL_LINES) + ' more lines)');
       }
@@ -133,14 +224,10 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
       }
     }
 
-    if (message.type === 'tool' && state && (state.expandedTools || message.expanded)) {
-      var detail = detailText(message);
-      if (detail) {
-        var detailPrefix = '  detail: ';
-        var detailWrapped = utils.wrapTextWithAnsi(detail, Math.max(1, maxWidth - utils.visibleWidth(detailPrefix)));
-        for (var detailIndex = 0; detailIndex < detailWrapped.length; detailIndex += 1) {
-          lines.push(fit((detailIndex === 0 ? detailPrefix : ' '.repeat(utils.visibleWidth(detailPrefix))) + detailWrapped[detailIndex], maxWidth));
-        }
+    if (message.type === 'tool' && isExpandedTool(state, message) && !isBashTool(message)) {
+      var detailLines = renderDetailBlock(message, maxWidth, theme);
+      for (var detailIndex = 0; detailIndex < detailLines.length; detailIndex += 1) {
+        lines.push(detailLines[detailIndex]);
       }
     }
   }

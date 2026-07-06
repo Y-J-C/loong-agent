@@ -69,5 +69,29 @@ var rightCenter = overlay.resolveOverlayLayout({ width: 8, anchor: 'right-center
 equal(rightCenter.row, 4, 'right-center row');
 equal(rightCenter.col, 22, 'right-center col');
 
+var hiddenByVisible = overlay.compositeOverlays(['base'], [{
+  lines: ['HIDE'],
+  options: { width: 6, visible: function() { return false; } },
+}], { columns: 20, rows: 4 });
+ok(hiddenByVisible.join('\n').indexOf('HIDE') < 0, 'overlay visible=false is not composited');
+
+var shownByVisible = overlay.compositeOverlays(['base'], [{
+  lines: ['SHOW'],
+  options: { width: 6, visible: function(columns, rows) { return columns >= 20 && rows >= 4; } },
+}], { columns: 20, rows: 4 });
+ok(shownByVisible.join('\n').indexOf('SHOW') >= 0, 'overlay visible=true is composited');
+
+var narrowHidden = overlay.compositeOverlays(['base'], [{
+  lines: ['NARROW'],
+  options: { width: 8, visible: function(columns) { return columns >= 40; } },
+}], { columns: 20, rows: 4 });
+ok(narrowHidden.join('\n').indexOf('NARROW') < 0, 'overlay visible can hide by terminal width');
+
+var throwingVisible = overlay.compositeOverlays(['base'], [{
+  lines: ['THROW'],
+  options: { width: 8, visible: function() { throw new Error('visible failed'); } },
+}], { columns: 20, rows: 4 });
+ok(throwingVisible.join('\n').indexOf('THROW') < 0, 'overlay visible errors hide overlay safely');
+
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

@@ -8,6 +8,7 @@ var cursor = require('./cursor');
 var overlay = require('./overlay');
 
 var RESET = '\x1b[0m';
+var OSC8_RESET = '\x1b]8;;\x1b\\';
 
 // ─── TUI Class ────────────────────────────────────────────────────────────────
 
@@ -181,7 +182,7 @@ TUI.prototype.doRender = function doRender() {
       var visibleEntries = [];
       for (var ei = 0; ei < this.overlayStack.length; ei++) {
         var entry = this.overlayStack[ei];
-        if (!entry.hidden) visibleEntries.push(entry);
+        if (this._isOverlayVisible(entry, width, height)) visibleEntries.push(entry);
       }
       if (visibleEntries.length > 0) {
         var overlayEntries = visibleEntries.map(function(e) {
@@ -286,7 +287,7 @@ TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursor
 
 TUI.prototype._applyLineResets = function _applyLineResets(lines) {
   return lines.map(function(line) {
-    return line + RESET;
+    return line + RESET + OSC8_RESET;
   });
 };
 
@@ -352,13 +353,15 @@ TUI.prototype.hideOverlay = function hideOverlay(target) {
   this.requestRender();
 };
 
-TUI.prototype._isOverlayVisible = function _isOverlayVisible(entry) {
-  return !entry.hidden;
+TUI.prototype._isOverlayVisible = function _isOverlayVisible(entry, width, height) {
+  var columns = width || this.terminal && this.terminal.columns || 80;
+  var rows = height || this.terminal && this.terminal.rows || 24;
+  return overlay.isOverlayEntryVisible(entry, columns, rows);
 };
 
 TUI.prototype._getTopmostVisibleOverlay = function _getTopmostVisibleOverlay() {
   for (var i = this.overlayStack.length - 1; i >= 0; i--) {
-    if (!this.overlayStack[i].hidden) return this.overlayStack[i];
+    if (this._isOverlayVisible(this.overlayStack[i])) return this.overlayStack[i];
   }
   return null;
 };

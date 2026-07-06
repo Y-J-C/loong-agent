@@ -3,7 +3,7 @@
 var eastAsianWidth = require('./vendor/east-asian-width').eastAsianWidth;
 
 var CURSOR_MARKER_RE = /\x1b_pi:c\x07/g;
-var ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b_[^\x07]*(?:\x07|\x1b\\)/g;
+var ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*?(?:\x07|\x1b\\)|\x1b_[^\x07]*?(?:\x07|\x1b\\)/g;
 var ANSI_TOKEN_RE = new RegExp(ANSI_RE.source, 'g');
 var ZERO_WIDTH_RE = /^(?:\p{Default_Ignorable_Code_Point}|\p{Control}|\p{Mark}|\p{Surrogate})+$/u;
 var RESET = '\x1b[0m';

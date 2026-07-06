@@ -141,7 +141,19 @@ function compositeLineAt(baseLine, overlayLine, startCol, overlayWidth, totalWid
   return fitLine(before, col) + RESET + fittedOverlay + RESET + fitLine(after, width - col - overWidth);
 }
 
+function isOverlayEntryVisible(entry, termWidth, termHeight) {
+  if (!entry || entry.hidden) return false;
+  var options = entry.options || {};
+  if (typeof options.visible !== 'function') return true;
+  try {
+    return options.visible(termWidth, termHeight) !== false;
+  } catch (error) {
+    return false;
+  }
+}
+
 function renderOverlay(entry, termWidth, termHeight) {
+  if (!isOverlayEntryVisible(entry, termWidth, termHeight)) return null;
   if (!entry || !entry.component && !Array.isArray(entry.lines)) return null;
   var initial = resolveOverlayLayout(entry.options, 0, termWidth, termHeight);
   var lines = Array.isArray(entry.lines)
@@ -171,6 +183,7 @@ function compositeOverlays(baseLines, overlays, size) {
   result = result.slice(0, termHeight).map(function(line) { return fitLine(line, termWidth); });
   var entries = Array.isArray(overlays) ? overlays : [];
   for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+    if (!isOverlayEntryVisible(entries[entryIndex], termWidth, termHeight)) continue;
     var rendered = renderOverlay(entries[entryIndex], termWidth, termHeight);
     if (!rendered) continue;
     for (var lineIndex = 0; lineIndex < rendered.lines.length; lineIndex += 1) {
@@ -185,5 +198,6 @@ function compositeOverlays(baseLines, overlays, size) {
 module.exports = {
   compositeLineAt: compositeLineAt,
   compositeOverlays: compositeOverlays,
+  isOverlayEntryVisible: isOverlayEntryVisible,
   resolveOverlayLayout: resolveOverlayLayout,
 };

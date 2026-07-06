@@ -208,17 +208,17 @@ var toolState = Object.assign({}, state, {
 });
 var toolLines = renderRuntimeChatView(toolState, { columns: 60, rows: 16 });
 var toolPlain = stripAnsi(toolLines.join('\n'));
-ok(toolPlain.indexOf('more lines') >= 0, 'long tool output is truncated by default');
+ok(toolPlain.indexOf('more visual lines') >= 0, 'long tool output is truncated by default');
 ok(toolPlain.indexOf('hidden detail line') < 0, 'tool detail stays collapsed by default');
 var selectedToolLines = renderRuntimeChatView(Object.assign({}, toolState, {
   messages: [Object.assign({}, toolState.messages[0], { expanded: true })],
 }), { columns: 60, rows: 20 });
 var selectedToolPlain = stripAnsi(selectedToolLines.join('\n'));
-ok(selectedToolPlain.indexOf('detail: hidden detail line') >= 0, 'selected tool detail expands inline');
+ok(selectedToolPlain.indexOf('detail:') >= 0 && selectedToolPlain.indexOf('hidden detail line') >= 0, 'selected tool detail expands inline');
 ok(selectedToolLines.every(function(line) { return visibleWidth(line) <= 60; }), 'selected tool detail lines fit width');
 var expandedToolLines = renderRuntimeChatView(Object.assign({}, toolState, { expandedTools: true }), { columns: 60, rows: 20 });
 var expandedToolPlain = stripAnsi(expandedToolLines.join('\n'));
-ok(expandedToolPlain.indexOf('detail: hidden detail line') >= 0, 'expanded tool detail renders');
+ok(expandedToolPlain.indexOf('detail:') >= 0 && expandedToolPlain.indexOf('hidden detail line') >= 0, 'expanded tool detail renders');
 ok(expandedToolLines.every(function(line) { return visibleWidth(line) <= 60; }), 'expanded tool lines fit width');
 
 var darkTheme = themeMod.getTheme('loong-dark');
@@ -230,6 +230,68 @@ ok(successToolLines.join('\n').indexOf(darkTheme.toolSuccessBg) >= 0, 'successfu
 ok(errorToolLines.join('\n').indexOf(darkTheme.toolErrorBg) >= 0, 'failed tool uses error background');
 var plainToolLines = renderRuntimeMessageList({ messages: [{ type: 'tool', toolName: 'bash', status: 'ok', done: true, summary: 'plain' }] }, 60, 6, { theme: themeMod.getTheme('plain') });
 ok(plainToolLines.join('\n').indexOf('\x1b[') < 0, 'plain tool backgrounds emit no ANSI');
+
+var bashOutputLines = [];
+for (var bashLine = 0; bashLine < 14; bashLine += 1) {
+  bashOutputLines.push('bash output line ' + bashLine + ' 中文 tail');
+}
+var bashPreviewLines = renderRuntimeMessageList({
+  messages: [{
+    type: 'tool',
+    toolName: 'bash',
+    status: 'running',
+    done: false,
+    summary: 'fallback summary should not dominate bash preview',
+    detail: {
+      command: 'npm test',
+      output: bashOutputLines.join('\n'),
+    },
+  }],
+}, 48, 18, { theme: darkTheme });
+var bashPreviewPlain = stripAnsi(bashPreviewLines.join('\n'));
+ok(bashPreviewPlain.indexOf('$ npm test') >= 0, 'collapsed bash preview renders command');
+ok(bashPreviewPlain.indexOf('bash output line 13') >= 0, 'collapsed bash preview keeps output tail');
+ok(bashPreviewPlain.indexOf('bash output line 0') < 0, 'collapsed bash preview drops old output head');
+ok(bashPreviewPlain.indexOf('more visual line') >= 0, 'collapsed bash preview reports hidden visual lines');
+ok(bashPreviewLines.every(function(line) { return visibleWidth(line) <= 48; }), 'collapsed bash preview lines fit width');
+
+var bashExpandedLines = renderRuntimeMessageList({
+  expandedTools: true,
+  messages: [{
+    type: 'tool',
+    toolName: 'bash',
+    status: 'ok',
+    done: true,
+    summary: 'fallback summary',
+    detail: {
+      command: 'npm test',
+      stdout: 'stdout line',
+      stderr: 'stderr line',
+    },
+  }],
+}, 54, 24, { theme: darkTheme });
+var bashExpandedPlain = stripAnsi(bashExpandedLines.join('\n'));
+ok(bashExpandedPlain.indexOf('$ npm test') >= 0, 'expanded bash renders command');
+ok(bashExpandedPlain.indexOf('stdout line') >= 0, 'expanded bash renders stdout');
+ok(bashExpandedPlain.indexOf('stderr line') >= 0, 'expanded bash renders stderr');
+ok(bashExpandedLines.every(function(line) { return visibleWidth(line) <= 54; }), 'expanded bash lines fit width');
+
+var objectDetailLines = renderRuntimeMessageList({
+  messages: [{
+    id: 'tool-json',
+    type: 'tool',
+    toolName: 'read_file',
+    done: true,
+    expanded: true,
+    summary: 'read ok',
+    detail: { path: 'src/index.js', bytes: 42 },
+  }],
+}, 60, 16, { theme: darkTheme });
+var objectDetailPlain = stripAnsi(objectDetailLines.join('\n'));
+ok(objectDetailPlain.indexOf('detail:\n') >= 0, 'expanded tool detail starts as block header');
+ok(objectDetailPlain.indexOf('  {') >= 0, 'expanded object detail is indented');
+ok(objectDetailPlain.indexOf('"path": "src/index.js"') >= 0, 'expanded object detail renders JSON field');
+ok(objectDetailLines.every(function(line) { return visibleWidth(line) <= 60; }), 'expanded object detail lines fit width');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

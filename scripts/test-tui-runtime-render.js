@@ -57,6 +57,19 @@ equal(seenContext.columns, terminal.columns, 'render context includes columns');
 equal(seenContext.rows, terminal.rows, 'render context includes rows');
 equal(seenContext.tui, contextTui, 'render context includes tui');
 equal(seenContext.terminal, terminal, 'render context includes terminal');
+var resetLines = contextTui._applyLineResets(['\x1b]8;;https://example.test\x1b\\link']);
+ok(resetLines[0].indexOf('\x1b[0m') >= 0, 'line reset includes SGR reset');
+ok(resetLines[0].indexOf('\x1b]8;;\x1b\\') >= 0, 'line reset includes OSC 8 hyperlink reset');
+equal(runtime.visibleWidth(resetLines[0]), 4, 'line resets do not change visible width');
+
+var focusBase = { focused: false };
+var hiddenOverlay = { focused: false, render: function() { return ['hidden']; } };
+var focusTui = new runtime.TUI(terminal);
+focusTui.setFocus(focusBase);
+focusTui.showOverlay(hiddenOverlay, { visible: function() { return false; } });
+equal(focusTui.focusedComponent, focusBase, 'invisible capturing overlay does not steal focus');
+equal(focusTui.hasCapturingOverlay(), false, 'invisible capturing overlay is ignored by capture check');
+focusTui.hideOverlay();
 
 var bad = new runtime.TUI(terminal);
 bad.add({ render: function() { return ['this line is too long']; } });
