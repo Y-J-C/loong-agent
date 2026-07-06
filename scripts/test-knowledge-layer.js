@@ -463,6 +463,36 @@ test('P2 knowledge index lists existing workspace-local knowledge files', () => 
     assert(fs.existsSync(entry.filePath), `index entry path is missing: ${entry.id}`);
   });
 });
+
+test('Phase A knowledge index preserves metadata skeleton', () => {
+  const entries = readKnowledgeIndex(config());
+  const allowedDomains = ['board_system', 'toolchain', 'runtime', 'peripheral', 'ecosystem', 'project'];
+  const allowedArch = ['generic', 'mips64el', 'loongarch64'];
+  const allowedSources = ['board_measured', 'book_reference', 'repo_derived', 'external_reference'];
+  const allowedVerification = ['verified', 'needs_board_check'];
+  const allowedPriority = ['P0', 'P1', 'P2'];
+  entries.forEach((entry) => {
+    assert(allowedDomains.indexOf(entry._domain) >= 0, `index entry has invalid _domain: ${entry.id}`);
+    assert(allowedArch.indexOf(entry._arch) >= 0, `index entry has invalid _arch: ${entry.id}`);
+    assert(allowedSources.indexOf(entry._source) >= 0, `index entry has invalid _source: ${entry.id}`);
+    assert(allowedVerification.indexOf(entry._verification) >= 0, `index entry has invalid _verification: ${entry.id}`);
+    assert(allowedPriority.indexOf(entry._priority) >= 0, `index entry has invalid _priority: ${entry.id}`);
+    assert(Array.isArray(entry._tags), `index entry _tags must be array: ${entry.id}`);
+    assert(Array.isArray(entry._triggers), `index entry _triggers must be array: ${entry.id}`);
+    if (entry.defaultSearch !== false) {
+      assert(entry._triggers.length > 0, `default-search entry must have triggers: ${entry.id}`);
+    }
+    if (entry.kind === 'playbook') {
+      assert(entry._kind_ext === 'diagnostic' || entry._kind_ext === 'build_deploy', `playbook missing valid _kind_ext: ${entry.id}`);
+    }
+    assert(Object.prototype.hasOwnProperty.call(entry, '_replaces'), `index entry missing _replaces: ${entry.id}`);
+    assert(Object.prototype.hasOwnProperty.call(entry, '_superseded_by'), `index entry missing _superseded_by: ${entry.id}`);
+  });
+  assert(entries.some((entry) => entry._domain === 'toolchain'), 'metadata skeleton should include toolchain domain');
+  assert(entries.some((entry) => entry._domain === 'runtime'), 'metadata skeleton should include runtime domain');
+  assert(entries.some((entry) => entry._domain === 'peripheral'), 'metadata skeleton should include peripheral domain');
+});
+
 test('P6 facts are indexed but excluded from default search', () => {
   const entries = readKnowledgeIndex(config());
   const facts = entries.filter((entry) => entry.kind === 'fact');
@@ -489,6 +519,18 @@ test('P2 kb_search returns topic and playbook matches by default', () => {
     assert(item.evidence.topic, `missing evidence topic: ${item.topic}`);
     assert(item.evidence.confidence, `missing evidence confidence: ${item.topic}`);
   });
+});
+
+test('Phase A kb_search returns metadata for indexed matches', () => {
+  const results = searchKnowledge(config(), 'eth1 DMA', { limit: 10 });
+  const match = results.find((item) => item.path === 'kb/playbooks/eth1.md');
+  assert(match, 'missing eth1 playbook search match');
+  assert(match._domain === 'board_system', `unexpected eth1 _domain: ${match._domain}`);
+  assert(match._arch === 'loongarch64', `unexpected eth1 _arch: ${match._arch}`);
+  assert(match._source === 'board_measured', `unexpected eth1 _source: ${match._source}`);
+  assert(match._verification === 'verified', `unexpected eth1 _verification: ${match._verification}`);
+  assert(match.evidence._domain === 'board_system', 'eth1 evidence missing _domain');
+  assert(match.evidence._verification === 'verified', 'eth1 evidence missing _verification');
 });
 
 test('P2 raw evidence remains absent after compacting the knowledge layout', () => {
@@ -527,6 +569,28 @@ test('P3 knowledgeContextHook injects troubleshooting search matches for eth1 qu
     result.data.searchMatches.some((item) => /maintenance\.troubleshooting|preview\.network_profile|maintenance\.troubleshooting|playbook\.eth1/.test(item.topic || '')),
     'missing troubleshooting or eth1 playbook search match'
   );
+});
+
+test('Phase A knowledgeContextHook preserves search match metadata', () => {
+  const state = {
+    turn: 2,
+    observations: [],
+    messages: [
+      { role: 'user', content: 'eth1 DMA 为什么不能用？' },
+    ],
+  };
+  const result = knowledgeContextHook({
+    config: config(),
+    state,
+    action: { tool: 'kb_search', input: { query: 'eth1 DMA 为什么不能用？' } },
+    result: { summary: 'search requested' },
+  });
+  const match = result.data.searchMatches.find((item) => item.path === 'kb/playbooks/eth1.md');
+  assert(match, 'missing eth1 search match in knowledge context hook');
+  assert(match._domain === 'board_system', `unexpected hook _domain: ${match._domain}`);
+  assert(match._arch === 'loongarch64', `unexpected hook _arch: ${match._arch}`);
+  assert(match._source === 'board_measured', `unexpected hook _source: ${match._source}`);
+  assert(match._verification === 'verified', `unexpected hook _verification: ${match._verification}`);
 });
 
 

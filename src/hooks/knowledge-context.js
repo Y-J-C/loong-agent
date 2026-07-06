@@ -90,6 +90,7 @@ function formatSearchMatch(match) {
     `${match.title || match.topic}: ${summarize(match.summary || '', 360)}`,
     match.stage ? `Stage: ${match.stage}` : '',
     match.path ? `Path: ${match.path}` : '',
+    match._verification ? `Verification: ${match._verification}` : '',
     match.unknowns ? `Unknowns: ${summarize(match.unknowns, 220)}` : '',
     match.warnings && match.warnings.length ? `Warnings: ${match.warnings.join('; ')}` : '',
   ].filter(Boolean).join('\n');
@@ -199,6 +200,12 @@ function knowledgeContextHook(context) {
         stage: match.stage,
         sourceType: match.sourceType,
         score: match.score,
+        _domain: match._domain,
+        _arch: match._arch,
+        _source: match._source,
+        _verification: match._verification,
+        _priority: match._priority,
+        _tags: match._tags,
       })),
     },
   };

@@ -6,7 +6,25 @@
     "title": "板卡画像",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "board",
+      "hardware",
+      "profile"
+    ],
+    "_triggers": [
+      "board profile",
+      "Loongson 2K1000",
+      "hardware profile",
+      "board identity"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "topic.environment_report",
@@ -15,7 +33,25 @@
     "title": "环境报告",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "environment",
+      "os",
+      "kernel"
+    ],
+    "_triggers": [
+      "environment report",
+      "os release",
+      "kernel version",
+      "runtime baseline"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "topic.software_stack",
@@ -24,7 +60,26 @@
     "title": "软件栈",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "runtime",
+      "software",
+      "node",
+      "python"
+    ],
+    "_triggers": [
+      "software stack",
+      "node runtime",
+      "python runtime",
+      "npm missing"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
   },
   {
     "id": "topic.compatibility_matrix",
@@ -33,7 +88,23 @@
     "title": "兼容性矩阵",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "compatibility",
+      "runtime"
+    ],
+    "_triggers": [
+      "compatibility matrix",
+      "node 14",
+      "runtime compatibility"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
   },
   {
     "id": "topic.risk_list",
@@ -42,7 +113,23 @@
     "title": "风险清单",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "risk",
+      "safety"
+    ],
+    "_triggers": [
+      "risk list",
+      "forbidden operations",
+      "safety boundary"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "topic.command_reference",
@@ -51,7 +138,24 @@
     "title": "命令参考",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "command",
+      "readonly",
+      "safety"
+    ],
+    "_triggers": [
+      "command reference",
+      "readonly commands",
+      "READONLY_COMMAND_METADATA"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "topic.source_index",
@@ -60,7 +164,23 @@
     "title": "来源索引",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "source",
+      "index"
+    ],
+    "_triggers": [
+      "source index",
+      "evidence source",
+      "knowledge source"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "topic.unknowns",
@@ -69,7 +189,23 @@
     "title": "待确认事项",
     "stage": "adapted",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "unknowns",
+      "pending"
+    ],
+    "_triggers": [
+      "unknowns",
+      "pending confirmation",
+      "uncertain knowledge"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "maintenance.readme",
@@ -78,7 +214,23 @@
     "title": "知识库入口",
     "stage": "p0",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P2",
+    "_tags": [
+      "maintenance",
+      "readme"
+    ],
+    "_triggers": [
+      "knowledge readme",
+      "kb readme",
+      "knowledge base entry"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "maintenance.troubleshooting",
@@ -87,7 +239,23 @@
     "title": "故障排查",
     "stage": "p1",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "troubleshooting",
+      "index"
+    ],
+    "_triggers": [
+      "troubleshooting",
+      "diagnostic index",
+      "playbook index"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "maintenance.stage_status",
@@ -96,7 +264,23 @@
     "title": "仓库知识库阶段状态",
     "stage": "p1",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P2",
+    "_tags": [
+      "stage",
+      "status"
+    ],
+    "_triggers": [
+      "stage status",
+      "knowledge stage",
+      "compact layout status"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "maintenance.scripts",
@@ -105,7 +289,23 @@
     "title": "只读采集脚本说明",
     "stage": "p1",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P2",
+    "_tags": [
+      "scripts",
+      "readonly"
+    ],
+    "_triggers": [
+      "readonly scripts",
+      "collect_env",
+      "script readme"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "maintenance.evidence_map",
@@ -114,7 +314,23 @@
     "title": "证据追溯地图",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "evidence",
+      "map"
+    ],
+    "_triggers": [
+      "evidence map",
+      "evidence trace",
+      "confidence map"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "maintenance.glossary",
@@ -123,7 +339,22 @@
     "title": "知识层术语表",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P2",
+    "_tags": [
+      "glossary"
+    ],
+    "_triggers": [
+      "glossary",
+      "knowledge terms",
+      "kb terminology"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "maintenance.maintenance_guide",
@@ -132,7 +363,23 @@
     "title": "知识层维护规范",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "maintenance",
+      "guide"
+    ],
+    "_triggers": [
+      "maintenance guide",
+      "kb maintenance",
+      "knowledge rules"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "facts.readme",
@@ -141,7 +388,19 @@
     "title": "结构化 facts 说明",
     "stage": "p6",
     "sourceType": "structured_fact",
-    "defaultSearch": false
+    "defaultSearch": false,
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P2",
+    "_tags": [
+      "facts",
+      "schema"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "facts.environment",
@@ -150,7 +409,19 @@
     "title": "环境结构化事实",
     "stage": "p6",
     "sourceType": "structured_fact",
-    "defaultSearch": false
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "facts",
+      "environment"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "facts.software_stack",
@@ -159,7 +430,20 @@
     "title": "软件栈结构化事实",
     "stage": "p6",
     "sourceType": "structured_fact",
-    "defaultSearch": false
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "facts",
+      "runtime",
+      "software"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
   },
   {
     "id": "facts.network",
@@ -168,7 +452,19 @@
     "title": "网络结构化事实",
     "stage": "p6",
     "sourceType": "structured_fact",
-    "defaultSearch": false
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "facts",
+      "network"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "facts.storage_boot",
@@ -177,7 +473,20 @@
     "title": "启动与存储结构化事实",
     "stage": "p6",
     "sourceType": "structured_fact",
-    "defaultSearch": false
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "facts",
+      "storage",
+      "boot"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "facts.peripherals",
@@ -186,7 +495,19 @@
     "title": "外设结构化事实",
     "stage": "p6",
     "sourceType": "structured_fact",
-    "defaultSearch": false
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "facts",
+      "peripheral"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
   },
   {
     "id": "facts.risks",
@@ -195,7 +516,19 @@
     "title": "风险结构化事实",
     "stage": "p6",
     "sourceType": "structured_fact",
-    "defaultSearch": false
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "facts",
+      "risk"
+    ],
+    "_triggers": [],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "playbook.readme",
@@ -204,7 +537,24 @@
     "title": "排查 playbook 说明",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P2",
+    "_tags": [
+      "playbook",
+      "readme"
+    ],
+    "_triggers": [
+      "playbook readme",
+      "playbook structure",
+      "diagnostic playbooks"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "playbook.eth1",
@@ -213,7 +563,26 @@
     "title": "eth1 不可用排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "network",
+      "eth1",
+      "dma"
+    ],
+    "_triggers": [
+      "eth1",
+      "DMA",
+      "network down",
+      "ethernet failure"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "playbook.npm",
@@ -222,7 +591,26 @@
     "title": "npm 缺失排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "node",
+      "npm",
+      "runtime"
+    ],
+    "_triggers": [
+      "npm",
+      "npx",
+      "npm missing",
+      "node package manager"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
   },
   {
     "id": "playbook.gpp",
@@ -231,7 +619,26 @@
     "title": "g++ / c++ 缺失排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "g++",
+      "c++",
+      "toolchain"
+    ],
+    "_triggers": [
+      "g++",
+      "c++",
+      "cc1plus",
+      "cpp compile failure"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "toolchain"
   },
   {
     "id": "playbook.pip",
@@ -240,7 +647,25 @@
     "title": "pip / pip3 排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "python",
+      "pip"
+    ],
+    "_triggers": [
+      "pip",
+      "pip3",
+      "python3 -m pip",
+      "python package manager"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
   },
   {
     "id": "playbook.containers",
@@ -249,7 +674,26 @@
     "title": "Docker / Podman 排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "docker",
+      "podman",
+      "containers"
+    ],
+    "_triggers": [
+      "docker",
+      "podman",
+      "containers",
+      "container runtime"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
   },
   {
     "id": "playbook.boot_efi",
@@ -258,7 +702,26 @@
     "title": "/boot/efi FAT warning 排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "boot",
+      "efi",
+      "storage"
+    ],
+    "_triggers": [
+      "/boot/efi",
+      "EFI",
+      "FAT warning",
+      "boot partition"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "playbook.gpt_warning",
@@ -267,7 +730,24 @@
     "title": "Alternate GPT 异常排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "gpt",
+      "storage"
+    ],
+    "_triggers": [
+      "alternate GPT",
+      "GPT warning",
+      "partition table warning"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "board_system"
   },
   {
     "id": "playbook.audio",
@@ -276,7 +756,25 @@
     "title": "Audio no codecs found 排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "audio",
+      "codec"
+    ],
+    "_triggers": [
+      "audio",
+      "no codecs found",
+      "codec",
+      "sound failure"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
   },
   {
     "id": "playbook.display",
@@ -285,7 +783,26 @@
     "title": "Display CRTC 异常排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "display",
+      "drm",
+      "crtc"
+    ],
+    "_triggers": [
+      "display",
+      "CRTC",
+      "DRM",
+      "display failure"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
   },
   {
     "id": "playbook.gpio_i2c_spi_uart",
@@ -294,7 +811,28 @@
     "title": "GPIO/I2C/SPI/UART 排查",
     "stage": "p6",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "gpio",
+      "i2c",
+      "spi",
+      "uart"
+    ],
+    "_triggers": [
+      "GPIO",
+      "I2C",
+      "SPI",
+      "UART",
+      "peripheral bus"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
   },
   {
     "id": "playbook.rpc_spawn_eperm",
@@ -303,7 +841,26 @@
     "title": "RPC spawn EPERM 与板端 RPC 通过",
     "stage": "phase5",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "rpc",
+      "spawn",
+      "eperm"
+    ],
+    "_triggers": [
+      "spawn EPERM",
+      "RPC",
+      "board RPC",
+      "phase5"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   },
   {
     "id": "playbook.project_run_check_loong_agent",
@@ -312,6 +869,23 @@
     "title": "loong-agent 项目运行检查",
     "stage": "file-skills-phase1",
     "sourceType": "summary",
-    "defaultSearch": true
+    "defaultSearch": true,
+    "_kind_ext": "build_deploy",
+    "_arch": "generic",
+    "_source": "repo_derived",
+    "_verification": "verified",
+    "_priority": "P1",
+    "_tags": [
+      "loong-agent",
+      "project-run-check"
+    ],
+    "_triggers": [
+      "project run check",
+      "loong-agent run check",
+      "project validation"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
   }
 ]

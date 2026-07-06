@@ -66,6 +66,14 @@ function readKnowledgeIndex(config) {
   return parsed.map((item, index) => normalizeIndexEntry(config, item, index));
 }
 
+function extractIndexMetadata(item) {
+  const metadata = {};
+  for (const key of Object.keys(item || {})) {
+    if (key.charAt(0) === '_') metadata[key] = item[key];
+  }
+  return metadata;
+}
+
 function normalizeIndexEntry(config, item, index) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
     throw new Error(`Knowledge index entry must be an object at index ${index}`);
@@ -88,6 +96,7 @@ function normalizeIndexEntry(config, item, index) {
     stage: String(item.stage || ''),
     sourceType: String(item.sourceType || 'summary'),
     defaultSearch: item.defaultSearch !== false,
+    ...extractIndexMetadata(item),
   };
 }
 
@@ -148,7 +157,7 @@ function knowledgeWarnings(record) {
 }
 
 function evidenceFor(config, topic, record) {
-  return {
+  return Object.assign({
     source: 'kb',
     path: relativePath(config, record.filePath),
     topic,
@@ -156,7 +165,7 @@ function evidenceFor(config, topic, record) {
     confidence: record.confidence,
     last_updated: record.last_updated,
     sources: record.sources,
-  };
+  }, extractIndexMetadata(record));
 }
 
 function uniqueValues(values) {
@@ -368,7 +377,7 @@ function summarizeMatch(text, terms, maxLength) {
 }
 
 function evidenceForIndexEntry(entry) {
-  return {
+  return Object.assign({
     source: 'kb',
     path: entry.path,
     topic: entry.id,
@@ -376,7 +385,19 @@ function evidenceForIndexEntry(entry) {
     confidence: entry.kind === 'raw' ? 'high' : 'medium',
     stage: entry.stage,
     sourceType: entry.sourceType,
-  };
+  }, extractIndexMetadata(entry));
+}
+
+function verificationWarnings(record) {
+  return record && record._verification === 'needs_board_check'
+    ? ['Knowledge entry needs current board verification.']
+    : [];
+}
+
+function metadataForTopic(config, topic) {
+  const manifestId = `topic.${topic}`;
+  const entry = readKnowledgeIndex(config).find((item) => item.id === manifestId);
+  return entry ? extractIndexMetadata(entry) : {};
 }
 
 function searchIndexedDocuments(config, query, terms, options) {
@@ -392,6 +413,8 @@ function searchIndexedDocuments(config, query, terms, options) {
     const rawScore = matchScore(`${entry.id}\n${entry.title}\n${entry.path}\n${text}`, terms);
     if (!rawScore) continue;
     const score = entry.kind === 'raw' && includeRaw ? rawScore + 1 : rawScore;
+    const metadata = extractIndexMetadata(entry);
+    const warnings = verificationWarnings(entry);
     matches.push({
       kind: entry.kind,
       id: entry.id,
@@ -406,11 +429,12 @@ function searchIndexedDocuments(config, query, terms, options) {
       summary: summarizeMatch(text, terms, entry.kind === 'raw' ? 500 : 400),
       unknowns: '',
       evidence: evidenceForIndexEntry(entry),
-      warning: '',
-      warnings: [],
+      warning: warnings.length ? warnings[0] : '',
+      warnings,
       facts: /environment_report|software_stack/.test(`${entry.id} ${entry.path}`)
         ? factsForTopic(config, entry.id.indexOf('software_stack') >= 0 ? 'software_stack' : 'environment_report')
         : undefined,
+      ...metadata,
     });
   }
   return matches;
@@ -431,6 +455,9 @@ function searchKnowledge(config, query, options) {
     const record = loaded.record;
     const score = matchScore(`${record.topic}\n${record.content}\n${record.unknowns}\n${record.text}`, terms);
     if (!score) continue;
+    const metadata = metadataForTopic(config, topic);
+    const warnings = (loaded.warnings || (loaded.warning ? [loaded.warning] : [])).concat(verificationWarnings(metadata));
+    const evidence = Object.assign(evidenceFor(config, topic, Object.assign({}, record, metadata)), metadata);
     matches.push({
       kind: 'topic',
       id: topic,
@@ -442,10 +469,11 @@ function searchKnowledge(config, query, options) {
       path: record.path,
       summary: summarizeMatch(record.content || record.text, terms, 400),
       unknowns: summarize(record.unknowns || '', 300),
-      evidence: evidenceFor(config, topic, record),
-      warning: loaded.warning,
-      warnings: loaded.warnings || (loaded.warning ? [loaded.warning] : []),
+      evidence,
+      warning: warnings.length ? warnings[0] : '',
+      warnings,
       facts: factsForTopic(config, topic) || undefined,
+      ...metadata,
     });
   }
   matches.push.apply(matches, searchIndexedDocuments(config, query, terms, options || {}));
