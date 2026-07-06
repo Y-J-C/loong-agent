@@ -228,7 +228,7 @@ TUI.prototype.doRender = function doRender() {
   if (first) { this._fullRender(newLines, width, height, cursorPos, false); }
   else if (widthChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (heightChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
-  else if (clear) { this._fullRender(newLines, width, height, cursorPos, true); }
+  else if (clear && !appendStreamActive) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (appendStreamActive) {
     this._appendStreamRender(newLines, width, height, cursorPos, viewportTop, volatileTailLineCount);
   } else { this._diffRender(newLines, width, height, cursorPos, viewportTop, hasVisibleOverlays); }
@@ -295,7 +295,35 @@ TUI.prototype._isPrefix = function _isPrefix(prefixLines, lines) {
   return true;
 };
 
-TUI.prototype._appendStreamRender = function _appendStreamRender(newLines, width, height, cursorPos, viewportTop, volatileTailLineCount) {
+TUI.prototype._findChangedRange = function _findChangedRange(oldLines, newLines) {
+  var firstChanged = 0;
+  while (firstChanged < oldLines.length && firstChanged < newLines.length && oldLines[firstChanged] === newLines[firstChanged]) {
+    firstChanged += 1;
+  }
+  if (firstChanged >= oldLines.length && firstChanged >= newLines.length) {
+    return { firstChanged: -1, lastChanged: -1, oldLastChanged: -1, newLastChanged: -1 };
+  }
+
+  var oldLastChanged = oldLines.length - 1;
+  var newLastChanged = newLines.length - 1;
+  while (
+    oldLastChanged >= firstChanged &&
+    newLastChanged >= firstChanged &&
+    oldLines[oldLastChanged] === newLines[newLastChanged]
+  ) {
+    oldLastChanged -= 1;
+    newLastChanged -= 1;
+  }
+
+  return {
+    firstChanged: firstChanged,
+    lastChanged: Math.max(oldLastChanged, newLastChanged),
+    oldLastChanged: oldLastChanged,
+    newLastChanged: newLastChanged,
+  };
+};
+
+TUI.prototype._classifyAppendStreamChange = function _classifyAppendStreamChange(newLines, height, viewportTop, volatileTailLineCount) {
   var oldTail = Math.max(0, Math.min(this.previousLines.length, Number(this.previousVolatileTailLineCount) || 0));
   var newTail = Math.max(0, Math.min(newLines.length, Number(volatileTailLineCount) || 0));
   var oldStable = this.previousLines.slice(0, this.previousLines.length - oldTail);
@@ -303,44 +331,143 @@ TUI.prototype._appendStreamRender = function _appendStreamRender(newLines, width
   var tailLines = newLines.slice(newLines.length - newTail);
   var stablePrefix = this._isPrefix(oldStable, newStable);
   var stableAdded = stablePrefix ? newStable.slice(oldStable.length) : [];
-  var buffer = '';
+  var viewportBottom = viewportTop + height - 1;
 
   if (stablePrefix && stableAdded.length > 0) {
-    buffer = '\x1b[?2026h\x1b[?25l' + this._moveToScreenRow(Math.max(0, height - 1));
-    for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
-      buffer += '\r\n' + stableAdded[addedIndex];
-      this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
-    }
-    for (var tailIndex = 0; tailIndex < tailLines.length; tailIndex += 1) {
-      buffer += '\r\n' + tailLines[tailIndex];
-      this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
-    }
-    buffer += '\x1b[?2026l';
-    this.terminal.write(buffer);
-    this.previousViewportTop = viewportTop;
-    this.lastDiffMode = 'append-stream';
-    return;
+    return {
+      type: 'stable-append',
+      stableAdded: stableAdded,
+      tailLines: tailLines,
+      firstChanged: oldStable.length,
+      lastChanged: newStable.length - 1,
+    };
+  }
+
+  if (oldStable.length > 0 && newStable.length > oldStable.length && this._isPrefix(oldStable.slice(0, oldStable.length - 1), newStable)) {
+    return {
+      type: 'tail-grow',
+      stableAdded: newStable.slice(oldStable.length - 1),
+      tailLines: tailLines,
+      firstChanged: oldStable.length - 1,
+      lastChanged: newStable.length - 1,
+    };
   }
 
   if (stablePrefix && stableAdded.length === 0) {
-    var tailStartLogical = Math.max(0, newLines.length - newTail);
-    var startRow = this._screenRowForLogicalRow(tailStartLogical, viewportTop, height);
-    if (startRow !== null) {
-      buffer = '\x1b[?2026h\x1b[?25l' + '\x1b[' + (startRow + 1) + ';1H';
-      this.hardwareCursorRow = startRow;
-      for (var redrawIndex = 0; redrawIndex < tailLines.length; redrawIndex += 1) {
-        if (redrawIndex > 0) {
-          buffer += '\n';
-          this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
-        }
-        buffer += '\x1b[2K' + tailLines[redrawIndex];
-      }
-      buffer += '\x1b[?2026l';
-      this.terminal.write(buffer);
+    return {
+      type: 'tail-only',
+      tailLines: tailLines,
+      firstChanged: Math.max(0, newLines.length - newTail),
+      lastChanged: newLines.length - 1,
+    };
+  }
+
+  var range = this._findChangedRange(this.previousLines, newLines);
+  if (range.firstChanged < 0) {
+    return { type: 'unchanged', firstChanged: -1, lastChanged: -1 };
+  }
+
+  var newAffectedEnd = Math.max(range.firstChanged, range.newLastChanged);
+  if (newAffectedEnd < viewportTop) {
+    return {
+      type: 'silent-above',
+      firstChanged: range.firstChanged,
+      lastChanged: newAffectedEnd,
+    };
+  }
+
+  if (range.firstChanged <= viewportBottom && newAffectedEnd >= viewportTop) {
+    return {
+      type: 'viewport-range',
+      firstChanged: range.firstChanged,
+      lastChanged: newAffectedEnd,
+    };
+  }
+
+  return {
+    type: 'unsafe-fallback',
+    firstChanged: range.firstChanged,
+    lastChanged: range.lastChanged,
+  };
+};
+
+TUI.prototype._writeAppendStreamStableLines = function _writeAppendStreamStableLines(stableAdded, tailLines, height, diffMode) {
+  var buffer = '\x1b[?2026h\x1b[?25l' + this._moveToScreenRow(Math.max(0, height - 1));
+  for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
+    buffer += '\r\n' + stableAdded[addedIndex];
+    this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+  }
+  for (var tailIndex = 0; tailIndex < tailLines.length; tailIndex += 1) {
+    buffer += '\r\n' + tailLines[tailIndex];
+    this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+  }
+  buffer += '\x1b[?2026l';
+  this.terminal.write(buffer);
+  this.lastDiffMode = diffMode;
+};
+
+TUI.prototype._writeAppendStreamRange = function _writeAppendStreamRange(newLines, height, viewportTop, firstChanged, lastChanged, diffMode) {
+  var startLogical = Math.max(firstChanged, viewportTop);
+  var endLogical = Math.min(lastChanged, viewportTop + height - 1, newLines.length - 1);
+  if (startLogical > endLogical) return false;
+
+  var startRow = this._screenRowForLogicalRow(startLogical, viewportTop, height);
+  if (startRow === null) return false;
+
+  var buffer = '\x1b[?2026h\x1b[?25l\x1b[' + (startRow + 1) + ';1H';
+  this.hardwareCursorRow = startRow;
+  for (var logicalRow = startLogical; logicalRow <= endLogical; logicalRow += 1) {
+    if (logicalRow > startLogical) {
+      buffer += '\n';
+      this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+    }
+    buffer += '\x1b[2K' + newLines[logicalRow];
+  }
+  buffer += '\x1b[?2026l';
+  this.terminal.write(buffer);
+  this.lastDiffMode = diffMode;
+  return true;
+};
+
+TUI.prototype._appendStreamRender = function _appendStreamRender(newLines, width, height, cursorPos, viewportTop, volatileTailLineCount) {
+  var decision = this._classifyAppendStreamChange(newLines, height, viewportTop, volatileTailLineCount);
+
+  if (decision.type === 'stable-append') {
+    this._writeAppendStreamStableLines(decision.stableAdded, decision.tailLines, height, 'append-stream');
+    this.previousViewportTop = viewportTop;
+    return;
+  }
+
+  if (decision.type === 'tail-grow') {
+    this._writeAppendStreamStableLines(decision.stableAdded, decision.tailLines, height, 'append-stream-tail-grow');
+    this.previousViewportTop = viewportTop;
+    return;
+  }
+
+  if (decision.type === 'tail-only') {
+    if (this._writeAppendStreamRange(newLines, height, viewportTop, decision.firstChanged, decision.lastChanged, 'append-stream-tail')) {
       this.previousViewportTop = viewportTop;
-      this.lastDiffMode = 'append-stream-tail';
       return;
     }
+  }
+
+  if (decision.type === 'silent-above') {
+    this.previousViewportTop = viewportTop;
+    this.lastDiffMode = 'append-stream-silent-above';
+    return;
+  }
+
+  if (decision.type === 'viewport-range') {
+    if (this._writeAppendStreamRange(newLines, height, viewportTop, decision.firstChanged, decision.lastChanged, 'append-stream-range')) {
+      this.previousViewportTop = viewportTop;
+      return;
+    }
+  }
+
+  if (decision.type === 'unchanged') {
+    this.previousViewportTop = viewportTop;
+    this.lastDiffMode = 'unchanged';
+    return;
   }
 
   this._fullRender(newLines, width, height, cursorPos, true);
