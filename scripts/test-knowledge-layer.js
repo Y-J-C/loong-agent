@@ -127,6 +127,15 @@ test('Phase B topics are registered and loadable', () => {
   });
 });
 
+test('Phase C book startup topic is registered and loadable', () => {
+  const topics = listTopics();
+  assert(topics.indexOf('book_startup_chain') >= 0, 'missing Phase C topic: book_startup_chain');
+  const loaded = readTopic(config(), 'book_startup_chain');
+  assert(loaded.ok === true, 'Phase C topic should load: book_startup_chain');
+  assert(loaded.record.content.indexOf('bootloader') >= 0, 'Phase C topic missing bootloader context');
+  assert(loaded.record.sources.indexOf('kb/book_first_platform_reference.md') >= 0, 'Phase C topic missing book source note');
+});
+
 test('knowledge topic source paths exist when they reference local kb files', () => {
   const topics = listTopics();
   let localSourceCount = 0;
@@ -499,6 +508,30 @@ test('Phase B MVP playbooks have fixed sections and safe boundaries', () => {
   assert(serial.indexOf('不写串口') >= 0, 'serial playbook must forbid writing serial devices');
 });
 
+test('Phase C book-derived playbooks have fixed sections and unverified boundaries', () => {
+  const playbooks = {
+    'serial no output': 'kb/playbooks/boot-serial-no-output.md',
+    'bootloader hang': 'kb/playbooks/bootloader-hang.md',
+    'kernel load failure': 'kb/playbooks/boot-kernel-load-failure.md',
+    'display no output': 'kb/playbooks/display-no-output.md',
+    'SSH remote access': 'kb/playbooks/network-remote-access.md',
+    'yum mips64el toolchain': 'kb/playbooks/book-basic-toolchain-boundary.md',
+  };
+  const sections = ['## 结论', '## 当前状态', '## 历史证据', '## 风险', '## 禁止操作', '## 允许的只读排查', '## 待确认', '## 证据路径'];
+  Object.keys(playbooks).forEach((label) => {
+    const relativePath = playbooks[label];
+    assertWorkspaceRelativePathExists(relativePath, `Phase C playbook ${label}`);
+    const text = readWorkspaceFile(relativePath);
+    sections.forEach((section) => {
+      assert(text.indexOf(section) >= 0, `Phase C playbook ${label} missing section: ${section}`);
+    });
+    assert(/book_reference|书稿/.test(text), `Phase C playbook ${label} must state book reference source`);
+    assert(/needs_board_check|待当前板端验证/.test(text), `Phase C playbook ${label} must state board-check boundary`);
+    assert(/只读|read-only/i.test(text), `Phase C playbook ${label} must state read-only diagnostics`);
+    assert(/禁止操作/.test(text), `Phase C playbook ${label} must state forbidden operations`);
+  });
+});
+
 test('Phase A knowledge index preserves metadata skeleton', () => {
   const entries = readKnowledgeIndex(config());
   const allowedDomains = ['board_system', 'toolchain', 'runtime', 'peripheral', 'ecosystem', 'project'];
@@ -545,6 +578,35 @@ test('Phase B knowledge index includes MVP content entries', () => {
       assert(entry[field] === expected[id][field], `unexpected ${field} for ${id}: ${entry[field]}`);
     });
     assertWorkspaceRelativePathExists(entry.path, `Phase B index entry ${id}`);
+  });
+});
+
+test('Phase C knowledge index includes book system entries', () => {
+  const entries = readKnowledgeIndex(config());
+  assert(entries.length >= 49, `Phase C index should include at least 49 entries, got ${entries.length}`);
+  assert(!entries.some((entry) => /pmon/i.test(entry.id)), 'Phase C index must not add PMON-named ids');
+  const expected = {
+    'maintenance.book_first_platform_reference': { kind: 'maintenance', path: 'kb/book_first_platform_reference.md', _domain: 'project' },
+    'topic.book_startup_chain': { kind: 'topic', path: 'kb/book_startup_chain.md', _domain: 'board_system' },
+    'playbook.boot_serial_no_output': { kind: 'playbook', path: 'kb/playbooks/boot-serial-no-output.md', _domain: 'board_system' },
+    'playbook.bootloader_hang': { kind: 'playbook', path: 'kb/playbooks/bootloader-hang.md', _domain: 'board_system' },
+    'playbook.boot_kernel_load_failure': { kind: 'playbook', path: 'kb/playbooks/boot-kernel-load-failure.md', _domain: 'board_system' },
+    'playbook.display_no_output': { kind: 'playbook', path: 'kb/playbooks/display-no-output.md', _domain: 'peripheral' },
+    'playbook.network_remote_access': { kind: 'playbook', path: 'kb/playbooks/network-remote-access.md', _domain: 'board_system' },
+    'playbook.book_basic_toolchain_boundary': { kind: 'playbook', path: 'kb/playbooks/book-basic-toolchain-boundary.md', _domain: 'toolchain' },
+  };
+  Object.keys(expected).forEach((id) => {
+    const entry = entries.find((item) => item.id === id);
+    assert(entry, `missing Phase C index entry: ${id}`);
+    Object.keys(expected[id]).forEach((field) => {
+      assert(entry[field] === expected[id][field], `unexpected ${field} for ${id}: ${entry[field]}`);
+    });
+    assert(entry._arch === 'loongarch64', `Phase C entry must be loongarch64: ${id}`);
+    assert(entry._source === 'book_reference', `Phase C entry must be book_reference: ${id}`);
+    assert(entry._verification === 'needs_board_check', `Phase C entry must need board check: ${id}`);
+    assert(entry.defaultSearch === true, `Phase C entry must be default searchable: ${id}`);
+    assert(Array.isArray(entry._triggers) && entry._triggers.length > 0, `Phase C entry missing triggers: ${id}`);
+    assertWorkspaceRelativePathExists(entry.path, `Phase C index entry ${id}`);
   });
 });
 
@@ -601,6 +663,28 @@ test('Phase B kb_search finds MVP content', () => {
     assert(match, `kb_search did not return ${expectedPath} for query: ${query}`);
     assert(match._domain, `Phase B search match missing _domain: ${expectedPath}`);
     assert(match._verification, `Phase B search match missing _verification: ${expectedPath}`);
+  });
+});
+
+test('Phase C kb_search finds book-derived system entries with verification warning', () => {
+  const cases = [
+    ['serial no output', 'kb/playbooks/boot-serial-no-output.md'],
+    ['bootloader hang', 'kb/playbooks/bootloader-hang.md'],
+    ['kernel load failure', 'kb/playbooks/boot-kernel-load-failure.md'],
+    ['display no output', 'kb/playbooks/display-no-output.md'],
+    ['SSH remote access', 'kb/playbooks/network-remote-access.md'],
+    ['yum mips64el toolchain', 'kb/playbooks/book-basic-toolchain-boundary.md'],
+  ];
+  cases.forEach(([query, expectedPath]) => {
+    const results = searchKnowledge(config(), query, { limit: 10 });
+    const match = results.find((item) => item.path === expectedPath);
+    assert(match, `kb_search did not return ${expectedPath} for query: ${query}`);
+    assert(match._source === 'book_reference', `Phase C search match source mismatch: ${expectedPath}`);
+    assert(match._verification === 'needs_board_check', `Phase C search match verification mismatch: ${expectedPath}`);
+    assert(
+      (match.warnings || []).indexOf('Knowledge entry needs current board verification.') >= 0,
+      `Phase C search match missing board verification warning: ${expectedPath}`
+    );
   });
 });
 

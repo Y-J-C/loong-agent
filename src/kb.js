@@ -15,6 +15,7 @@ const KB_TOPICS = {
   unknowns: 'unknowns.md',
   build_guide: 'build_guide.md',
   loongarch_isa: 'loongarch_isa.md',
+  book_startup_chain: 'book_startup_chain.md',
 };
 
 const METADATA_FIELDS = ['status', 'last_updated', 'sources', 'confidence'];

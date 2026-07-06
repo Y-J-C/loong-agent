@@ -19,6 +19,7 @@ Agent topic sources:
 - Software and package state: `kb/software_stack.md`, `kb/compatibility_matrix.md`, `kb/playbooks/npm.md`, `kb/playbooks/gpp.md`, `kb/playbooks/pip.md`, `kb/playbooks/containers.md`.
 - Build and architecture: `kb/build_guide.md`, `kb/loongarch_isa.md`, `kb/facts/build_tools.json`, `kb/playbooks/disk-space.md`, `kb/playbooks/openblas-build.md`.
 - Serial communication: `kb/playbooks/serial-communication.md`, `kb/facts/peripherals.json`, `kb/playbooks/gpio-i2c-spi-uart.md`.
+- Book system layer: `kb/book_first_platform_reference.md`, `kb/book_startup_chain.md`, `kb/playbooks/boot-serial-no-output.md`, `kb/playbooks/bootloader-hang.md`, `kb/playbooks/boot-kernel-load-failure.md`, `kb/playbooks/display-no-output.md`, `kb/playbooks/network-remote-access.md`, `kb/playbooks/book-basic-toolchain-boundary.md`.
 - Risk and uncertainty: `kb/risk_list.md`, `kb/unknowns.md`, `kb/maintenance_guide.md`.
 
 Structured sources:
@@ -48,3 +49,6 @@ Integrity:
 - Official recovery image and backup documentation remain pending.
 - External package repository state can change and must be rechecked before install planning.
 - Whether the local Codex sandbox `spawn EPERM` restriction can be relaxed remains pending.
+- OpenBLAS build logs and artifact validation remain pending repository evidence.
+- Serial pinout, voltage, and safe port mapping remain pending board documentation or measured verification.
+- Book-derived startup, display, network, and toolchain entries are `book_reference + needs_board_check` until current-board evidence upgrades them.
