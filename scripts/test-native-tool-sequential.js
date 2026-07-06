@@ -208,6 +208,22 @@ test('passes none toolChoice on final loop', async () => {
   assert(run.nativeRequests[0].options.toolChoice === 'none', 'final loop toolChoice should be none');
 });
 
+test('does not execute native toolCalls when final loop toolChoice is none', async () => {
+  const run = await runScenario([
+    toolMessage('', [
+      { id: 'dsml_0', name: 'first', arguments: { value: 'late' } },
+    ]),
+  ], {
+    config: { maxLoops: 1 },
+    userPrompt: 'say hello',
+  });
+
+  assert(run.nativeRequests[0].options.toolChoice === 'none', 'final loop toolChoice should be none');
+  assert(run.registry.order.length === 0, 'final loop tool calls should not execute');
+  assert(run.events.some((event) => event.type === 'turn_end' && event.reason === 'native_tool_call_disallowed'), 'final loop disallow reason missing');
+  assert(run.result.summary.indexOf('Reached max loop limit') >= 0, 'final loop should fall back without executing tools');
+});
+
 test('honors explicit nativeToolChoice override', async () => {
   const required = await runScenario([textMessage('done')], {
     config: { nativeToolChoice: 'required' },

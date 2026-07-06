@@ -301,7 +301,8 @@ function nativeMessageToolCalls(message) {
     }));
 }
 
-function parseNativeAgentMessage(message) {
+function parseNativeAgentMessage(message, options) {
+  options = options || {};
   if (!message || typeof message !== 'object') {
     return {
       kind: 'invalid_action',
@@ -310,6 +311,14 @@ function parseNativeAgentMessage(message) {
   }
   const text = nativeMessageText(message);
   const toolCalls = nativeMessageToolCalls(message);
+  if (toolCalls.length && options.toolChoice === 'none') {
+    return {
+      kind: 'invalid_action',
+      error: createLoopError('Native tool calls are not allowed on the final turn; return a final answer instead.', 'native_tool_call_disallowed'),
+      assistantText: text,
+      toolCalls: [],
+    };
+  }
   if (!toolCalls.length) {
     if (!text.trim()) {
       return {
@@ -1108,7 +1117,9 @@ function shouldGuardRepeatedTool(tool) {
   return repeatPolicyForTool(tool) === 'answerable_once' || guardedNames[tool.name];
 }
 
-function ensureToolCallHistory(state) {
+function ensureToolCallHistory(context) {
+  if (context && context.toolCallHistory) return context.toolCallHistory;
+  const state = context && context.state ? context.state : context;
   if (!state.toolCallHistory) state.toolCallHistory = {};
   return state.toolCallHistory;
 }
@@ -1116,7 +1127,7 @@ function ensureToolCallHistory(state) {
 function evaluateRepeatPolicy(context, action) {
   const tool = context.registry.get(action.tool);
   if (!shouldGuardRepeatedTool(tool)) return { mode: 'allow' };
-  const history = ensureToolCallHistory(context.state);
+  const history = ensureToolCallHistory(context);
   const fingerprint = toolFingerprint(action);
   const entry = history[fingerprint] || {
     fingerprint,
@@ -1734,6 +1745,7 @@ async function runAgentLoop(options) {
   let currentUserPrompt = userPrompt || '';
   let invalidJsonCount = 0;
   let consecutiveToolErrors = 0;
+  const toolCallHistory = {};
   const runStartedAt = Date.now();
 
   startRun(state);
@@ -1784,6 +1796,7 @@ async function runAgentLoop(options) {
       runStartedAt,
       state,
       turn,
+      toolCallHistory,
       turnEnded: false,
       turnStartedAt: Date.now(),
       isAborted,
@@ -1864,7 +1877,7 @@ async function runAgentLoop(options) {
           }));
           assistantAlreadyEmitted = false;
         }
-        response = parseNativeAgentMessage(nativeMessage);
+        response = parseNativeAgentMessage(nativeMessage, { toolChoice: nativeOptions.toolChoice });
         content = response.assistantText !== undefined ? response.assistantText : nativeMessageText(nativeMessage);
         nativeAssistantToolCalls = response.toolCalls || nativeMessageToolCalls(nativeMessage);
         if (!modelMetadata) modelMetadata = nativeModelMetadata(config, nativeMessage, {
@@ -2051,6 +2064,8 @@ async function runAgentLoop(options) {
       invalidJsonCount += 1;
       const invalidReason = response.error && response.error.code === 'invalid_tool_arguments_json'
         ? 'invalid_tool_arguments_json'
+        : response.error && response.error.code === 'native_tool_call_disallowed'
+          ? 'native_tool_call_disallowed'
         : 'invalid_model_json';
       const result = {
         error: errorMessage(response.error),
@@ -2058,7 +2073,11 @@ async function runAgentLoop(options) {
       };
       recordToolResult(state, {
         tool: 'model_response',
-        reason: invalidReason === 'invalid_tool_arguments_json' ? 'invalid native tool arguments JSON' : 'invalid JSON response',
+        reason: invalidReason === 'invalid_tool_arguments_json'
+          ? 'invalid native tool arguments JSON'
+          : invalidReason === 'native_tool_call_disallowed'
+            ? 'native tool call disallowed'
+            : 'invalid JSON response',
         input: {},
       }, result);
       await emitTurnEnd(turnContext, {
@@ -2076,6 +2095,13 @@ async function runAgentLoop(options) {
             'Do not repeat the same large tool call. Split long content into smaller steps, use shorter arguments, or write large scripts/files in smaller chunks.',
             'Return a valid native tool call with complete JSON arguments, or answer with what failed if you cannot safely continue.',
           ].join('\n'),
+          internal: true,
+        });
+        continue;
+      }
+      if (invalidReason === 'native_tool_call_disallowed') {
+        pendingMessages.push({
+          content: 'This is the final allowed turn. Do not call tools or emit tool-call markup. Return a final answer using the existing observations.',
           internal: true,
         });
         continue;

@@ -26,6 +26,7 @@ function createRuntimeHealthToolDefinition() {
     category: 'runtime',
     safety: { readOnly: true, sensitive: true, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'runtime' },
+    repeatPolicy: 'answerable_once',
     resultSchema: {
       data: 'runtime health summary',
         evidence: 'provider, profile, model, capabilities, node, platform',

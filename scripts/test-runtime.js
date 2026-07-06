@@ -942,6 +942,8 @@ test('Loong extension registers board tools by default and can be disabled', () 
   assert(enabled.tools.loong_storage_check, 'default loong extension missing loong_storage_check');
   assert(enabled.tools.command_reference, 'default loong extension missing command_reference');
   assert(enabled.tools.loong_env_check.repeatPolicy === 'answerable_once', 'loong_env_check should guard repeated identical calls');
+  assert(enabled.tools.board_profile.repeatPolicy === 'answerable_once', 'board_profile should guard repeated identical calls');
+  assert(createDefaultTools().find((tool) => tool.name === 'runtime_health').repeatPolicy === 'answerable_once', 'runtime_health should guard repeated identical calls');
   const disabled = createExtensionRuntime({ config: { extensions: [] } });
   assert(!disabled.tools.board_profile, 'disabled extensions should not expose board_profile');
   assert(!disabled.tools.loong_env_check, 'disabled extensions should not expose loong_env_check');
@@ -3791,6 +3793,41 @@ test('command_reference repeat guard blocks second identical call and falls back
   assert(end && end.completionSource === 'repeat_guard_fallback', 'repeat fallback source missing');
   assert(result.completionSource === 'repeat_guard_fallback', 'result source mismatch');
   assert(result.summary.indexOf('重复调用 command_reference') >= 0, 'fallback summary missing repeat guard text');
+});
+
+test('repeat guard history is isolated per agent run', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-repeat-history-per-run',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1 || calls === 3) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'loong_env_check',
+          input: {},
+          reason: 'current environment evidence',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: `run ${calls === 2 ? 'one' : 'two'} answered from fresh evidence`,
+        status: 'ok',
+      });
+    },
+  });
+
+  const events = [];
+  const cfg = config('test-repeat-history-per-run', process.cwd());
+  cfg.maxLoops = 4;
+  const agent = createAgent(cfg, { session: null });
+  agent.subscribe((event) => events.push(event));
+  await agent.prompt('first current environment question');
+  await agent.prompt('second current environment question');
+  const loongEnvEnds = events.filter((event) => event.type === 'tool_execution_end' && event.toolName === 'loong_env_check');
+
+  assert(loongEnvEnds.length === 2, `expected loong_env_check to run once per agent run, got ${loongEnvEnds.length}`);
+  assert(loongEnvEnds.every((event) => event.isError === false), 'loong_env_check should not be blocked across separate agent runs');
 });
 
 test('bash repeat guard blocks identical diagnostic command on second call', async () => {

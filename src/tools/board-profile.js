@@ -12,6 +12,7 @@ function createBoardProfileToolDefinition() {
     category: 'board',
     safety: { readOnly: true, sensitive: false, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'board' },
+    repeatPolicy: 'answerable_once',
     resultSchema: {
       data: 'board profile payload',
       evidence: 'resolved board id and fallback status',
