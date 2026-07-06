@@ -13,6 +13,59 @@ function renderInlineMarkup(text) {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '\x1b[38;5;117m$1\x1b[0m(\x1b[38;5;244m$2\x1b[0m)');
 }
 
+function countIndentSpaces(text) {
+  var match = String(text || '').match(/^ */);
+  return match ? match[0].length : 0;
+}
+
+function unescapePipe(text) {
+  return String(text || '').replace(/\\\|/g, '|');
+}
+
+function splitTableRow(line) {
+  var text = String(line || '').trim();
+  if (text.charAt(0) === '|') text = text.slice(1);
+  if (text.charAt(text.length - 1) === '|') text = text.slice(0, -1);
+  var cells = [];
+  var current = '';
+  var escaped = false;
+  for (var index = 0; index < text.length; index += 1) {
+    var ch = text.charAt(index);
+    if (escaped) {
+      current += ch === '|' ? '\\|' : '\\' + ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (ch === '|') {
+      cells.push(unescapePipe(current.trim()));
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (escaped) current += '\\';
+  cells.push(unescapePipe(current.trim()));
+  return cells;
+}
+
+function isTableSeparator(line) {
+  var cells = splitTableRow(line);
+  if (cells.length < 2) return false;
+  return cells.every(function(cell) {
+    return /^:?-{3,}:?$/.test(String(cell || '').trim());
+  });
+}
+
+function looksLikeTableHeader(line, nextLine) {
+  if (String(line || '').indexOf('|') < 0) return false;
+  var cells = splitTableRow(line);
+  return cells.length >= 2 && isTableSeparator(nextLine || '');
+}
+
 function fit(line, width) {
   return utils.truncateToWidth(String(line || ''), width);
 }
@@ -51,6 +104,68 @@ function pushWrapped(output, raw, width, theme, token, options) {
     var text = fit(prefix + wrapped[index], width);
     output.push(themeMod.paint(theme, token, fill ? pad(text, width) : text));
   }
+}
+
+function pushNestedList(output, marker, text, indent, width, theme, token) {
+  var level = Math.floor(Math.max(0, indent) / 2);
+  var prefix = '  '.repeat(level) + marker;
+  var contentWidth = Math.max(1, width - utils.visibleWidth(prefix));
+  var wrapped = utils.wrapTextWithAnsi(renderInlineMarkup(text), contentWidth);
+  if (!wrapped.length) wrapped = [''];
+  for (var index = 0; index < wrapped.length; index += 1) {
+    var line = (index === 0 ? themeMod.paint(theme, 'mdListBullet', prefix) : ' '.repeat(utils.visibleWidth(prefix))) + wrapped[index];
+    output.push(themeMod.paint(theme, token, fit(line, width)));
+  }
+}
+
+function tableColumnWidths(rows, width) {
+  var columnCount = rows.reduce(function(max, row) { return Math.max(max, row.length); }, 0);
+  if (columnCount < 2) return null;
+  var separatorWidth = (columnCount + 1) * 3;
+  if (width < separatorWidth + columnCount) return null;
+  var available = width - separatorWidth;
+  var widths = [];
+  var equal = Math.max(1, Math.floor(available / columnCount));
+  for (var col = 0; col < columnCount; col += 1) {
+    var natural = 1;
+    for (var row = 0; row < rows.length; row += 1) {
+      natural = Math.max(natural, utils.visibleWidth(rows[row][col] || ''));
+    }
+    widths[col] = Math.max(1, Math.min(natural, equal));
+  }
+  return widths;
+}
+
+function renderTableRows(rows, width, theme, token) {
+  var widths = tableColumnWidths(rows, width);
+  if (!widths) return null;
+  var output = [];
+  for (var row = 0; row < rows.length; row += 1) {
+    var wrappedCells = [];
+    var rowHeight = 1;
+    for (var col = 0; col < widths.length; col += 1) {
+      var wrapped = utils.wrapTextWithAnsi(renderInlineMarkup(rows[row][col] || ''), widths[col]);
+      if (!wrapped.length) wrapped = [''];
+      wrappedCells[col] = wrapped;
+      rowHeight = Math.max(rowHeight, wrapped.length);
+    }
+    for (var lineIndex = 0; lineIndex < rowHeight; lineIndex += 1) {
+      var line = '|';
+      for (var cellIndex = 0; cellIndex < widths.length; cellIndex += 1) {
+        var cell = wrappedCells[cellIndex][lineIndex] || '';
+        line += ' ' + pad(cell, widths[cellIndex]) + ' |';
+      }
+      output.push(themeMod.paint(theme, token, fit(line, width)));
+    }
+    if (row === 0) {
+      var sep = '|';
+      for (var sepIndex = 0; sepIndex < widths.length; sepIndex += 1) {
+        sep += ' ' + '-'.repeat(widths[sepIndex]) + ' |';
+      }
+      output.push(themeMod.paint(theme, 'borderMuted', fit(sep, width)));
+    }
+  }
+  return output;
 }
 
 function clampLines(lines, width, theme, maxLines) {
@@ -110,6 +225,25 @@ Markdown.prototype.render = function render(width, context) {
       continue;
     }
 
+    if (looksLikeTableHeader(line, lines[index + 1])) {
+      var tableRows = [splitTableRow(line)];
+      index += 2;
+      while (index < lines.length && String(lines[index] || '').indexOf('|') >= 0 && String(lines[index] || '').trim()) {
+        tableRows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      var tableOutput = renderTableRows(tableRows, maxWidth, theme, this.token);
+      if (tableOutput) {
+        output = output.concat(tableOutput);
+        continue;
+      }
+      for (var tableIndex = 0; tableIndex < tableRows.length; tableIndex += 1) {
+        pushWrapped(output, tableRows[tableIndex].join(' | '), maxWidth, theme, this.token);
+      }
+      continue;
+    }
+
     var heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
       pushWrapped(output, heading[2], maxWidth, theme, 'mdHeading', { prefix: heading[1] + ' ' });
@@ -124,19 +258,13 @@ Markdown.prototype.render = function render(width, context) {
 
     var unordered = line.match(/^(\s*)[-*+]\s+(.+)$/);
     if (unordered) {
-      pushWrapped(output, unordered[2], maxWidth, theme, 'mdListBullet', { prefix: unordered[1] + '- ' });
+      pushNestedList(output, '- ', unordered[2], countIndentSpaces(unordered[1]), maxWidth, theme, this.token);
       continue;
     }
 
     var ordered = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
     if (ordered) {
-      var oPrefix = themeMod.paint(theme, 'mdListBullet', ordered[1] + ordered[2] + '. ');
-      var oWrapped = utils.wrapTextWithAnsi(renderInlineMarkup(ordered[3]), Math.max(1, maxWidth - utils.visibleWidth(ordered[1] + ordered[2] + '. ')));
-      if (!oWrapped.length) oWrapped = [''];
-      for (var oi = 0; oi < oWrapped.length; oi += 1) {
-        var oText = fit((oi === 0 ? oPrefix : ' '.repeat(utils.visibleWidth(ordered[1] + ordered[2] + '. '))) + oWrapped[oi], maxWidth);
-        output.push(themeMod.paint(theme, this.token, oText));
-      }
+      pushNestedList(output, ordered[2] + '. ', ordered[3], countIndentSpaces(ordered[1]), maxWidth, theme, this.token);
       continue;
     }
 

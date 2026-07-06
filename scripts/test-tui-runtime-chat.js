@@ -276,6 +276,49 @@ ok(bashExpandedPlain.indexOf('stdout line') >= 0, 'expanded bash renders stdout'
 ok(bashExpandedPlain.indexOf('stderr line') >= 0, 'expanded bash renders stderr');
 ok(bashExpandedLines.every(function(line) { return visibleWidth(line) <= 54; }), 'expanded bash lines fit width');
 
+var bashRunningLines = renderRuntimeMessageList({
+  messages: [{
+    type: 'tool',
+    toolName: 'bash',
+    status: 'running',
+    done: false,
+    detail: {
+      command: 'node stream.js',
+      output: 'snapshot 1\nsnapshot 2',
+      durationMs: 123,
+      truncated: true,
+      fullOutputPath: '/tmp/loong-agent-output.log',
+    },
+  }],
+}, 52, 8, { theme: darkTheme });
+var bashRunningPlain = stripAnsi(bashRunningLines.join('\n'));
+ok(bashRunningPlain.indexOf('$ node stream.js') >= 0, 'running bash renders command');
+ok(bashRunningPlain.indexOf('snapshot 2') >= 0, 'running bash renders latest snapshot output');
+ok(bashRunningPlain.indexOf('duration=123ms') >= 0, 'running bash renders duration metadata');
+ok(bashRunningPlain.indexOf('truncated') >= 0, 'running bash renders truncation metadata');
+ok(bashRunningPlain.indexOf('full=') >= 0, 'running bash renders full output metadata');
+ok(bashRunningLines.every(function(line) { return visibleWidth(line) <= 52; }), 'running bash streaming lines fit width');
+
+var bashFinalLines = renderRuntimeMessageList({
+  messages: [{
+    type: 'tool',
+    toolName: 'bash',
+    status: 'ok',
+    done: true,
+    detail: {
+      command: 'node stream.js',
+      stdout: 'final stdout',
+      stderr: 'final stderr',
+      durationMs: 456,
+    },
+  }],
+}, 52, 8, { theme: darkTheme });
+var bashFinalPlain = stripAnsi(bashFinalLines.join('\n'));
+ok(bashFinalPlain.indexOf('final stdout') >= 0, 'final bash keeps stdout');
+ok(bashFinalPlain.indexOf('final stderr') >= 0, 'final bash keeps stderr');
+ok(bashFinalPlain.indexOf('duration=456ms') < 0, 'final collapsed bash omits running duration metadata');
+ok(bashFinalLines.every(function(line) { return visibleWidth(line) <= 52; }), 'final bash lines fit width');
+
 var objectDetailLines = renderRuntimeMessageList({
   messages: [{
     id: 'tool-json',

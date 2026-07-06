@@ -133,12 +133,18 @@ function renderBashToolLines(message, contentWidth, expanded, theme) {
   var outputText = bashOutputText(message, expanded);
   var outputLines = wrapTextBlocks(outputText, contentWidth);
   var lines = command ? ['$ ' + command] : [];
+  var detail = bashDetailObject(message);
+  var meta = [];
+  if (!message.done && detail.durationMs !== undefined) meta.push('duration=' + detail.durationMs + 'ms');
+  if (detail.truncated) meta.push('truncated');
+  if (detail.fullOutputPath) meta.push('full=' + detail.fullOutputPath);
   if (expanded) {
     if (!hasStructuredBashDetail(message) && detailText(message)) {
       var detailLines = renderDetailBlock(message, contentWidth, theme);
       return detailLines.length ? detailLines : [messageText(message)];
     }
     lines = lines.concat(outputLines);
+    if (meta.length) lines.push(themeMod.paint(theme, 'dim', '[' + meta.join(' ') + ']'));
     return lines.length ? lines : [messageText(message)];
   }
   var hiddenCount = Math.max(0, outputLines.length - maxVisualLines);
@@ -147,6 +153,7 @@ function renderBashToolLines(message, contentWidth, expanded, theme) {
   if (hiddenCount > 0) {
     lines.push(themeMod.paint(theme, 'dim', '... (' + hiddenCount + ' more visual lines hidden)'));
   }
+  if (meta.length) lines.push(themeMod.paint(theme, 'dim', '[' + meta.join(' ') + ']'));
   return lines.length ? lines : [messageText(message)];
 }
 
@@ -204,6 +211,7 @@ function renderRuntimeMessageListAscii(state, width, height, context) {
       var toolBgReset = toolBgCode ? '\x1b[0m' : '';
       for (var ti = 0; ti < twrapped.length; ti += 1) {
         var tLine = (ti === 0 ? (asciiToolStatus(message) + ' ' + toolTitle + '  ') : '   ') + twrapped[ti];
+        tLine = fit(tLine, maxWidth);
         var tPadded = tLine + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(tLine)));
         lines.push(toolBgCode + (ti === 0 ? tPadded : themeMod.paint(theme, 'dim', tPadded)) + toolBgReset);
       }

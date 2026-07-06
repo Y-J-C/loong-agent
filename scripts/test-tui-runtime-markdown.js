@@ -49,5 +49,35 @@ ok(mixedPlain.indexOf('quoted ' + '\u4e2d\u6587') >= 0, 'renders quoted CJK text
 ok(mixedPlain.indexOf('unterminated code fence') >= 0, 'renders unterminated code block');
 ok(mixedLines.every(function(line) { return utils.visibleWidth(line) <= 28; }), 'mixed markdown lines fit width');
 
+var table = new Markdown({
+  text: '| Name | Value |\n| --- | --- |\n| 中文 | a\\|b and long cell value |\n\n```txt\n| not | table |\n| --- | --- |\n```',
+  maxLines: 40,
+});
+var tableLines = table.render(36, { theme: theme.getTheme('loong-dark') });
+var tablePlain = utils.stripAnsi(tableLines.join('\n'));
+ok(tablePlain.indexOf('| Name') >= 0, 'renders markdown table header');
+ok(tablePlain.indexOf('中文') >= 0, 'renders CJK table cell');
+ok(tablePlain.indexOf('a|b') >= 0, 'renders escaped pipe inside table cell');
+ok(tablePlain.indexOf('| not | table |') >= 0, 'keeps pipe text inside code block');
+ok(tableLines.every(function(line) { return utils.visibleWidth(line) <= 36; }), 'table markdown lines fit width');
+
+var narrowTable = new Markdown({
+  text: '| A | B |\n| --- | --- |\n| narrow | table |',
+  maxLines: 20,
+});
+var narrowLines = narrowTable.render(8, { theme: theme.getTheme('plain') });
+ok(narrowLines.every(function(line) { return utils.visibleWidth(line) <= 8; }), 'narrow table degrades within width');
+
+var nested = new Markdown({
+  text: '- parent item with a long tail that wraps\n  - child item wraps too\n    3. numbered child remains numbered',
+  maxLines: 40,
+});
+var nestedLines = nested.render(30, { theme: theme.getTheme('plain') });
+var nestedPlain = nestedLines.join('\n');
+ok(nestedPlain.indexOf('- parent item') >= 0, 'renders parent list item');
+ok(nestedPlain.indexOf('  - child item') >= 0, 'renders nested unordered list indent');
+ok(nestedPlain.indexOf('    3. numbered child') >= 0, 'preserves ordered nested number');
+ok(nestedLines.every(function(line) { return utils.visibleWidth(line) <= 30; }), 'nested list lines fit width');
+
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

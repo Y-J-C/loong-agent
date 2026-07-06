@@ -9,12 +9,15 @@ var Footer = require('./status-bar').Footer;
 var compositeOverlays = require('../overlay').compositeOverlays;
 var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
 var Loader = require('../components/loader').Loader;
+var MessageComponentList = require('./message-component-list').MessageComponentList;
 
 function ChatView(state, options) {
   component.Container.call(this);
   options = options || {};
   this.state = state || {};
   this.renderStateOverlays = options.renderStateOverlays !== false;
+  this.messageListMode = options.messageListMode || 'default';
+  this.messageComponentList = new MessageComponentList();
   this.footer = new Footer(state);
   this.runningLoader = new Loader({ message: 'Working...' });
   this.addChild(this.footer);    // children[0]
@@ -42,7 +45,9 @@ ChatView.prototype.render = function render(width, context) {
   var runningLines = this._renderRunningLines(cols, Object.assign({}, renderCtx, { tui: context && context.tui }));
 
   var bodyHeight = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length);
-  var body = renderMessageList(state, cols, bodyHeight, renderCtx);
+  var body = this.messageListMode === 'component-cache'
+    ? this.messageComponentList.render(state, cols, bodyHeight, renderCtx)
+    : renderMessageList(state, cols, bodyHeight, renderCtx);
 
   var lines = body.concat(runningLines).concat(inputLines).concat(footerLines).slice(0, rows);
   while (lines.length < rows) lines.push('');
@@ -86,6 +91,9 @@ ChatView.prototype.stop = function stop() {
 ChatView.prototype.invalidate = function invalidate() {
   var clearCache = require('./message-list').clearRuntimeMessageCaches;
   if (typeof clearCache === 'function') clearCache();
+  if (this.messageComponentList && typeof this.messageComponentList.invalidate === 'function') {
+    this.messageComponentList.invalidate();
+  }
   this.footer.invalidate();
 };
 

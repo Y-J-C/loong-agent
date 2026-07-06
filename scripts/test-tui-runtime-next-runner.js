@@ -80,6 +80,25 @@ function createFakeSession() {
         });
         return Promise.resolve({ summary: 'tool done' });
       }
+      if (text === 'stream') {
+        subscribers.forEach(function(fn) {
+          fn({ type: 'tool_execution_start', toolName: 'bash', toolCallId: 'call-stream', callSummary: 'node stream.js', args: { command: 'node stream.js' } });
+          fn({
+            type: 'tool_execution_update',
+            toolName: 'bash',
+            toolCallId: 'call-stream',
+            update: {
+              command: 'node stream.js',
+              output: 'first snapshot\nsecond snapshot',
+              durationMs: 120,
+              truncated: true,
+              fullOutputPath: '/tmp/stream.log',
+            },
+            resultSummary: 'second snapshot',
+          });
+        });
+        return Promise.resolve({ summary: 'stream running' });
+      }
       subscribers.forEach(function(fn) {
         fn({ type: 'user', text: text });
         fn({ type: 'assistant_final', text: 'reply: ' + text });
@@ -200,6 +219,21 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(fakeSession.prompts[0], 'hi', 'enter submits prompt');
   ok(terminal.output.indexOf('reply: hi') >= 0, 'agent event renders reply');
+
+  terminal.inputHandler('s');
+  terminal.inputHandler('t');
+  terminal.inputHandler('r');
+  terminal.inputHandler('e');
+  terminal.inputHandler('a');
+  terminal.inputHandler('m');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  terminal.inputHandler('\r');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(terminal.output.indexOf('second snapshot') >= 0, 'runner renders bash streaming update before tool end');
+  ok(terminal.output.indexOf('duration=120ms') >= 0, 'runner renders bash streaming metadata');
+  ok(capturedState.messages.some(function(message) {
+    return message.type === 'tool' && message.toolName === 'bash' && message.done === false && String(message.summary || '').indexOf('second snapshot') >= 0;
+  }), 'tool_update keeps bash tool running with latest snapshot');
 
   for (var msgIndex = 0; msgIndex < 20; msgIndex += 1) {
     capturedState.messages.push({ type: 'system', text: 'scroll line ' + msgIndex });
