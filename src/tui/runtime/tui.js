@@ -392,14 +392,26 @@ TUI.prototype._classifyAppendStreamChange = function _classifyAppendStreamChange
 };
 
 TUI.prototype._writeAppendStreamStableLines = function _writeAppendStreamStableLines(stableAdded, tailLines, height, diffMode) {
-  var buffer = '\x1b[?2026h\x1b[?25l' + this._moveToScreenRow(Math.max(0, height - 1));
-  for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
-    buffer += '\r\n' + stableAdded[addedIndex];
-    this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+  var safeTailLines = tailLines || [];
+  var tailCount = Math.max(0, Math.min(height, safeTailLines.length));
+  var scrollRegionEnd = Math.max(1, height - tailCount);
+  var buffer = '\x1b[?2026h\x1b[?25l';
+
+  if (stableAdded.length > 0) {
+    buffer += '\x1b[1;' + scrollRegionEnd + 'r\x1b[' + scrollRegionEnd + ';1H';
+    this.hardwareCursorRow = scrollRegionEnd - 1;
+    for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
+      buffer += '\n\r\x1b[2K' + stableAdded[addedIndex];
+      this.hardwareCursorRow = scrollRegionEnd - 1;
+    }
+    buffer += '\x1b[r';
   }
-  for (var tailIndex = 0; tailIndex < tailLines.length; tailIndex += 1) {
-    buffer += '\r\n' + tailLines[tailIndex];
-    this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+
+  var tailStartRow = Math.max(0, height - tailCount);
+  for (var tailIndex = 0; tailIndex < tailCount; tailIndex += 1) {
+    var screenRow = tailStartRow + tailIndex;
+    buffer += '\x1b[' + (screenRow + 1) + ';1H\x1b[2K' + safeTailLines[tailIndex];
+    this.hardwareCursorRow = screenRow;
   }
   buffer += '\x1b[?2026l';
   this.terminal.write(buffer);

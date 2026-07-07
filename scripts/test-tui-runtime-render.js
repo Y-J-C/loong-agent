@@ -109,6 +109,9 @@ appendWrites = [];
 appendTui.doRender();
 var appendOutput = appendWrites.join('');
 ok(appendOutput.indexOf('history-2') >= 0, 'append-stream render writes appended stable line');
+ok(appendOutput.indexOf('\x1b[1;2r') >= 0, 'append-stream render confines scrolling to message region');
+ok(appendOutput.indexOf('\r\ninput') < 0, 'append-stream render does not append input tail into output stream');
+ok(appendOutput.indexOf('\r\nfooter') < 0, 'append-stream render does not append footer tail into output stream');
 ok(appendOutput.indexOf('\x1b[5;1H') < 0, 'append-stream render does not address logical row beyond screen');
 equal(appendTui.lastDiffMode, 'append-stream', 'append-stream render records diff mode');
 
@@ -150,6 +153,8 @@ tailGrow.tui.doRender();
 var tailGrowOutput = tailGrow.writes.join('');
 equal(tailGrow.tui.lastDiffMode, 'append-stream-tail-grow', 'tail-grow records diagnostic mode');
 ok(tailGrowOutput.indexOf('stream line 3') >= 0, 'tail-grow writes new visible streaming line');
+ok(tailGrowOutput.indexOf('\r\ninput') < 0, 'tail-grow does not append input tail into output stream');
+ok(tailGrowOutput.indexOf('\r\nfooter') < 0, 'tail-grow does not append footer tail into output stream');
 ok(tailGrowOutput.indexOf('\x1b[6;1H') < 0, 'tail-grow does not address logical row beyond screen');
 
 var silentAbove = createAppendStreamHarness(4);
