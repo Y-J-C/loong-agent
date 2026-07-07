@@ -247,7 +247,7 @@ TUI.prototype.doRender = function doRender() {
 TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursorPos, clear) {
   this.lastDiffMode = 'full';
   this.fullRedrawCount += 1;
-  var buffer = '\x1b[?2026h'; // Synchronized output begin
+  var buffer = '\x1b[?2026h\x1b[r'; // Synchronized output begin; reset scroll region
 
   if (clear) {
     if (this.terminal.clearScreen) this.terminal.clearScreen();

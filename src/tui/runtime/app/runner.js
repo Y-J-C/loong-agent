@@ -440,9 +440,10 @@ async function runRuntimeNextTui(config, options) {
 
   async function handleModalKey(key) {
     if (state.pendingToolApproval) {
+      var hadApproval = Boolean(state.pendingToolApproval);
       interactions.handleApprovalKey(state, key);
       stateModule.updateAutocomplete(state);
-      requestRender();
+      requestRender(hadApproval && !state.pendingToolApproval);
       return true;
     }
     if (state.selector) {

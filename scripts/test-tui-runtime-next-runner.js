@@ -103,6 +103,28 @@ function createFakeSession(sessionInfo) {
         });
         return Promise.resolve({ summary: 'stream running' });
       }
+      if (text === 'approval') {
+        var approval = session.sessionOptions && session.sessionOptions.requestToolApproval
+          ? session.sessionOptions.requestToolApproval({
+            toolName: 'bash',
+            risk: 'shell_general',
+            command: 'echo approved',
+            reason: 'approval runner test',
+          })
+          : Promise.resolve({ approved: true });
+        return approval.then(function(result) {
+          subscribers.forEach(function(fn) {
+            fn({
+              type: 'tool_execution_end',
+              toolName: 'bash',
+              toolCallId: 'approval-call',
+              resultSummary: result && result.approved ? 'approval result' : 'approval denied',
+            });
+            fn({ type: 'assistant_final', text: 'approval flow done' });
+          });
+          return { summary: 'approval done' };
+        });
+      }
       subscribers.forEach(function(fn) {
         fn({ type: 'user', text: text });
         fn({ type: 'assistant_final', text: 'reply: ' + text });
@@ -149,7 +171,10 @@ async function main() {
     model: 'm',
   }, {
     terminal: terminal,
-    createAgentSession: function() { return fakeSession; },
+    createAgentSession: function(config, sessionOptions) {
+      fakeSession.sessionOptions = sessionOptions || {};
+      return fakeSession;
+    },
     onState: function(state) { capturedState = state; },
     skipBoardStatus: true,
   });
@@ -235,6 +260,25 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(fakeSession.prompts[0], 'hi', 'enter submits prompt');
   ok(terminal.output.indexOf('reply: hi') >= 0, 'agent event renders reply');
+
+  terminal.inputHandler('a');
+  terminal.inputHandler('p');
+  terminal.inputHandler('p');
+  terminal.inputHandler('r');
+  terminal.inputHandler('o');
+  terminal.inputHandler('v');
+  terminal.inputHandler('a');
+  terminal.inputHandler('l');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  terminal.inputHandler('\r');
+  await new Promise(function(resolve) { setTimeout(resolve, 80); });
+  ok(capturedState.pendingToolApproval, 'approval prompt enters pending approval state');
+  var redrawsBeforeApproval = capturedState.lastRender.fullRedrawCount;
+  terminal.inputHandler('y');
+  await new Promise(function(resolve) { setTimeout(resolve, 120); });
+  equal(capturedState.pendingToolApproval, null, 'approval confirm clears pending approval');
+  ok(capturedState.lastRender.fullRedrawCount > redrawsBeforeApproval, 'approval close forces a clean redraw');
+  ok(terminal.output.indexOf('approval flow done') >= 0, 'approval confirm keeps rendering subsequent output');
 
   terminal.inputHandler('s');
   terminal.inputHandler('t');

@@ -41,6 +41,7 @@ var tui = new runtime.TUI(terminal);
 tui.add(new runtime.Text('hello\n中文', 0, 0));
 tui.renderNow();
 equal(clears, 1, 'render clears screen');
+ok(writes.join('').indexOf('\x1b[r') >= 0, 'full render resets scroll region');
 ok(writes.join('').indexOf('hello') >= 0, 'render writes text');
 ok(writes.join('').indexOf('中文') >= 0, 'render writes CJK');
 
