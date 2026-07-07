@@ -82,6 +82,8 @@ function resolvePendingApproval(state, approved) {
   if (!pending) return false;
   state.pendingToolApproval = null;
   state.mode = 'running';
+  state.status = 'running';
+  state.agentStatus = 'running';
   if (typeof pending.resolve === 'function') {
     pending.resolve({ approved: Boolean(approved) });
   }

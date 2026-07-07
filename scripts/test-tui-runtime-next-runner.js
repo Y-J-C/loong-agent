@@ -277,6 +277,8 @@ async function main() {
   terminal.inputHandler('y');
   await new Promise(function(resolve) { setTimeout(resolve, 120); });
   equal(capturedState.pendingToolApproval, null, 'approval confirm clears pending approval');
+  ok(capturedState.status !== 'approval', 'approval confirm clears approval status');
+  equal(capturedState.agentStatus, 'idle', 'approval flow finishes without stale running status');
   ok(capturedState.lastRender.fullRedrawCount > redrawsBeforeApproval, 'approval close forces a clean redraw');
   ok(terminal.output.indexOf('approval flow done') >= 0, 'approval confirm keeps rendering subsequent output');
 
