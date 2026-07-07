@@ -1170,7 +1170,7 @@
     "id": "playbook.usb_camera_userland_uvc_capture",
     "kind": "playbook",
     "path": "kb/playbooks/usb-camera-userland-uvc-capture.md",
-    "title": "USB camera userland UVC capture",
+    "title": "USB camera userland UVC fallback strategy",
     "stage": "phaseD.1",
     "sourceType": "summary",
     "defaultSearch": true,
@@ -1182,14 +1182,20 @@
     "_tags": [
       "camera",
       "libusb",
-      "libuvc"
+      "libuvc",
+      "fallback"
     ],
     "_triggers": [
       "usb camera userland uvc capture",
       "libusb libuvc",
       "uvc_capture_once",
       "MJPEG frame",
-      "bypass /dev/video0"
+      "bypass /dev/video0",
+      "no /dev/video0 but lsusb detects camera",
+      "uvcvideo missing fallback",
+      "CONFIG_MEDIA_SUPPORT disabled camera",
+      "OpenCV VideoCapture failed fallback",
+      "userland UVC workaround"
     ],
     "_replaces": null,
     "_superseded_by": null,
