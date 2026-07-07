@@ -42,6 +42,17 @@ function hasBareLineFeedBeforeClear(output) {
   return output.indexOf('\n\x1b[2K') >= 0 && output.indexOf('\r\n\x1b[2K') < 0;
 }
 
+function countOccurrences(text, needle) {
+  var count = 0;
+  var index = 0;
+  while (true) {
+    index = text.indexOf(needle, index);
+    if (index < 0) return count;
+    count += 1;
+    index += needle.length;
+  }
+}
+
 var terminal = createTerminal();
 var lines = ['one', 'two'];
 var tui = new runtime.TUI(terminal);
@@ -134,6 +145,7 @@ hiddenAppendTerminal.writes = [];
 hiddenAppendLines = hiddenAppendLines.concat(['row-6']);
 hiddenAppendTui.doRender();
 equal(hiddenAppendTui.lastDiffMode, 'append-hidden', 'off-screen append records hidden append mode');
+equal(hiddenAppendTerminal.writes.join(''), '', 'off-screen append writes no terminal output');
 ok(hiddenAppendTerminal.writes.join('').indexOf('\x1b[7;1H') < 0, 'off-screen append does not address logical row beyond screen');
 equal(hiddenAppendTui.hardwareCursorRow, 3, 'off-screen append keeps previous visible cursor row');
 
@@ -174,6 +186,92 @@ appendStreamTui.doRender();
 var appendStreamOutput = appendStreamTerminal.writes.join('');
 ok(appendStreamOutput.indexOf('\r\n\x1b[2K') >= 0, 'append-stream stable append uses CRLF before clearing stable row');
 ok(!hasBareLineFeedBeforeClear(appendStreamOutput), 'append-stream stable append does not use bare LF before clearing row');
+
+var pureDeleteTerminal = createTerminal();
+pureDeleteTerminal.rows = 6;
+var pureDeleteLines = ['keep', 'old-tail-1', 'old-tail-2', 'old-tail-3'];
+var pureDeleteTui = new runtime.TUI(pureDeleteTerminal);
+pureDeleteTui.setClearOnShrink(false);
+pureDeleteTui.add({
+  render: function() {
+    return pureDeleteLines.slice();
+  },
+});
+pureDeleteTui.doRender();
+pureDeleteTerminal.writes = [];
+pureDeleteLines = ['keep'];
+pureDeleteTui.doRender();
+var pureDeleteOutput = pureDeleteTerminal.writes.join('');
+equal(pureDeleteTui.lastDiffMode, 'clear-tail', 'pure tail deletion records clear-tail mode');
+ok(pureDeleteOutput.indexOf('\x1b[2;1H') >= 0, 'pure tail deletion starts clearing at first stale screen row');
+ok(countOccurrences(pureDeleteOutput, '\x1b[2K') >= 3, 'pure tail deletion clears every stale tail row');
+ok(pureDeleteOutput.indexOf('old-tail-1') < 0, 'pure tail deletion does not rewrite stale tail content');
+ok(pureDeleteOutput.indexOf('\x1b[7;1H') < 0, 'pure tail deletion does not address beyond terminal height');
+equal(pureDeleteTui.hardwareCursorRow, 3, 'pure tail deletion records last cleared screen row');
+
+var viewportShrinkTerminal = createTerminal();
+viewportShrinkTerminal.rows = 4;
+var viewportShrinkLines = ['row-0', 'row-1', 'row-2', 'row-3', 'row-4', 'row-5', 'row-6', 'row-7'];
+var viewportShrinkTui = new runtime.TUI(viewportShrinkTerminal);
+viewportShrinkTui.setClearOnShrink(false);
+viewportShrinkTui.add({
+  render: function() {
+    return viewportShrinkLines.slice();
+  },
+});
+viewportShrinkTui.doRender();
+viewportShrinkTerminal.writes = [];
+viewportShrinkLines = ['row-0', 'row-1', 'row-2'];
+viewportShrinkTui.doRender();
+var viewportShrinkOutput = viewportShrinkTerminal.writes.join('');
+equal(viewportShrinkTui.lastDiffMode, 'clear-tail', 'viewport shrink records clear-tail mode');
+ok(viewportShrinkOutput.indexOf('\x1b[1;1H') >= 0, 'viewport shrink maps first stale visible row to top screen row');
+ok(countOccurrences(viewportShrinkOutput, '\x1b[2K') >= 4, 'viewport shrink clears the full stale visible viewport');
+ok(viewportShrinkOutput.indexOf('\x1b[5;1H') < 0, 'viewport shrink does not address beyond screen height');
+ok(viewportShrinkOutput.indexOf('row-4') < 0, 'viewport shrink does not preserve old visible content');
+equal(viewportShrinkTui.hardwareCursorRow, 3, 'viewport shrink records last visible cleared row');
+
+var topBoundaryTerminal = createTerminal();
+topBoundaryTerminal.rows = 3;
+var topBoundaryLines = ['hidden-0', 'hidden-1', 'top', 'middle', 'bottom'];
+var topBoundaryTui = new runtime.TUI(topBoundaryTerminal);
+topBoundaryTui.setClearOnShrink(false);
+topBoundaryTui.add({
+  render: function() {
+    return topBoundaryLines.slice();
+  },
+});
+topBoundaryTui.doRender();
+topBoundaryTerminal.writes = [];
+topBoundaryLines = ['hidden-0', 'hidden-1', 'TOP', 'middle', 'bottom'];
+topBoundaryTui.doRender();
+var topBoundaryOutput = topBoundaryTerminal.writes.join('');
+equal(topBoundaryTui.lastDiffMode, 'range', 'viewport top boundary mutation records range mode');
+ok(topBoundaryOutput.indexOf('\x1b[1;1H') >= 0, 'viewport top boundary maps to first screen row');
+ok(topBoundaryOutput.indexOf('TOP') >= 0, 'viewport top boundary writes changed line');
+ok(topBoundaryOutput.indexOf('\x1b[3;1H') < 0, 'viewport top boundary does not position by logical row');
+equal(topBoundaryTui.hardwareCursorRow, 0, 'viewport top boundary records first screen row');
+
+var bottomBoundaryTerminal = createTerminal();
+bottomBoundaryTerminal.rows = 3;
+var bottomBoundaryLines = ['hidden-0', 'hidden-1', 'top', 'middle', 'bottom'];
+var bottomBoundaryTui = new runtime.TUI(bottomBoundaryTerminal);
+bottomBoundaryTui.setClearOnShrink(false);
+bottomBoundaryTui.add({
+  render: function() {
+    return bottomBoundaryLines.slice();
+  },
+});
+bottomBoundaryTui.doRender();
+bottomBoundaryTerminal.writes = [];
+bottomBoundaryLines = ['hidden-0', 'hidden-1', 'top', 'middle', 'BOTTOM'];
+bottomBoundaryTui.doRender();
+var bottomBoundaryOutput = bottomBoundaryTerminal.writes.join('');
+equal(bottomBoundaryTui.lastDiffMode, 'range', 'viewport bottom boundary mutation records range mode');
+ok(bottomBoundaryOutput.indexOf('\x1b[3;1H') >= 0, 'viewport bottom boundary maps to last screen row');
+ok(bottomBoundaryOutput.indexOf('BOTTOM') >= 0, 'viewport bottom boundary writes changed line');
+ok(bottomBoundaryOutput.indexOf('\x1b[5;1H') < 0, 'viewport bottom boundary does not position by logical row');
+equal(bottomBoundaryTui.hardwareCursorRow, 2, 'viewport bottom boundary records last screen row');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);
