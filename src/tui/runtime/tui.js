@@ -305,7 +305,6 @@ TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursor
   var buffer = '\x1b[?2026h\x1b[r'; // Synchronized output begin; reset scroll region
 
   if (clear) {
-    if (this.terminal.clearScreen) this.terminal.clearScreen();
     buffer += '\x1b[2J\x1b[H'; // Clear screen, home
   }
 

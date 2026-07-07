@@ -43,7 +43,8 @@ var terminal = {
 var tui = new runtime.TUI(terminal);
 tui.add(new runtime.Text('hello\n中文', 0, 0));
 tui.renderNow();
-equal(clears, 1, 'render clears screen');
+equal(clears, 0, 'full render does not clear outside synchronized output');
+ok(writes.join('').indexOf('\x1b[?2026h\x1b[r\x1b[2J\x1b[H') >= 0, 'full render clears inside synchronized output');
 ok(writes.join('').indexOf('\x1b[r') >= 0, 'full render resets scroll region');
 ok(writes.join('').indexOf('hello') >= 0, 'render writes text');
 ok(writes.join('').indexOf('中文') >= 0, 'render writes CJK');
@@ -51,7 +52,8 @@ equal(tui.hardwareCursorRow, 1, 'full render records last rendered screen row');
 terminal.rows = 6;
 writes.length = 0;
 tui.doRender();
-equal(clears, 2, 'resize render clears screen');
+equal(clears, 0, 'resize full render does not clear outside synchronized output');
+ok(writes.join('').indexOf('\x1b[?2026h\x1b[r\x1b[2J\x1b[H') >= 0, 'resize full render clears inside synchronized output');
 ok(writes.join('').indexOf('\x1b[r') >= 0, 'resize full render resets scroll region');
 equal(tui.scrollRegionActive, false, 'resize full render leaves scroll region diagnostic inactive');
 equal(tui.hardwareCursorRow, 1, 'resize full render records last rendered screen row');
@@ -232,8 +234,8 @@ appendTui.add({
   },
 });
 appendTui.start();
-ok(appendClears > 0, 'append-stream start clears screen on first render');
-ok(appendWrites.join('').indexOf('\x1b[2J\x1b[H') >= 0, 'append-stream first render homes the cursor');
+equal(appendClears, 0, 'append-stream start does not clear outside synchronized output');
+ok(appendWrites.join('').indexOf('\x1b[?2026h\x1b[r\x1b[2J\x1b[H') >= 0, 'append-stream first render clears inside synchronized output');
 appendLines = ['history-0', 'history-1', 'history-2', 'input', 'footer'];
 appendWrites = [];
 appendTui.doRender();
