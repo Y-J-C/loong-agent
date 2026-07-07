@@ -13,6 +13,7 @@ These files are not an automatic ingestion layer. They are manually maintained a
 - `peripherals.json`: GPIO, I2C, SPI, UART, USB, DRM, audio, RTC, and PCI observations.
 - `risks.json`: safety boundaries and unresolved high-risk areas.
 - `build_tools.json`: build tool availability, missing compiler boundaries, and project build guidance.
+- `camera_opencv.json`: USB camera, UVC/V4L2, OpenCV, NumPy, and camera face-detection runtime boundaries.
 
 ## Fact Schema
 

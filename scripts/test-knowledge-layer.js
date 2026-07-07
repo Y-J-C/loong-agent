@@ -136,6 +136,33 @@ test('Phase C book startup topic is registered and loadable', () => {
   assert(loaded.record.sources.indexOf('kb/book_first_platform_reference.md') >= 0, 'Phase C topic missing book source note');
 });
 
+test('Phase D toolchain and peripheral topics are registered and loadable', () => {
+  const topics = listTopics();
+  ['cross_compile', 'peripheral_interfaces'].forEach((topic) => {
+    assert(topics.indexOf(topic) >= 0, `missing Phase D topic: ${topic}`);
+    const loaded = readTopic(config(), topic);
+    assert(loaded.ok === true, `Phase D topic should load: ${topic}`);
+    assert(loaded.record.sources.indexOf('kb/book_dev_workflows_reference.md') >= 0, `Phase D topic missing workflow source note: ${topic}`);
+    assert(loaded.record.content.indexOf('needs_board_check') >= 0, `Phase D topic missing verification boundary: ${topic}`);
+  });
+});
+
+test('Phase D.1 camera and OpenCV topics are registered and loadable', () => {
+  const topics = listTopics();
+  const expected = {
+    usb_camera_uvc_boundary: ['CONFIG_MEDIA_SUPPORT is not set', '/dev/video*'],
+    camera_opencv_runtime: ['OpenCV 3.2.0', 'NumPy 1.16.2'],
+  };
+  Object.keys(expected).forEach((topic) => {
+    assert(topics.indexOf(topic) >= 0, `missing Phase D.1 topic: ${topic}`);
+    const loaded = readTopic(config(), topic);
+    assert(loaded.ok === true, `Phase D.1 topic should load: ${topic}`);
+    expected[topic].forEach((needle) => {
+      assert(loaded.record.content.indexOf(needle) >= 0, `Phase D.1 topic ${topic} missing: ${needle}`);
+    });
+  });
+});
+
 test('knowledge topic source paths exist when they reference local kb files', () => {
   const topics = listTopics();
   let localSourceCount = 0;
@@ -217,6 +244,7 @@ test('P6 structured facts are valid, sourced, and evidence-backed', () => {
     'kb/facts/peripherals.json',
     'kb/facts/risks.json',
     'kb/facts/build_tools.json',
+    'kb/facts/camera_opencv.json',
   ];
   const required = ['id', 'value', 'status', 'confidence', 'last_updated', 'sourceTopics', 'sourcePaths', 'rawEvidence', 'unknowns'];
   let factCount = 0;
@@ -264,6 +292,33 @@ test('P6 facts distinguish runtime availability, package candidates, missing, an
     softwareFacts.some((fact) => fact.id === 'software.pip.status' && /pip command missing/.test(String(fact.value)) && /python3 -m pip/.test(String(fact.value))),
     'pip fact must distinguish pip command from pip3/python3 -m pip'
   );
+});
+
+test('Phase D.1 camera and OpenCV facts capture verified board conditions', () => {
+  const facts = readJsonWorkspaceFile('kb/facts/camera_opencv.json');
+  const byId = new Map(facts.map((fact) => [fact.id, fact]));
+  const expected = {
+    'peripherals.camera.video_nodes': 'absent',
+    'peripherals.camera.uvc_module': 'absent',
+    'kernel.media_support': 'disabled',
+    'runtime.opencv.version': '3.2.0',
+    'runtime.numpy.system.version': '1.16.2',
+  };
+  Object.keys(expected).forEach((id) => {
+    const fact = byId.get(id);
+    assert(fact, `missing Phase D.1 fact: ${id}`);
+    assert(String(fact.value).indexOf(expected[id]) >= 0, `unexpected value for ${id}: ${fact.value}`);
+    assert(fact.status === 'measured', `Phase D.1 fact must be measured: ${id}`);
+    assert(fact.confidence === 'high', `Phase D.1 fact must be high confidence: ${id}`);
+    assert(
+      fact.sourcePaths.indexOf('kb/usb_camera_uvc_boundary.md') >= 0 ||
+        fact.sourcePaths.indexOf('kb/camera_opencv_runtime.md') >= 0,
+      `missing topic source for ${id}`
+    );
+  });
+  const historical = byId.get('runtime.numpy.user_local.zungqr_issue');
+  assert(historical, 'missing historical numpy zungqr fact');
+  assert(historical.status === 'historical', 'user-local numpy zungqr issue must remain historical');
 });
 
 test('P6 includes phase5 RPC failure knowledge with source boundary', () => {
@@ -532,6 +587,55 @@ test('Phase C book-derived playbooks have fixed sections and unverified boundari
   });
 });
 
+test('Phase D workflow playbooks have fixed sections and unverified boundaries', () => {
+  const playbooks = {
+    'cross compile toolchain error': 'kb/playbooks/cross-compile-toolchain-error.md',
+    'gcc compile error': 'kb/playbooks/gcc-compile-error.md',
+    'cmake failure': 'kb/playbooks/make-cmake-failure.md',
+    'ldd library missing': 'kb/playbooks/library-missing.md',
+    'python venv': 'kb/playbooks/python-venv.md',
+    'gpio no response': 'kb/playbooks/gpio-no-response.md',
+    'pwm no output': 'kb/playbooks/pwm-no-output.md',
+    'camera not detected': 'kb/playbooks/camera-not-detected.md',
+    'modbus communication failure': 'kb/playbooks/modbus-communication-failure.md',
+    'camera opencv failure': 'kb/playbooks/camera-opencv-failure.md',
+  };
+  const sections = ['## 结论', '## 当前状态', '## 历史证据', '## 风险', '## 禁止操作', '## 允许的只读排查', '## 待确认', '## 证据路径'];
+  Object.keys(playbooks).forEach((label) => {
+    const relativePath = playbooks[label];
+    assertWorkspaceRelativePathExists(relativePath, `Phase D playbook ${label}`);
+    const text = readWorkspaceFile(relativePath);
+    sections.forEach((section) => {
+      assert(text.indexOf(section) >= 0, `Phase D playbook ${label} missing section: ${section}`);
+    });
+    assert(/book_reference|书稿/.test(text), `Phase D playbook ${label} must state book reference source`);
+    assert(/needs_board_check|待当前板端验证/.test(text), `Phase D playbook ${label} must state board-check boundary`);
+    assert(/只读|read-only/i.test(text), `Phase D playbook ${label} must state read-only diagnostics`);
+    assert(/禁止操作/.test(text), `Phase D playbook ${label} must state forbidden operations`);
+  });
+});
+
+test('Phase D.1 camera and OpenCV playbooks have fixed sections and measured boundaries', () => {
+  const playbooks = {
+    'usb camera no dev video': 'kb/playbooks/usb-camera-no-dev-video.md',
+    'usb camera userland uvc capture': 'kb/playbooks/usb-camera-userland-uvc-capture.md',
+    'opencv numpy conflict': 'kb/playbooks/opencv-numpy-conflict.md',
+    'opencv haar face detection': 'kb/playbooks/opencv-haar-face-detection.md',
+  };
+  const sections = ['## 结论', '## 当前状态', '## 历史证据', '## 风险', '## 禁止操作', '## 允许的只读排查', '## 待确认', '## 证据路径'];
+  Object.keys(playbooks).forEach((label) => {
+    const relativePath = playbooks[label];
+    assertWorkspaceRelativePathExists(relativePath, `Phase D.1 playbook ${label}`);
+    const text = readWorkspaceFile(relativePath);
+    sections.forEach((section) => {
+      assert(text.indexOf(section) >= 0, `Phase D.1 playbook ${label} missing section: ${section}`);
+    });
+    assert(/board_measured|verified|historical/.test(text), `Phase D.1 playbook ${label} must state measured or historical boundary`);
+    assert(/只读|read-only/i.test(text), `Phase D.1 playbook ${label} must state read-only diagnostics`);
+    assert(/禁止操作/.test(text), `Phase D.1 playbook ${label} must state forbidden operations`);
+  });
+});
+
 test('Phase A knowledge index preserves metadata skeleton', () => {
   const entries = readKnowledgeIndex(config());
   const allowedDomains = ['board_system', 'toolchain', 'runtime', 'peripheral', 'ecosystem', 'project'];
@@ -610,6 +714,65 @@ test('Phase C knowledge index includes book system entries', () => {
   });
 });
 
+test('Phase D knowledge index includes workflow extension entries', () => {
+  const entries = readKnowledgeIndex(config());
+  assert(entries.length >= 62, `Phase D index should include at least 62 entries, got ${entries.length}`);
+  assert(entries.filter((entry) => entry.kind === 'fact').length >= 8, 'Phase D baseline facts should remain indexed');
+  const expected = {
+    'maintenance.book_dev_workflows_reference': { kind: 'maintenance', path: 'kb/book_dev_workflows_reference.md', _domain: 'project' },
+    'topic.cross_compile': { kind: 'topic', path: 'kb/cross_compile.md', _domain: 'toolchain' },
+    'topic.peripheral_interfaces': { kind: 'topic', path: 'kb/peripheral_interfaces.md', _domain: 'peripheral' },
+    'playbook.cross_compile_toolchain_error': { kind: 'playbook', path: 'kb/playbooks/cross-compile-toolchain-error.md', _domain: 'toolchain' },
+    'playbook.gcc_compile_error': { kind: 'playbook', path: 'kb/playbooks/gcc-compile-error.md', _domain: 'toolchain' },
+    'playbook.make_cmake_failure': { kind: 'playbook', path: 'kb/playbooks/make-cmake-failure.md', _domain: 'toolchain' },
+    'playbook.library_missing': { kind: 'playbook', path: 'kb/playbooks/library-missing.md', _domain: 'runtime' },
+    'playbook.python_venv': { kind: 'playbook', path: 'kb/playbooks/python-venv.md', _domain: 'runtime' },
+    'playbook.gpio_no_response': { kind: 'playbook', path: 'kb/playbooks/gpio-no-response.md', _domain: 'peripheral' },
+    'playbook.pwm_no_output': { kind: 'playbook', path: 'kb/playbooks/pwm-no-output.md', _domain: 'peripheral' },
+    'playbook.camera_not_detected': { kind: 'playbook', path: 'kb/playbooks/camera-not-detected.md', _domain: 'peripheral' },
+    'playbook.modbus_communication_failure': { kind: 'playbook', path: 'kb/playbooks/modbus-communication-failure.md', _domain: 'project' },
+    'playbook.camera_opencv_failure': { kind: 'playbook', path: 'kb/playbooks/camera-opencv-failure.md', _domain: 'project' },
+  };
+  Object.keys(expected).forEach((id) => {
+    const entry = entries.find((item) => item.id === id);
+    assert(entry, `missing Phase D index entry: ${id}`);
+    Object.keys(expected[id]).forEach((field) => {
+      assert(entry[field] === expected[id][field], `unexpected ${field} for ${id}: ${entry[field]}`);
+    });
+    assert(entry._arch === 'loongarch64', `Phase D entry must be loongarch64: ${id}`);
+    assert(entry._source === 'book_reference', `Phase D entry must be book_reference: ${id}`);
+    assert(entry._verification === 'needs_board_check', `Phase D entry must need board check: ${id}`);
+    assert(entry.defaultSearch === true, `Phase D entry must be default searchable: ${id}`);
+    assert(Array.isArray(entry._triggers) && entry._triggers.length > 0, `Phase D entry missing triggers: ${id}`);
+    assertWorkspaceRelativePathExists(entry.path, `Phase D index entry ${id}`);
+  });
+});
+
+test('Phase D.1 knowledge index includes camera and OpenCV measured entries', () => {
+  const entries = readKnowledgeIndex(config());
+  assert(entries.length >= 69, `Phase D.1 index should include at least 69 entries, got ${entries.length}`);
+  assert(entries.filter((entry) => entry.kind === 'fact').length >= 9, 'Phase D.1 should index camera_opencv facts');
+  const expected = {
+    'topic.usb_camera_uvc_boundary': { kind: 'topic', path: 'kb/usb_camera_uvc_boundary.md', _domain: 'peripheral', _source: 'board_measured', _verification: 'verified' },
+    'topic.camera_opencv_runtime': { kind: 'topic', path: 'kb/camera_opencv_runtime.md', _domain: 'runtime', _source: 'board_measured', _verification: 'verified' },
+    'fact.camera_opencv': { kind: 'fact', path: 'kb/facts/camera_opencv.json', _domain: 'runtime', _source: 'board_measured', _verification: 'verified' },
+    'playbook.usb_camera_no_dev_video': { kind: 'playbook', path: 'kb/playbooks/usb-camera-no-dev-video.md', _domain: 'peripheral', _source: 'board_measured', _verification: 'verified' },
+    'playbook.usb_camera_userland_uvc_capture': { kind: 'playbook', path: 'kb/playbooks/usb-camera-userland-uvc-capture.md', _domain: 'peripheral', _source: 'external_reference', _verification: 'needs_board_check' },
+    'playbook.opencv_numpy_conflict': { kind: 'playbook', path: 'kb/playbooks/opencv-numpy-conflict.md', _domain: 'runtime', _source: 'board_measured', _verification: 'verified' },
+    'playbook.opencv_haar_face_detection': { kind: 'playbook', path: 'kb/playbooks/opencv-haar-face-detection.md', _domain: 'runtime', _source: 'board_measured', _verification: 'verified' },
+  };
+  Object.keys(expected).forEach((id) => {
+    const entry = entries.find((item) => item.id === id);
+    assert(entry, `missing Phase D.1 index entry: ${id}`);
+    Object.keys(expected[id]).forEach((field) => {
+      assert(entry[field] === expected[id][field], `unexpected ${field} for ${id}: ${entry[field]}`);
+    });
+    assert(entry._arch === 'loongarch64', `Phase D.1 entry must be loongarch64: ${id}`);
+    assert(Array.isArray(entry._triggers) && entry._triggers.length > 0, `Phase D.1 entry missing triggers: ${id}`);
+    assertWorkspaceRelativePathExists(entry.path, `Phase D.1 index entry ${id}`);
+  });
+});
+
 test('P6 facts are indexed but excluded from default search', () => {
   const entries = readKnowledgeIndex(config());
   const facts = entries.filter((entry) => entry.kind === 'fact');
@@ -685,6 +848,53 @@ test('Phase C kb_search finds book-derived system entries with verification warn
       (match.warnings || []).indexOf('Knowledge entry needs current board verification.') >= 0,
       `Phase C search match missing board verification warning: ${expectedPath}`
     );
+  });
+});
+
+test('Phase D kb_search finds workflow entries with verification warning', () => {
+  const cases = [
+    ['cross compile toolchain error', 'kb/playbooks/cross-compile-toolchain-error.md'],
+    ['gcc compile error', 'kb/playbooks/gcc-compile-error.md'],
+    ['cmake failure', 'kb/playbooks/make-cmake-failure.md'],
+    ['ldd library missing', 'kb/playbooks/library-missing.md'],
+    ['python venv', 'kb/playbooks/python-venv.md'],
+    ['gpio no response', 'kb/playbooks/gpio-no-response.md'],
+    ['pwm no output', 'kb/playbooks/pwm-no-output.md'],
+    ['camera not detected', 'kb/playbooks/camera-not-detected.md'],
+    ['modbus communication failure', 'kb/playbooks/modbus-communication-failure.md'],
+    ['camera opencv failure', 'kb/playbooks/camera-opencv-failure.md'],
+  ];
+  cases.forEach(([query, expectedPath]) => {
+    const results = searchKnowledge(config(), query, { limit: 10 });
+    const match = results.find((item) => item.path === expectedPath);
+    assert(match, `kb_search did not return ${expectedPath} for query: ${query}`);
+    assert(match._source === 'book_reference', `Phase D search match source mismatch: ${expectedPath}`);
+    assert(match._verification === 'needs_board_check', `Phase D search match verification mismatch: ${expectedPath}`);
+    assert(
+      (match.warnings || []).indexOf('Knowledge entry needs current board verification.') >= 0,
+      `Phase D search match missing board verification warning: ${expectedPath}`
+    );
+  });
+});
+
+test('Phase D.1 kb_search finds camera and OpenCV entries with correct verification boundary', () => {
+  const cases = [
+    ['usb camera no dev video', 'kb/playbooks/usb-camera-no-dev-video.md', 'verified'],
+    ['usb camera userland uvc capture', 'kb/playbooks/usb-camera-userland-uvc-capture.md', 'needs_board_check'],
+    ['opencv numpy zungqr', 'kb/playbooks/opencv-numpy-conflict.md', 'verified'],
+    ['opencv haar face detection', 'kb/playbooks/opencv-haar-face-detection.md', 'verified'],
+  ];
+  cases.forEach(([query, expectedPath, verification]) => {
+    const results = searchKnowledge(config(), query, { limit: 20 });
+    const match = results.find((item) => item.path === expectedPath);
+    assert(match, `kb_search did not return ${expectedPath} for query: ${query}`);
+    assert(match._verification === verification, `Phase D.1 search match verification mismatch: ${expectedPath}`);
+    if (verification === 'needs_board_check') {
+      assert(
+        (match.warnings || []).indexOf('Knowledge entry needs current board verification.') >= 0,
+        `Phase D.1 search match missing board verification warning: ${expectedPath}`
+      );
+    }
   });
 });
 

@@ -1,0 +1,128 @@
+[
+  {
+    "id": "peripherals.camera.video_nodes",
+    "value": "absent: /dev/video* does not exist on the current board image",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-07-07",
+    "sourceTopics": [
+      "usb_camera_uvc_boundary"
+    ],
+    "sourcePaths": [
+      "kb/usb_camera_uvc_boundary.md",
+      "kb/playbooks/usb-camera-no-dev-video.md"
+    ],
+    "rawEvidence": [
+      "kb/usb_camera_uvc_boundary.md",
+      "kb/playbooks/usb-camera-no-dev-video.md"
+    ],
+    "unknowns": [
+      "Whether a future kernel image or attached camera changes this state is not known."
+    ]
+  },
+  {
+    "id": "peripherals.camera.uvc_module",
+    "value": "absent: no uvcvideo module found under /lib/modules/4.19.0-18-loongson-2k",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-07-07",
+    "sourceTopics": [
+      "usb_camera_uvc_boundary"
+    ],
+    "sourcePaths": [
+      "kb/usb_camera_uvc_boundary.md",
+      "kb/playbooks/usb-camera-no-dev-video.md"
+    ],
+    "rawEvidence": [
+      "kb/usb_camera_uvc_boundary.md",
+      "kb/playbooks/usb-camera-no-dev-video.md"
+    ],
+    "unknowns": [
+      "Whether another kernel package provides UVC support is not known."
+    ]
+  },
+  {
+    "id": "kernel.media_support",
+    "value": "disabled: # CONFIG_MEDIA_SUPPORT is not set",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-07-07",
+    "sourceTopics": [
+      "usb_camera_uvc_boundary"
+    ],
+    "sourcePaths": [
+      "kb/usb_camera_uvc_boundary.md",
+      "kb/playbooks/usb-camera-no-dev-video.md"
+    ],
+    "rawEvidence": [
+      "kb/usb_camera_uvc_boundary.md",
+      "kb/playbooks/usb-camera-no-dev-video.md"
+    ],
+    "unknowns": [
+      "A future kernel rebuild or image replacement may change this setting."
+    ]
+  },
+  {
+    "id": "runtime.opencv.version",
+    "value": "3.2.0",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-07-07",
+    "sourceTopics": [
+      "camera_opencv_runtime"
+    ],
+    "sourcePaths": [
+      "kb/camera_opencv_runtime.md",
+      "kb/playbooks/opencv-haar-face-detection.md"
+    ],
+    "rawEvidence": [
+      "kb/camera_opencv_runtime.md",
+      "kb/playbooks/opencv-haar-face-detection.md"
+    ],
+    "unknowns": [
+      "The available OpenCV modules and data file locations are not fully enumerated."
+    ]
+  },
+  {
+    "id": "runtime.numpy.system.version",
+    "value": "1.16.2",
+    "status": "measured",
+    "confidence": "high",
+    "last_updated": "2026-07-07",
+    "sourceTopics": [
+      "camera_opencv_runtime"
+    ],
+    "sourcePaths": [
+      "kb/camera_opencv_runtime.md",
+      "kb/playbooks/opencv-numpy-conflict.md"
+    ],
+    "rawEvidence": [
+      "kb/camera_opencv_runtime.md",
+      "kb/playbooks/opencv-numpy-conflict.md"
+    ],
+    "unknowns": [
+      "Whether project-specific Python paths override system NumPy must be checked per project."
+    ]
+  },
+  {
+    "id": "runtime.numpy.user_local.zungqr_issue",
+    "value": "historical issue: user-local NumPy 1.19.5 can shadow system NumPy and trigger undefined symbol: zungqr_ during OpenCV import; current board check found no user-local numpy directory",
+    "status": "historical",
+    "confidence": "medium",
+    "last_updated": "2026-07-07",
+    "sourceTopics": [
+      "camera_opencv_runtime"
+    ],
+    "sourcePaths": [
+      "kb/camera_opencv_runtime.md",
+      "kb/playbooks/opencv-numpy-conflict.md"
+    ],
+    "rawEvidence": [
+      "kb/camera_opencv_runtime.md",
+      "kb/playbooks/opencv-numpy-conflict.md"
+    ],
+    "unknowns": [
+      "The historical failure is not currently reproduced because /home/loongson/.local/lib/python3.7/site-packages/numpy* is absent."
+    ]
+  }
+]

@@ -1277,5 +1277,566 @@
     "_replaces": null,
     "_superseded_by": null,
     "_domain": "toolchain"
+  },
+  {
+    "id": "maintenance.book_dev_workflows_reference",
+    "kind": "maintenance",
+    "path": "kb/book_dev_workflows_reference.md",
+    "title": "Book development workflows reference",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P2",
+    "_tags": [
+      "book",
+      "phaseD",
+      "workflow"
+    ],
+    "_triggers": [
+      "dev workflow",
+      "Phase D",
+      "toolchain peripheral project"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
+  },
+  {
+    "id": "topic.cross_compile",
+    "kind": "topic",
+    "path": "kb/cross_compile.md",
+    "title": "Cross compile",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "cross-compile",
+      "toolchain",
+      "sysroot"
+    ],
+    "_triggers": [
+      "cross compile",
+      "cross compile toolchain error",
+      "sysroot",
+      "toolchain prefix"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "toolchain"
+  },
+  {
+    "id": "topic.peripheral_interfaces",
+    "kind": "topic",
+    "path": "kb/peripheral_interfaces.md",
+    "title": "Peripheral interfaces",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "peripheral",
+      "gpio",
+      "pwm",
+      "camera"
+    ],
+    "_triggers": [
+      "peripheral interfaces",
+      "gpio pwm camera",
+      "GPIO I2C SPI UART PWM camera",
+      "external device"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
+  },
+  {
+    "id": "playbook.cross_compile_toolchain_error",
+    "kind": "playbook",
+    "path": "kb/playbooks/cross-compile-toolchain-error.md",
+    "title": "Cross compile toolchain error",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "cross-compile",
+      "toolchain",
+      "sysroot"
+    ],
+    "_triggers": [
+      "cross compile toolchain error",
+      "cross compile",
+      "toolchain prefix",
+      "sysroot mismatch",
+      "ABI mismatch"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "toolchain"
+  },
+  {
+    "id": "playbook.gcc_compile_error",
+    "kind": "playbook",
+    "path": "kb/playbooks/gcc-compile-error.md",
+    "title": "GCC compile error",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "gcc",
+      "compile",
+      "toolchain"
+    ],
+    "_triggers": [
+      "gcc compile error",
+      "gcc error",
+      "missing header",
+      "compiler target"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "toolchain"
+  },
+  {
+    "id": "playbook.make_cmake_failure",
+    "kind": "playbook",
+    "path": "kb/playbooks/make-cmake-failure.md",
+    "title": "Make CMake failure",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "make",
+      "cmake",
+      "build"
+    ],
+    "_triggers": [
+      "cmake failure",
+      "make failure",
+      "make cmake failure",
+      "build failure",
+      "make -j1"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "toolchain"
+  },
+  {
+    "id": "playbook.library_missing",
+    "kind": "playbook",
+    "path": "kb/playbooks/library-missing.md",
+    "title": "Library missing",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "library",
+      "ldd",
+      "runtime"
+    ],
+    "_triggers": [
+      "ldd library missing",
+      "library missing",
+      "dynamic library",
+      "readelf",
+      "LD_LIBRARY_PATH"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
+  },
+  {
+    "id": "playbook.python_venv",
+    "kind": "playbook",
+    "path": "kb/playbooks/python-venv.md",
+    "title": "Python venv",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "python",
+      "venv",
+      "pip"
+    ],
+    "_triggers": [
+      "python venv",
+      "python virtualenv",
+      "pip3 venv",
+      "python3 -m venv"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
+  },
+  {
+    "id": "playbook.gpio_no_response",
+    "kind": "playbook",
+    "path": "kb/playbooks/gpio-no-response.md",
+    "title": "GPIO no response",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "gpio",
+      "peripheral"
+    ],
+    "_triggers": [
+      "gpio no response",
+      "gpio not working",
+      "gpiochip",
+      "GPIO no output"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
+  },
+  {
+    "id": "playbook.pwm_no_output",
+    "kind": "playbook",
+    "path": "kb/playbooks/pwm-no-output.md",
+    "title": "PWM no output",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "pwm",
+      "peripheral"
+    ],
+    "_triggers": [
+      "pwm no output",
+      "pwm not working",
+      "/sys/class/pwm",
+      "PWM output"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
+  },
+  {
+    "id": "playbook.camera_not_detected",
+    "kind": "playbook",
+    "path": "kb/playbooks/camera-not-detected.md",
+    "title": "Camera not detected",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "camera",
+      "video",
+      "peripheral"
+    ],
+    "_triggers": [
+      "camera not detected",
+      "/dev/video",
+      "video device missing",
+      "uvc camera"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
+  },
+  {
+    "id": "playbook.modbus_communication_failure",
+    "kind": "playbook",
+    "path": "kb/playbooks/modbus-communication-failure.md",
+    "title": "Modbus communication failure",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "modbus",
+      "serial",
+      "project"
+    ],
+    "_triggers": [
+      "modbus communication failure",
+      "modbus",
+      "RS-485",
+      "serial communication failure",
+      "libmodbus"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
+  },
+  {
+    "id": "playbook.camera_opencv_failure",
+    "kind": "playbook",
+    "path": "kb/playbooks/camera-opencv-failure.md",
+    "title": "Camera OpenCV failure",
+    "stage": "phaseD",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "book_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "camera",
+      "opencv",
+      "project"
+    ],
+    "_triggers": [
+      "camera opencv failure",
+      "opencv camera",
+      "cv2 camera",
+      "OpenCV not ready"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "project"
+  },
+  {
+    "id": "topic.usb_camera_uvc_boundary",
+    "kind": "topic",
+    "path": "kb/usb_camera_uvc_boundary.md",
+    "title": "USB camera UVC boundary",
+    "stage": "phaseD.1",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "camera",
+      "uvc",
+      "v4l2"
+    ],
+    "_triggers": [
+      "usb camera uvc boundary",
+      "/dev/video missing",
+      "CONFIG_MEDIA_SUPPORT is not set",
+      "uvcvideo missing",
+      "VideoCapture cannot open"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
+  },
+  {
+    "id": "topic.camera_opencv_runtime",
+    "kind": "topic",
+    "path": "kb/camera_opencv_runtime.md",
+    "title": "Camera OpenCV runtime",
+    "stage": "phaseD.1",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "camera",
+      "opencv",
+      "numpy"
+    ],
+    "_triggers": [
+      "camera opencv runtime",
+      "OpenCV 3.2.0",
+      "NumPy 1.16.2",
+      "cv2.data haarcascades",
+      "zungqr"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
+  },
+  {
+    "id": "fact.camera_opencv",
+    "kind": "fact",
+    "path": "kb/facts/camera_opencv.json",
+    "title": "Camera and OpenCV facts",
+    "stage": "phaseD.1",
+    "sourceType": "structured_fact",
+    "defaultSearch": false,
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "camera",
+      "opencv",
+      "facts"
+    ],
+    "_triggers": [
+      "camera opencv facts",
+      "camera_opencv.json",
+      "OpenCV 3.2.0",
+      "/dev/video absent"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
+  },
+  {
+    "id": "playbook.usb_camera_no_dev_video",
+    "kind": "playbook",
+    "path": "kb/playbooks/usb-camera-no-dev-video.md",
+    "title": "USB camera no /dev/video",
+    "stage": "phaseD.1",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "camera",
+      "dev-video",
+      "uvc"
+    ],
+    "_triggers": [
+      "dev video missing camera",
+      "usb camera no dev video",
+      "/dev/video0 missing",
+      "uvcvideo missing",
+      "CONFIG_MEDIA_SUPPORT"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
+  },
+  {
+    "id": "playbook.usb_camera_userland_uvc_capture",
+    "kind": "playbook",
+    "path": "kb/playbooks/usb-camera-userland-uvc-capture.md",
+    "title": "USB camera userland UVC capture",
+    "stage": "phaseD.1",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "external_reference",
+    "_verification": "needs_board_check",
+    "_priority": "P1",
+    "_tags": [
+      "camera",
+      "libusb",
+      "libuvc"
+    ],
+    "_triggers": [
+      "usb camera userland uvc capture",
+      "libusb libuvc",
+      "uvc_capture_once",
+      "MJPEG frame",
+      "bypass /dev/video0"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "peripheral"
+  },
+  {
+    "id": "playbook.opencv_numpy_conflict",
+    "kind": "playbook",
+    "path": "kb/playbooks/opencv-numpy-conflict.md",
+    "title": "OpenCV NumPy conflict",
+    "stage": "phaseD.1",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "opencv",
+      "numpy",
+      "python"
+    ],
+    "_triggers": [
+      "opencv numpy zungqr",
+      "undefined symbol zungqr",
+      "NumPy 1.19.5",
+      "PYTHONPATH /usr/lib/python3/dist-packages",
+      "user local numpy"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
+  },
+  {
+    "id": "playbook.opencv_haar_face_detection",
+    "kind": "playbook",
+    "path": "kb/playbooks/opencv-haar-face-detection.md",
+    "title": "OpenCV Haar face detection",
+    "stage": "phaseD.1",
+    "sourceType": "summary",
+    "defaultSearch": true,
+    "_kind_ext": "diagnostic",
+    "_arch": "loongarch64",
+    "_source": "board_measured",
+    "_verification": "verified",
+    "_priority": "P0",
+    "_tags": [
+      "opencv",
+      "haar",
+      "face-detection"
+    ],
+    "_triggers": [
+      "opencv haar face detection",
+      "cv2.data haarcascades",
+      "haarcascade_frontalface_default.xml",
+      "OpenCV 3.2.0 face detection"
+    ],
+    "_replaces": null,
+    "_superseded_by": null,
+    "_domain": "runtime"
   }
 ]

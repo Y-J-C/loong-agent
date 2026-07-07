@@ -565,7 +565,7 @@ needs_board_check：不排除，但给 warning
 | Phase A：元数据骨架 | 已完成 | `kb/index.json` 已补 `_domain/_arch/_source/_verification` 等元数据；运行时已透传 metadata；测试已覆盖 | 本地与板端 `node scripts/test-knowledge-layer.js` 通过 |
 | Phase B：MVP 内容扩展 | 已完成 | 已新增 3 个 MVP playbook、2 个 topic 和 `facts/build_tools.json`，并更新索引、入口、证据和来源文档 | 本地与板端 `node scripts/test-knowledge-layer.js` 通过 |
 | Phase C：书稿系统层 | 已完成 | 已新增书稿系统层 source note、1 个 startup topic、6 个 playbook，并更新索引、入口、证据和来源文档 | 本地与板端 `node scripts/test-knowledge-layer.js` 通过 |
-| Phase D：工具链、运行时、外设和项目 | 未开始 | 交叉编译、Python venv、GPIO/PWM、摄像头、libmodbus 等扩展尚未入库 | 待 Phase C 或明确需求 |
+| Phase D：工具链、运行时、外设和项目 | 已完成 | 已新增开发工作流 source note、4 个 topic、14 个 playbook、USB 摄像头/OpenCV verified facts，并更新索引、入口、证据和来源文档 | 本地与板端 `node scripts/test-knowledge-layer.js` 通过 |
 | Phase E：生态状态层 | 未开始 | areweloongyet、loong123、社区 issue/PR 尚未入库 | 待外部来源审核流程 |
 
 ## 17. 建议实施路线
