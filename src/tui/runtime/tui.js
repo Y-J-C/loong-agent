@@ -225,7 +225,7 @@ TUI.prototype.doRender = function doRender() {
   if (appendStreamActive) viewportTop = appendViewportTop;
   this.currentViewportTop = viewportTop;
 
-  if (first) { this._fullRender(newLines, width, height, cursorPos, false); }
+  if (first) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (widthChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (heightChanged) { this._fullRender(newLines, width, height, cursorPos, true); }
   else if (clear && !appendStreamActive) { this._fullRender(newLines, width, height, cursorPos, true); }
@@ -666,9 +666,11 @@ TUI.prototype.setAppendStream = function setAppendStream(flag) {
 };
 
 // Legacy aliases
-TUI.prototype.renderNow = function renderNow() { 
-  if (this.terminal.clearScreen) this.terminal.clearScreen();
-  return this.doRender(); 
+TUI.prototype.renderNow = function renderNow() {
+  this.previousLines = [];
+  this.previousWidth = -1;
+  this.previousHeight = -1;
+  return this.doRender();
 };
 TUI.prototype.hideCursor = function hideCursor() { this.terminal.hideCursor(); };
 TUI.prototype.showCursor = function showCursor() { this.terminal.showCursor(); };

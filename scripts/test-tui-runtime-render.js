@@ -82,11 +82,12 @@ try {
 ok(threw, 'render throws on width overflow');
 
 var appendWrites = [];
+var appendClears = 0;
 var appendTerminal = {
   columns: 30,
   rows: 4,
   write: function(data) { appendWrites.push(String(data || '')); },
-  clearScreen: function() {},
+  clearScreen: function() { appendClears += 1; },
   start: function() {},
   stop: function() {},
   hideCursor: function() {},
@@ -100,7 +101,9 @@ appendTui.add({
     return appendLines;
   },
 });
-appendTui.doRender();
+appendTui.start();
+ok(appendClears > 0, 'append-stream start clears screen on first render');
+ok(appendWrites.join('').indexOf('\x1b[2J\x1b[H') >= 0, 'append-stream first render homes the cursor');
 appendLines = ['history-0', 'history-1', 'history-2', 'input', 'footer'];
 appendWrites = [];
 appendTui.doRender();
