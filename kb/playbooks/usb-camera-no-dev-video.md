@@ -44,4 +44,4 @@ dmesg | grep -iE "uvc|video|camera|v4l"
 
 - `kb/usb_camera_uvc_boundary.md`
 - `kb/facts/camera_opencv.json`
-- `kb/peripheral_interfaces.md`
+- `kb/board_profile.md`

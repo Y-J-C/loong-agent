@@ -15,32 +15,11 @@ Phase B 在元数据骨架上新增 3 个 MVP playbook、2 个 agent topic 和 1
 - Playbooks: `kb/playbooks/disk-space.md`, `kb/playbooks/openblas-build.md`, `kb/playbooks/serial-communication.md`
 - Structured facts: `kb/facts/build_tools.json`
 
-这些条目仍然遵守只读知识层边界，不新增书稿 `book_reference`，也不改变 `kb_topic` / `kb_search` API 签名。
-
-## Phase C 书稿系统层
-
-Phase C 新增书稿第 1-3 章的系统层最小入库，所有派生条目均为 `book_reference + needs_board_check`，只能作为待当前板端验证的只读诊断框架。
-
-- Source note: `kb/book_first_platform_reference.md`
-- Agent topic: `kb/book_startup_chain.md`
-- Playbooks: `kb/playbooks/boot-serial-no-output.md`, `kb/playbooks/bootloader-hang.md`, `kb/playbooks/boot-kernel-load-failure.md`, `kb/playbooks/display-no-output.md`, `kb/playbooks/network-remote-access.md`, `kb/playbooks/book-basic-toolchain-boundary.md`
-
-Phase C 不把 `mips64el`、`yum`、PMON 细节、Samba 可用性或旧系统工具链写成当前板端事实。
-
-## Phase D 工具链、运行时、外设和项目场景
-
-Phase D 新增开发工作流 source note、2 个 agent topic 和 10 个诊断 playbook。所有新增条目均为 `book_reference + needs_board_check`，只能作为待当前板端验证的只读诊断模板。
-
-- Source note: `kb/book_dev_workflows_reference.md`
-- Agent topics: `kb/cross_compile.md`, `kb/peripheral_interfaces.md`
-- Toolchain/runtime playbooks: `kb/playbooks/cross-compile-toolchain-error.md`, `kb/playbooks/gcc-compile-error.md`, `kb/playbooks/make-cmake-failure.md`, `kb/playbooks/library-missing.md`, `kb/playbooks/python-venv.md`
-- Peripheral/project playbooks: `kb/playbooks/gpio-no-response.md`, `kb/playbooks/pwm-no-output.md`, `kb/playbooks/camera-not-detected.md`, `kb/playbooks/modbus-communication-failure.md`, `kb/playbooks/camera-opencv-failure.md`
-
-Phase D 不把 Qt、OpenCV、libmodbus、GPIO、PWM 或 camera 可用性写成当前板端事实，也不提供安装、写 GPIO/PWM、接线测试、采集图像或修改系统库的执行步骤。
+这些条目仍然遵守只读知识层边界，也不改变 `kb_topic` / `kb_search` API 签名。
 
 ## Phase D.1 USB 摄像头与 OpenCV 已知条件
 
-Phase D.1 将当前板端已复核的 USB 摄像头和 OpenCV 运行时边界入库。与 Phase D 模板不同，本阶段中 `/dev/video*` 缺失、`uvcvideo.ko` 缺失、`CONFIG_MEDIA_SUPPORT is not set`、OpenCV `3.2.0`、系统 NumPy `1.16.2` 均为 `board_measured + verified`。
+当前知识库已将当前板端复核过的 USB 摄像头和 OpenCV 运行时边界入库。本阶段中 `/dev/video*` 缺失、`uvcvideo.ko` 缺失、`CONFIG_MEDIA_SUPPORT is not set`、OpenCV `3.2.0`、系统 NumPy `1.16.2` 均为 `board_measured + verified`。
 
 - Agent topics: `kb/usb_camera_uvc_boundary.md`, `kb/camera_opencv_runtime.md`
 - Structured facts: `kb/facts/camera_opencv.json`
@@ -52,7 +31,7 @@ Phase D.1 将当前板端已复核的 USB 摄像头和 OpenCV 运行时边界入
 
 | 层级 | 职责 | 默认检索 |
 |---|---|---|
-| agent topic | 根目录 15 个 Markdown 文件，作为运行时优先读取的摘要入口 | 是 |
+| agent topic | 根目录 12 个 Markdown 文件，作为运行时优先读取的摘要入口 | 是 |
 | maintenance docs | 维护说明、阶段状态、排查索引、证据地图、维护规范 | 是 |
 | structured facts | `kb/facts/*.json`，供代码稳定读取的事实表 | 否 |
 | playbooks | `kb/playbooks/*.md`，面向具体问题的只读排查手册 | 是 |
@@ -71,9 +50,6 @@ Phase D.1 将当前板端已复核的 USB 摄像头和 OpenCV 运行时边界入
 - `unknowns.md`
 - `build_guide.md`
 - `loongarch_isa.md`
-- `book_startup_chain.md`
-- `cross_compile.md`
-- `peripheral_interfaces.md`
 - `usb_camera_uvc_boundary.md`
 - `camera_opencv_runtime.md`
 
@@ -153,22 +129,6 @@ P6 将排查内容拆成 `kb/playbooks/*.md`：
 - `disk-space.md`
 - `openblas-build.md`
 - `serial-communication.md`
-- `boot-serial-no-output.md`
-- `bootloader-hang.md`
-- `boot-kernel-load-failure.md`
-- `display-no-output.md`
-- `network-remote-access.md`
-- `book-basic-toolchain-boundary.md`
-- `cross-compile-toolchain-error.md`
-- `gcc-compile-error.md`
-- `make-cmake-failure.md`
-- `library-missing.md`
-- `python-venv.md`
-- `gpio-no-response.md`
-- `pwm-no-output.md`
-- `camera-not-detected.md`
-- `modbus-communication-failure.md`
-- `camera-opencv-failure.md`
 - `usb-camera-no-dev-video.md`
 - `usb-camera-userland-uvc-capture.md`
 - `opencv-numpy-conflict.md`
@@ -186,7 +146,7 @@ P6 将排查内容拆成 `kb/playbooks/*.md`：
 
 ## 证据追溯
 
-普通回答优先读取根目录 15 个 topic。需要精确复核时，追溯到：
+普通回答优先读取根目录 12 个 topic。需要精确复核时，追溯到：
 
 ```text
 kb/evidence_map.md
@@ -217,7 +177,7 @@ kb/source_index.md
 
 `kb_search` 的行为：
 
-1. 优先搜索根目录 15 个 agent topic。
+1. 优先搜索根目录 12 个 agent topic。
 2. 补充搜索 `index.json` 中 `defaultSearch: true` 的维护文档和 playbook。
 3. `kb/facts/*.json` 默认不搜索，只作为结构化读取和审计对象。
 4. 当前 compact layout 没有 raw 索引项；即使传入 `includeRaw: true`，也不应返回 raw 结果。
@@ -235,7 +195,7 @@ node scripts/test-knowledge-layer.js
 
 该测试覆盖：
 
-- 15 个 topic 的契约字段和 `## Unknowns`。
+- 12 个 topic 的契约字段和 `## Unknowns`。
 - `kb_topic`、`kb_search`、`risk_lookup`、`command_reference` 等知识工具。
 - topic `sources` 中本地路径的存在性。
 - `kb/index.json` manifest 路径和搜索范围。

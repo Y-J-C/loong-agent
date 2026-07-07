@@ -45,4 +45,4 @@ df -h
 
 - `kb/usb_camera_uvc_boundary.md`
 - `kb/playbooks/usb-camera-no-dev-video.md`
-- `kb/playbooks/camera-opencv-failure.md`
+- `kb/camera_opencv_runtime.md`

@@ -19,8 +19,6 @@ Agent topic sources:
 - Software and package state: `kb/software_stack.md`, `kb/compatibility_matrix.md`, `kb/playbooks/npm.md`, `kb/playbooks/gpp.md`, `kb/playbooks/pip.md`, `kb/playbooks/containers.md`.
 - Build and architecture: `kb/build_guide.md`, `kb/loongarch_isa.md`, `kb/facts/build_tools.json`, `kb/playbooks/disk-space.md`, `kb/playbooks/openblas-build.md`.
 - Serial communication: `kb/playbooks/serial-communication.md`, `kb/facts/peripherals.json`, `kb/playbooks/gpio-i2c-spi-uart.md`.
-- Book system layer: `kb/book_first_platform_reference.md`, `kb/book_startup_chain.md`, `kb/playbooks/boot-serial-no-output.md`, `kb/playbooks/bootloader-hang.md`, `kb/playbooks/boot-kernel-load-failure.md`, `kb/playbooks/display-no-output.md`, `kb/playbooks/network-remote-access.md`, `kb/playbooks/book-basic-toolchain-boundary.md`.
-- Book development workflows: `kb/book_dev_workflows_reference.md`, `kb/cross_compile.md`, `kb/peripheral_interfaces.md`, `kb/playbooks/cross-compile-toolchain-error.md`, `kb/playbooks/gcc-compile-error.md`, `kb/playbooks/make-cmake-failure.md`, `kb/playbooks/library-missing.md`, `kb/playbooks/python-venv.md`, `kb/playbooks/gpio-no-response.md`, `kb/playbooks/pwm-no-output.md`, `kb/playbooks/camera-not-detected.md`, `kb/playbooks/modbus-communication-failure.md`, `kb/playbooks/camera-opencv-failure.md`.
 - Camera and OpenCV board facts: `kb/usb_camera_uvc_boundary.md`, `kb/camera_opencv_runtime.md`, `kb/facts/camera_opencv.json`, `kb/playbooks/usb-camera-no-dev-video.md`, `kb/playbooks/usb-camera-userland-uvc-capture.md`, `kb/playbooks/opencv-numpy-conflict.md`, `kb/playbooks/opencv-haar-face-detection.md`.
 - Risk and uncertainty: `kb/risk_list.md`, `kb/unknowns.md`, `kb/maintenance_guide.md`.
 
@@ -56,6 +54,5 @@ Integrity:
 - Whether the local Codex sandbox `spawn EPERM` restriction can be relaxed remains pending.
 - OpenBLAS build logs and artifact validation remain pending repository evidence.
 - Serial pinout, voltage, and safe port mapping remain pending board documentation or measured verification.
-- Book-derived startup, display, network, and toolchain entries are `book_reference + needs_board_check` until current-board evidence upgrades them.
-- Phase D cross compile, runtime library, Python venv, GPIO/PWM/camera, Modbus, and camera/OpenCV entries are `book_reference + needs_board_check` until current-board evidence upgrades them.
 - Current board USB camera/OpenCV facts are verified as of 2026-07-07, but userland `libusb + libuvc` capture still needs a current-board rerun before being marked verified.
+

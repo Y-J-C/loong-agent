@@ -43,4 +43,4 @@ PYTHONPATH=/usr/lib/python3/dist-packages python3 -c "import numpy, cv2; print(n
 
 - `kb/camera_opencv_runtime.md`
 - `kb/facts/camera_opencv.json`
-- `kb/playbooks/python-venv.md`
+- `kb/software_stack.md`

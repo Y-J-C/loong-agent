@@ -15,9 +15,6 @@ const KB_TOPICS = {
   unknowns: 'unknowns.md',
   build_guide: 'build_guide.md',
   loongarch_isa: 'loongarch_isa.md',
-  book_startup_chain: 'book_startup_chain.md',
-  cross_compile: 'cross_compile.md',
-  peripheral_interfaces: 'peripheral_interfaces.md',
   usb_camera_uvc_boundary: 'usb_camera_uvc_boundary.md',
   camera_opencv_runtime: 'camera_opencv_runtime.md',
 };

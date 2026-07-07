@@ -2,7 +2,7 @@
 
 status: measured
 last_updated: 2026-07-07
-sources: kb/usb_camera_uvc_boundary.md; kb/facts/camera_opencv.json; kb/playbooks/usb-camera-no-dev-video.md; kb/peripheral_interfaces.md
+sources: kb/usb_camera_uvc_boundary.md; kb/facts/camera_opencv.json; kb/playbooks/usb-camera-no-dev-video.md
 confidence: high
 
 ## Content
