@@ -287,6 +287,22 @@ async function main() {
   ok(capturedState.lastRender.fullRedrawCount > redrawsBeforeApproval, 'approval close forces a clean redraw');
   ok(terminal.output.indexOf('approval flow done') >= 0, 'approval confirm keeps rendering subsequent output');
 
+  var promptCountBeforeBang = fakeSession.prompts.length;
+  terminal.inputHandler('!');
+  terminal.inputHandler('l');
+  terminal.inputHandler('s');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  terminal.inputHandler('\r');
+  await new Promise(function(resolve) { setTimeout(resolve, 80); });
+  ok(capturedState.pendingToolApproval, 'manual bang command can request shell approval');
+  terminal.inputHandler('y');
+  await new Promise(function(resolve) { setTimeout(resolve, 160); });
+  equal(fakeSession.prompts.length, promptCountBeforeBang, 'manual bang command does not submit a model prompt');
+  equal(capturedState.pendingToolApproval, null, 'manual bang command clears approval state');
+  equal(capturedState.mode, 'idle', 'manual bang command returns runtime mode to idle');
+  equal(capturedState.agentStatus, 'idle', 'manual bang command clears running status');
+  ok(capturedState.status !== 'running' && capturedState.status !== 'approval', 'manual bang command does not leave Working status');
+
   terminal.inputHandler('s');
   terminal.inputHandler('t');
   terminal.inputHandler('r');

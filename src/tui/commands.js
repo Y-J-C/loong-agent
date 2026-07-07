@@ -1394,6 +1394,7 @@ async function runBangCommand(context, text) {
   const raw = String(text || '').trim();
   const excludeFromContext = raw.startsWith('!!');
   const command = raw.replace(/^!!?\s*/, '').trim();
+  const initialMode = context && context.state ? context.state.mode : '';
   if (!command) {
     addMessage(context.state, { type: 'error', text: '用法: ! <shell 命令>' });
     return;
@@ -1479,6 +1480,12 @@ async function runBangCommand(context, text) {
         'node scripts/test-tui-export-demo.js',
       ].join('\n'),
     });
+  } finally {
+    if (context && context.state && initialMode !== 'running' && !context.state.pendingToolApproval && context.state.mode === 'running') {
+      context.state.mode = 'idle';
+      context.state.status = 'idle';
+      context.state.agentStatus = 'idle';
+    }
   }
 }
 
