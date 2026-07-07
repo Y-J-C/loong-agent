@@ -2122,6 +2122,32 @@ async function runAgentLoop(options) {
 
     for (const action of actions) {
       lastAction = action;
+      const earlyEvidenceGuard = answerEvidenceGuard(state, currentUserPrompt || state.userPrompt);
+      if (
+        earlyEvidenceGuard &&
+        earlyEvidenceGuard.reason === 'missing_camera_knowledge_search' &&
+        earlyEvidenceGuard.action &&
+        !equivalentAction(earlyEvidenceGuard.action, action)
+      ) {
+        const guardAction = earlyEvidenceGuard.action;
+        const toolExecution = await executeToolCall(turnContext, guardAction, null);
+        const result = toolExecution.result;
+        const isError = toolExecution.isError;
+        await prepareForNextTurn(turnContext, guardAction, result, isError);
+        await emitTurnEnd(turnContext, {
+          isError,
+          status: isError && toolExecution.errorType === 'policy_blocked' ? 'policy_blocked' : isError ? 'tool_error' : 'ok',
+          reason: earlyEvidenceGuard.reason || toolExecution.errorType,
+          toolName: guardAction.tool,
+        });
+        pendingMessages = pendingMessages.concat(getSteeringMessages());
+        pendingMessages.push({
+          content: `${earlyEvidenceGuard.message}\nContinue with the required evidence from ${guardAction.tool} before using other tools or answering.`,
+          internal: true,
+        });
+        continueNextTurn = true;
+        break;
+      }
       const repeatDecision = evaluateRepeatPolicy(turnContext, action);
       if (repeatDecision.mode !== 'allow') {
         const evidenceGuard = answerEvidenceGuard(state, currentUserPrompt || state.userPrompt);

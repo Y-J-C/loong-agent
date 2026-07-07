@@ -1758,6 +1758,40 @@ test('environment version answers require tool evidence before final answer', as
   assert(!/v18\.19\.0/.test(result.summary), 'unsupported version answer was accepted');
 });
 
+test('camera tool attempts run kb_search before bash diagnostics', async () => {
+  let calls = 0;
+  registerProvider({
+    name: 'test-camera-early-kb-search',
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return JSON.stringify({
+          type: 'tool',
+          tool: 'bash',
+          input: { command: 'ls /dev/video* 2>&1' },
+          reason: 'Check current camera nodes.',
+        });
+      }
+      return JSON.stringify({
+        type: 'answer',
+        answer: '已先查看本地 USB camera/UVC 知识，再继续只读验证。',
+        status: 'ok',
+      });
+    },
+  });
+  const events = [];
+  const agent = createAgent(Object.assign(config('test-camera-early-kb-search', PROJECT_ROOT), {
+    maxLoops: 4,
+    streaming: false,
+  }), { session: null });
+  agent.subscribe((event) => events.push(event));
+  const result = await agent.prompt('当前 USB camera 没有 /dev/video0，能否通过 libusb 或 UVC 其他办法抓图？');
+  const toolStarts = events.filter((event) => event.type === 'tool_execution_start').map((event) => event.toolName);
+  assert(toolStarts[0] === 'kb_search', `expected kb_search before bash, got ${toolStarts.join(',')}`);
+  assert(toolStarts.indexOf('bash') < 0, 'bash should not run before required camera kb_search');
+  assert(/本地 USB camera\/UVC 知识/.test(result.summary), 'camera early kb_search flow did not reach final answer');
+});
+
 test('historical node version can answer naturally from structured kb facts', async () => {
   let calls = 0;
   registerProvider({

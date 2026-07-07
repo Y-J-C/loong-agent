@@ -824,6 +824,15 @@ test('Loong final guard requires kb_search for camera UVC questions before answe
     state: { observations: [{ tool: 'kb_search', input: { query: 'USB camera UVC' } }] },
   });
   assert(!afterSearch || afterSearch.reason !== 'missing_camera_knowledge_search', 'camera guard should not repeat after kb_search');
+
+  const agentLoopCallShape = finalAnswerEvidenceGuard({
+    userPrompt: '当前 USB camera 没有 /dev/video0，能否通过 libusb 或 UVC 其他办法抓图？',
+    observations: [{ tool: 'kb_search', input: { query: 'USB camera UVC' } }],
+  }, '当前 USB camera 没有 /dev/video0，能否通过 libusb 或 UVC 其他办法抓图？');
+  assert(
+    !agentLoopCallShape || agentLoopCallShape.reason !== 'missing_camera_knowledge_search',
+    'camera guard should not repeat with agent-loop call shape'
+  );
 });
 
 

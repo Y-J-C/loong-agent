@@ -503,9 +503,10 @@ function isCameraKnowledgeQuestion(text) {
   return /usb.*camera|camera.*usb|uvc|v4l2|\/dev\/video|uvcvideo|opencv|cv2|video4linux|libusb|libuvc/i.test(String(text || ''));
 }
 
-function finalAnswerEvidenceGuard(context) {
-  const state = context && context.state;
-  const prompt = String((context && context.prompt) || (state && state.userPrompt) || '');
+function finalAnswerEvidenceGuard(context, promptOverride) {
+  const wrapped = context && context.state;
+  const state = wrapped || context;
+  const prompt = String(promptOverride || (context && context.prompt) || (state && state.userPrompt) || '');
   if (isCameraKnowledgeQuestion(prompt) && !hasObservationFrom(state, ['kb_search'])) {
     return {
       reason: 'missing_camera_knowledge_search',
