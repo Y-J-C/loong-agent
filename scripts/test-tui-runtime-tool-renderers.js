@@ -34,15 +34,44 @@ ok(plain(bash.lines).indexOf('$ node stream.js') >= 0, 'bash renderer keeps comm
 ok(plain(bash.lines).indexOf('duration=12ms') >= 0, 'bash renderer keeps running metadata');
 ok(bash.lines.every(function(line) { return utils.visibleWidth(line) <= 52; }), 'bash renderer lines fit width');
 
+var longBash = renderToolMessage({
+  type: 'tool',
+  toolName: 'bash',
+  done: true,
+  detail: {
+    command: 'seq 1 12',
+    stdout: 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12',
+  },
+}, baseOptions);
+var longPlain = plain(longBash.lines);
+ok(longPlain.indexOf('$ seq 1 12') >= 0, 'long bash summary keeps command first');
+ok(longPlain.indexOf('stdout:') >= 0, 'long bash summary labels stdout');
+ok(longPlain.indexOf('line1') >= 0 && longPlain.indexOf('line12') >= 0, 'long bash summary keeps head and tail output');
+ok(longPlain.indexOf('hidden') >= 0, 'long bash summary records hidden output count');
+
+var failedBash = renderToolMessage({
+  type: 'tool',
+  toolName: 'bash',
+  done: true,
+  isError: true,
+  detail: { command: 'bad', stderr: 'permission denied', error: 'exit 126', reason: 'policy' },
+  summary: 'generic failed summary',
+}, baseOptions);
+var failedPlain = plain(failedBash.lines);
+ok(failedPlain.indexOf('stderr:') >= 0 && failedPlain.indexOf('permission denied') >= 0, 'failed bash summary prioritizes stderr');
+ok(failedPlain.indexOf('error=exit 126') >= 0 || failedPlain.indexOf('reason=policy') >= 0, 'failed bash summary includes error metadata');
+
 var fileTool = renderToolMessage({
   type: 'tool',
   toolName: 'read_file',
   done: true,
   summary: 'fallback summary',
-  detail: { path: 'src/index.js', bytes: 42 },
+  detail: { path: 'src/index.js', action: 'read', bytes: 42, truncated: true },
 }, baseOptions);
 ok(plain(fileTool.lines).indexOf('path=src/index.js') >= 0, 'file renderer extracts path');
 ok(plain(fileTool.lines).indexOf('bytes=42') >= 0, 'file renderer extracts bytes');
+ok(plain(fileTool.lines).indexOf('action=read') >= 0, 'file renderer extracts action');
+ok(plain(fileTool.lines).indexOf('truncated=true') >= 0, 'file renderer extracts truncation state');
 
 var processTool = renderToolMessage({
   type: 'tool',
@@ -57,9 +86,10 @@ var knowledgeTool = renderToolMessage({
   type: 'tool',
   toolName: 'kb_search',
   done: true,
-  detail: { query: 'ssh', evidence: [{ id: 1 }], warnings: ['w'] },
+  detail: { query: 'ssh', topic: 'network', evidence: [{ id: 1 }], warnings: ['w'] },
 }, baseOptions);
 ok(plain(knowledgeTool.lines).indexOf('query=ssh') >= 0, 'knowledge renderer extracts query');
+ok(plain(knowledgeTool.lines).indexOf('topic=network') >= 0, 'knowledge renderer extracts topic');
 ok(plain(knowledgeTool.lines).indexOf('evidence=1') >= 0, 'knowledge renderer counts evidence');
 ok(plain(knowledgeTool.lines).indexOf('warnings=1') >= 0, 'knowledge renderer counts warnings');
 

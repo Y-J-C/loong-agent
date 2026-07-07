@@ -190,10 +190,44 @@ function currentSessionWriter(state) {
   return openJsonlSession(state.currentSession.path, state.currentSession.id);
 }
 
-function transcriptOptions(config, state) {
-  return {
+function parseOptionValue(args, index, name) {
+  const item = args[index] || '';
+  const prefix = name + '=';
+  if (item.indexOf(prefix) === 0) return { value: item.slice(prefix.length), nextIndex: index };
+  return { value: args[index + 1] || '', nextIndex: index + 1 };
+}
+
+function transcriptOptions(config, state, args) {
+  const options = {
     lineLimit: config && config.tuiTranscriptLineLimit || state && state.tuiTranscriptLineLimit || 5000,
   };
+  const values = Array.isArray(args) ? args : [];
+  const typeValues = ['user', 'assistant', 'tool', 'system', 'error'];
+  const focusValues = ['tool', 'error'];
+  for (let index = 0; index < values.length; index += 1) {
+    const item = values[index];
+    if (item === '--type' || item.indexOf('--type=') === 0) {
+      const parsed = parseOptionValue(values, index, '--type');
+      if (typeValues.indexOf(parsed.value) < 0) {
+        options.error = 'Usage: /transcript [--type user|assistant|tool|system|error] [--focus tool|error]';
+        return options;
+      }
+      options.typeFilter = parsed.value;
+      index = parsed.nextIndex;
+    } else if (item === '--focus' || item.indexOf('--focus=') === 0) {
+      const parsed = parseOptionValue(values, index, '--focus');
+      if (focusValues.indexOf(parsed.value) < 0) {
+        options.error = 'Usage: /transcript [--type user|assistant|tool|system|error] [--focus tool|error]';
+        return options;
+      }
+      options.focus = parsed.value;
+      index = parsed.nextIndex;
+    } else if (item) {
+      options.error = 'Usage: /transcript [--type user|assistant|tool|system|error] [--focus tool|error]';
+      return options;
+    }
+  }
+  return options;
 }
 
 function formatCompactCheckpoint(result) {
@@ -808,8 +842,13 @@ async function dispatchSlashCommand(context, parsed) {
     return;
   }
   if (command.name === 'transcript') {
+    const options = transcriptOptions(context.config, state, parsed.args);
+    if (options.error) {
+      addMessage(state, { type: 'error', text: options.error });
+      return;
+    }
     state.mode = 'panel';
-    state.activePanel = createTranscriptPanel(state, transcriptOptions(context.config, state));
+    state.activePanel = createTranscriptPanel(state, options);
     return;
   }
   if (command.name === 'skill') {
@@ -898,8 +937,13 @@ async function runSlashCommandLegacy(context, text) {
   }
 
   if (name === '/transcript') {
+    const options = transcriptOptions(config, state, parts.slice(1));
+    if (options.error) {
+      addMessage(state, { type: 'error', text: options.error });
+      return;
+    }
     state.mode = 'panel';
-    state.activePanel = createTranscriptPanel(state, transcriptOptions(config, state));
+    state.activePanel = createTranscriptPanel(state, options);
     return;
   }
 
@@ -1395,6 +1439,7 @@ async function runBangCommand(context, text) {
   const excludeFromContext = raw.startsWith('!!');
   const command = raw.replace(/^!!?\s*/, '').trim();
   const initialMode = context && context.state ? context.state.mode : '';
+  const initialAgentStatus = context && context.state ? context.state.agentStatus : '';
   if (!command) {
     addMessage(context.state, { type: 'error', text: '用法: ! <shell 命令>' });
     return;
@@ -1481,7 +1526,7 @@ async function runBangCommand(context, text) {
       ].join('\n'),
     });
   } finally {
-    if (context && context.state && initialMode !== 'running' && !context.state.pendingToolApproval && context.state.mode === 'running') {
+    if (context && context.state && initialMode !== 'running' && initialAgentStatus !== 'running' && !context.state.pendingToolApproval && (context.state.mode === 'running' || context.state.agentStatus === 'running')) {
       context.state.mode = 'idle';
       context.state.status = 'idle';
       context.state.agentStatus = 'idle';

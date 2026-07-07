@@ -72,6 +72,13 @@ var footerState = {
   ok(utils.visibleWidth(footerLine) <= width, 'footer fits width ' + width);
   ok(!hasMojibake(footerLine), 'footer has no mojibake at width ' + width);
 });
+var historyFooterState = Object.assign({}, footerState, {
+  historyMode: true,
+  scrollOffset: 12,
+  scrollMaxOffset: 80,
+});
+var historyFooterLine = utils.stripAnsi(new Footer(historyFooterState).render(80, { theme: plain })[0]);
+ok(historyFooterLine.indexOf('history 12/80') >= 0, 'footer shows compact history offset');
 
 var baseState = {
   mode: 'idle',

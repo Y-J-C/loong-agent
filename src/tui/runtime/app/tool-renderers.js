@@ -73,6 +73,33 @@ function bashOutputText(message) {
   return parts.join('\n');
 }
 
+function firstValue(values) {
+  for (var index = 0; index < values.length; index += 1) {
+    var value = values[index];
+    if (value !== undefined && value !== null && String(value) !== '') return value;
+  }
+  return '';
+}
+
+function compactBooleanMeta(value) {
+  if (value === true) return 'true';
+  if (value === false) return 'false';
+  return value;
+}
+
+function headTailLines(lines, headCount, tailCount) {
+  var safe = Array.isArray(lines) ? lines : [];
+  var head = Math.max(0, Number(headCount) || 0);
+  var tail = Math.max(0, Number(tailCount) || 0);
+  if (safe.length <= head + tail) {
+    return { lines: safe.slice(), hidden: 0 };
+  }
+  return {
+    lines: safe.slice(0, head).concat(safe.slice(safe.length - tail)),
+    hidden: Math.max(0, safe.length - head - tail),
+  };
+}
+
 function hasStructuredBashDetail(message) {
   var detail = detailObject(message);
   return Boolean(detail.command || detail.output || detail.stdout || detail.stderr);
@@ -84,45 +111,85 @@ function renderBash(message, options) {
   var expanded = Boolean(options.expanded);
   var maxVisualLines = 8;
   var command = bashCommand(message);
-  var outputLines = wrapTextBlocks(bashOutputText(message), width);
-  var lines = command ? ['$ ' + command] : [];
   var detail = detailObject(message);
+  var stdoutLines = wrapTextBlocks(detail.stdout || detail.output || (!detail.stderr ? bashOutputText(message) : ''), width);
+  var stderrLines = wrapTextBlocks(detail.stderr || '', width);
+  var lines = command ? ['$ ' + command] : [];
   var meta = [];
+  var errorMeta = [];
   if (!message.done && detail.durationMs !== undefined) meta.push('duration=' + detail.durationMs + 'ms');
   if (detail.truncated) meta.push('truncated');
   if (detail.fullOutputPath) meta.push('full=' + detail.fullOutputPath);
+  if (detail.error) errorMeta.push('error=' + detail.error);
+  if (detail.reason) errorMeta.push('reason=' + detail.reason);
 
   if (expanded) {
     if (!hasStructuredBashDetail(message) && detailText(message)) {
       return { lines: renderDetailBlock(message, width, theme), detailLines: [] };
     }
-    lines = lines.concat(outputLines);
+    if (stdoutLines.length && stdoutLines.join('').trim()) lines = lines.concat(['stdout:']).concat(stdoutLines);
+    if (stderrLines.length && stderrLines.join('').trim()) lines = lines.concat(['stderr:']).concat(stderrLines);
+    if (!stdoutLines.length && !stderrLines.length) lines = lines.concat(wrapTextBlocks(messageText(message), width));
+    if (errorMeta.length) lines.push(themeMod.paint(theme, 'error', '[' + errorMeta.join(' ') + ']'));
     if (meta.length) lines.push(themeMod.paint(theme, 'dim', '[' + meta.join(' ') + ']'));
     return { lines: lines.length ? lines : [messageText(message)], detailLines: [] };
   }
 
-  var hiddenCount = Math.max(0, outputLines.length - maxVisualLines);
-  if (hiddenCount > 0) outputLines = outputLines.slice(outputLines.length - maxVisualLines);
-  lines = lines.concat(outputLines);
-  if (hiddenCount > 0) lines.push(themeMod.paint(theme, 'dim', '... (' + hiddenCount + ' more visual lines hidden)'));
+  if (stderrLines.length && stderrLines.join('').trim()) {
+    var stderrSummary = headTailLines(stderrLines, 3, 2);
+    lines = lines.concat(['stderr:']).concat(stderrSummary.lines);
+    if (stderrSummary.hidden > 0) lines.push(themeMod.paint(theme, 'dim', '... (' + stderrSummary.hidden + ' more visual lines hidden; stderr lines hidden)'));
+  }
+  if (stdoutLines.length && stdoutLines.join('').trim()) {
+    var stdoutSummary = headTailLines(stdoutLines, 4, 4);
+    lines = lines.concat(['stdout:']).concat(stdoutSummary.lines);
+    if (stdoutSummary.hidden > 0) lines.push(themeMod.paint(theme, 'dim', '... (' + stdoutSummary.hidden + ' more visual lines hidden; stdout lines hidden)'));
+  }
+  if (errorMeta.length) lines.push(themeMod.paint(theme, 'error', '[' + errorMeta.join(' ') + ']'));
   if (meta.length) lines.push(themeMod.paint(theme, 'dim', '[' + meta.join(' ') + ']'));
+  if (lines.length > maxVisualLines + 4) lines = lines.slice(0, maxVisualLines + 4);
   return { lines: lines.length ? lines : [messageText(message)], detailLines: [] };
 }
 
 function count(value) {
-  return Array.isArray(value) ? value.length : typeof value === 'number' ? value : 0;
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === 'number') return value;
+  return '';
 }
 
 function compactPairs(pairs) {
+  return compactPairList(pairs).join(' ');
+}
+
+function compactPairList(pairs) {
   return pairs.filter(function(pair) {
     return pair && pair[1] !== undefined && pair[1] !== null && String(pair[1]) !== '';
   }).map(function(pair) {
     return pair[0] + '=' + pair[1];
-  }).join(' ');
+  });
+}
+
+function wrapPairs(pairs, width) {
+  var items = compactPairList(pairs);
+  var lines = [];
+  var current = '';
+  for (var index = 0; index < items.length; index += 1) {
+    var item = items[index];
+    var next = current ? current + ' ' + item : item;
+    if (current && utils.visibleWidth(next) > width) {
+      lines.push(current);
+      current = item;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 function renderStructured(message, options, pairs) {
-  var text = compactPairs(pairs) || messageText(message);
+  var pairLines = wrapPairs(pairs, options.contentWidth);
+  var text = pairLines.length ? pairLines.join('\n') : messageText(message);
   return {
     lines: wrapTextBlocks(text, options.contentWidth),
     detailLines: options.expanded ? renderDetailBlock(message, options.maxWidth, options.theme) : [],
@@ -132,10 +199,12 @@ function renderStructured(message, options, pairs) {
 function renderFileTool(message, options) {
   var d = detailObject(message);
   return renderStructured(message, options, [
-    ['path', d.path || d.file_path || d.relative_path || d.outputPath || d.csvPath],
+    ['path', firstValue([d.path, d.file_path, d.relative_path, d.outputPath, d.csvPath])],
+    ['action', firstValue([d.action, d.operation, d.kind])],
     ['matches', count(d.matches || d.results)],
     ['entries', count(d.entries)],
     ['bytes', d.bytes || d.size || d.byteLength],
+    ['truncated', compactBooleanMeta(d.truncated)],
   ]);
 }
 

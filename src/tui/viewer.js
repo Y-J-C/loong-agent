@@ -123,6 +123,15 @@ function messageLabel(message) {
   return `[${message.type || 'system'}]`;
 }
 
+function messageCategory(message) {
+  if (!message) return 'system';
+  if (message.type === 'assistant' || message.type === 'assistant_final') return 'assistant';
+  if (message.type === 'tool') return 'tool';
+  if (message.type === 'error') return 'error';
+  if (message.type === 'user') return 'user';
+  return 'system';
+}
+
 function messageText(message) {
   if (message.type === 'tool') {
     const summary = summarizeToolMessage(message).join(' ');
@@ -136,10 +145,30 @@ function sessionEventLabel(event) {
     if (event.role === 'toolResult') return `[tool ${event.toolName || 'unknown'}]`;
     return `[${event.role || 'message'}]`;
   }
+  if (event.type === 'tool_execution_end' && (event.isError || event.status === 'error' || event.error)) {
+    return `[error ${event.toolName || 'unknown'}]`;
+  }
   if (event.type === 'tool_execution_end') return `[tool ${event.toolName || 'unknown'}]`;
   if (event.type === 'tool_execution_start') return `[tool ${event.toolName || 'unknown'} start]`;
   if (event.type === 'agent_end') return '[session summary]';
+  if (event.type === 'invalid_json') return '[error transcript]';
   return '';
+}
+
+function sessionEventCategory(event) {
+  if (!event) return 'system';
+  if (event.type === 'invalid_json') return 'error';
+  if (event.type === 'message_end') {
+    if (event.role === 'toolResult') return event.isError ? 'error' : 'tool';
+    if (event.role === 'assistant') return 'assistant';
+    if (event.role === 'user') return 'user';
+    return 'system';
+  }
+  if (event.type === 'tool_execution_start' || event.type === 'tool_execution_update') return 'tool';
+  if (event.type === 'tool_execution_end') {
+    return event.isError || event.status === 'error' || event.error ? 'error' : 'tool';
+  }
+  return 'system';
 }
 
 function sessionEventText(event) {
@@ -152,8 +181,14 @@ function sessionEventText(event) {
   return '';
 }
 
-function sessionTranscriptLines(filePath) {
+function shouldIncludeCategory(category, filter) {
+  return !filter || category === filter;
+}
+
+function sessionTranscriptData(filePath, options) {
   if (!filePath || !fs.existsSync(filePath)) return null;
+  options = options || {};
+  const filter = options.typeFilter || '';
   const session = require('../session').readSessionFromPath(filePath);
   const invalid = (session.events || []).find((event) => event && event.type === 'invalid_json');
   if (invalid) {
@@ -162,6 +197,8 @@ function sessionTranscriptLines(filePath) {
   const lines = [];
   (session.events || []).forEach((event) => {
     if (event.internal || event.hidden) return;
+    const category = sessionEventCategory(event);
+    if (!shouldIncludeCategory(category, filter)) return;
     const label = sessionEventLabel(event);
     if (!label) return;
     const text = sessionEventText(event);
@@ -170,22 +207,36 @@ function sessionTranscriptLines(filePath) {
     addLine(lines, text || '(empty)');
   });
   if (!lines.length) addLine(lines, 'No transcript messages.');
-  lines.unshift('Transcript source: ' + filePath);
-  return lines;
+  return {
+    lines,
+    sourcePath: filePath,
+    sourceLabel: filePath,
+  };
 }
 
 function clampTranscriptLines(lines, limit) {
   const max = Math.max(1, Number(limit) || 5000);
-  if (!Array.isArray(lines) || lines.length <= max) return lines || [];
-  return ['[transcript truncated: showing last ' + max + ' of ' + lines.length + ' lines]']
-    .concat(lines.slice(lines.length - max));
+  const source = Array.isArray(lines) ? lines : [];
+  if (source.length <= max) {
+    return { lines: source, totalLines: source.length, shownLines: source.length, truncatedCount: 0 };
+  }
+  return {
+    lines: source.slice(source.length - max),
+    totalLines: source.length,
+    shownLines: max,
+    truncatedCount: source.length - max,
+  };
 }
 
-function liveTranscriptLines(state) {
+function liveTranscriptData(state, options) {
+  options = options || {};
+  const filter = options.typeFilter || '';
   const lines = [];
   const source = state || {};
   (source.messages || []).forEach((message) => {
     if (!isLiveMessageVisible(message, source)) return;
+    const category = messageCategory(message);
+    if (!shouldIncludeCategory(category, filter)) return;
     const label = messageLabel(message);
     const text = messageText(message);
     if (lines.length) addLine(lines, '---');
@@ -193,30 +244,65 @@ function liveTranscriptLines(state) {
     addLine(lines, text || '(empty)');
   });
   if (!lines.length) addLine(lines, 'No transcript messages.');
+  return {
+    lines,
+    sourcePath: '',
+    sourceLabel: 'live messages',
+  };
+}
+
+function transcriptMetaLines(data, clamped, options) {
+  const lines = [
+    'Transcript source: ' + (data.sourceLabel || data.sourcePath || 'live messages'),
+    'Transcript total lines: ' + clamped.totalLines,
+    'Transcript shown lines: ' + clamped.shownLines,
+    'Transcript truncated lines: ' + clamped.truncatedCount,
+  ];
+  if (clamped.truncatedCount > 0) {
+    lines.push('transcript truncated: showing last ' + clamped.shownLines + ' of ' + clamped.totalLines + ' lines');
+  }
+  if (options && options.typeFilter) lines.push('Transcript filter: ' + options.typeFilter);
+  if (options && options.focus) lines.push('Transcript focus: ' + options.focus);
+  lines.push('---');
   return lines;
+}
+
+function findFocusScrollOffset(lines, focus) {
+  if (!focus) return 0;
+  const marker = focus === 'error' ? '[error' : focus === 'tool' ? '[tool' : '';
+  if (!marker) return 0;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (String(lines[index]).indexOf(marker) >= 0) return index;
+  }
+  return 0;
 }
 
 function createTranscriptPanel(state, options) {
   options = options || {};
   const source = state || {};
   const sessionPath = source.currentSession && source.currentSession.path ? source.currentSession.path : '';
-  let lines = null;
+  let data = null;
   let replayWarning = '';
   try {
-    lines = sessionTranscriptLines(sessionPath);
+    data = sessionTranscriptData(sessionPath, options);
   } catch (error) {
     replayWarning = 'Transcript replay failed: ' + (error && error.message ? error.message : String(error));
-    lines = null;
+    data = null;
   }
-  if (!lines) lines = liveTranscriptLines(source);
-  if (replayWarning) lines = [replayWarning, '---'].concat(lines);
-  lines = clampTranscriptLines(lines, options.lineLimit || source.tuiTranscriptLineLimit || 5000);
+  if (!data) data = liveTranscriptData(source, options);
+  if (replayWarning) data.lines = [replayWarning, '---'].concat(data.lines);
+  const clamped = clampTranscriptLines(data.lines, options.lineLimit || source.tuiTranscriptLineLimit || 5000);
+  const lines = transcriptMetaLines(data, clamped, options).concat(clamped.lines);
+  const scrollOffset = findFocusScrollOffset(lines, options.focus);
   return {
     type: 'transcript',
     title: 'Transcript Viewer',
     hint: 'Up/Down scroll - PageUp/PageDown page - /find search - Esc close',
-    scrollOffset: 0,
+    scrollOffset,
     selectedIndex: 0,
+    sourcePath: data.sourcePath || '',
+    typeFilter: options.typeFilter || '',
+    focus: options.focus || '',
     lines,
   };
 }

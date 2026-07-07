@@ -324,6 +324,56 @@ test('details and transcript open read-only viewer panels without appending mess
   assert(!context.state.activePanel.lines.some((line) => line.indexOf('hidden meta') >= 0), 'transcript should hide hidden messages');
 });
 
+test('transcript supports replay metadata type filter and focus position', async () => {
+  const workspace = tempWorkspace();
+  const context = await makeContext(workspace);
+  const session = createJsonlSession(config(workspace), { command: 'tui-transcript' });
+  session.append({ type: 'message_end', role: 'user', content: 'check disk' });
+  session.append({ type: 'message_end', role: 'assistant', content: 'I will inspect it.' });
+  session.append({ type: 'tool_execution_start', toolName: 'bash', callSummary: '$ df -h' });
+  session.append({
+    type: 'tool_execution_end',
+    toolName: 'bash',
+    status: 'ok',
+    resultSummary: 'disk ok',
+    result: { output: 'disk ok' },
+  });
+  session.append({
+    type: 'tool_execution_end',
+    toolName: 'bash',
+    status: 'error',
+    isError: true,
+    error: 'permission denied',
+  });
+  context.state.currentSession = { id: session.id, path: session.filePath };
+  context.state.messages.push({ type: 'user', text: 'live fallback should not be used' });
+  const beforeMessages = context.state.messages.length;
+  context.state.tuiTranscriptLineLimit = 12;
+
+  await handleCommand(context, '/transcript --type error --focus error');
+  let panel = context.state.activePanel;
+  assert(context.state.messages.length === beforeMessages, 'transcript replay should not append messages');
+  assert(panel && panel.type === 'transcript', 'transcript should open viewer panel');
+  assert(panel.lines.some((line) => line.indexOf('Transcript source:') >= 0 && line.indexOf(session.filePath) >= 0), 'transcript metadata missing source path');
+  assert(panel.lines.some((line) => line.indexOf('Transcript total lines:') >= 0), 'transcript metadata missing total lines');
+  assert(panel.lines.some((line) => line.indexOf('Transcript shown lines:') >= 0), 'transcript metadata missing shown lines');
+  assert(panel.lines.some((line) => line.indexOf('Transcript truncated lines:') >= 0), 'transcript metadata missing truncation count');
+  assert(panel.lines.some((line) => line.indexOf('Transcript filter: error') >= 0), 'transcript metadata missing type filter');
+  assert(panel.lines.some((line) => line.indexOf('[error bash]') >= 0), 'error transcript line missing');
+  assert(!panel.lines.some((line) => line.indexOf('[user]') >= 0), 'type filter should hide user entries');
+  assert(panel.scrollOffset > 0, 'focus error should initialize transcript near the latest error');
+
+  await handleCommand(context, '/find permission');
+  assert(context.state.activePanel.search && context.state.activePanel.search.query === 'permission', 'viewer find should still search transcript panel');
+  assert(context.state.activePanel.search.matches.length > 0, 'viewer find should find transcript error text');
+
+  await handleCommand(context, '/transcript --type tool');
+  panel = context.state.activePanel;
+  assert(panel.lines.some((line) => line.indexOf('Transcript filter: tool') >= 0), 'tool filter metadata missing');
+  assert(panel.lines.some((line) => line.indexOf('[tool bash]') >= 0), 'tool transcript line missing');
+  assert(!panel.lines.some((line) => line.indexOf('[error bash]') >= 0), 'tool filter should hide error entries');
+});
+
 test('details and transcript are available in shared help and command panel', async () => {
   const workspace = tempWorkspace();
   const context = await makeContext(workspace);

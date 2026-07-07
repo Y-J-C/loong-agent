@@ -363,7 +363,7 @@ var bashPreviewLines = renderRuntimeMessageList({
 var bashPreviewPlain = stripAnsi(bashPreviewLines.join('\n'));
 ok(bashPreviewPlain.indexOf('$ npm test') >= 0, 'collapsed bash preview renders command');
 ok(bashPreviewPlain.indexOf('bash output line 13') >= 0, 'collapsed bash preview keeps output tail');
-ok(bashPreviewPlain.indexOf('bash output line 0') < 0, 'collapsed bash preview drops old output head');
+ok(bashPreviewPlain.indexOf('bash output line 0') >= 0, 'collapsed bash preview keeps output head');
 ok(bashPreviewPlain.indexOf('more visual line') >= 0, 'collapsed bash preview reports hidden visual lines');
 ok(bashPreviewLines.every(function(line) { return visibleWidth(line) <= 48; }), 'collapsed bash preview lines fit width');
 

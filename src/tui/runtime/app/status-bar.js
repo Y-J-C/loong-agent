@@ -58,6 +58,9 @@ Footer.prototype.render = function renderAsciiFooter(width, context) {
   var tokenIn = Number(state && state.tokenInput) || 0;
   var tokenOut = Number(state && state.tokenOutput) || 0;
   var stats = (tokenIn || tokenOut) ? 'in:' + formatK(tokenIn) + ' out:' + formatK(tokenOut) : 'in:0 out:0';
+  if (state && state.historyMode) {
+    stats += ' | history ' + (Number(state.scrollOffset) || 0) + '/' + (Number(state.scrollMaxOffset) || 0);
+  }
   var contextUsed = Number(state && state.contextUsed) || 0;
   var contextBudget = Number(state && state.contextBudget) || 128000;
   var ctxPct = contextBudget > 0 ? ((contextUsed / contextBudget) * 100).toFixed(1) : '?';

@@ -121,7 +121,7 @@ async function runRuntimeNextTui(config, options) {
       var info = session.getSessionInfo && session.getSessionInfo();
       if (info) state.currentSession = { id: info.id, path: info.path };
       if (state.historyMode) {
-        state.status = 'New output available; PageDown/Esc returns to latest';
+        state.status = 'New output available; PageDown/Esc or /bottom returns to latest';
       } else if (!state.viewingHistory && state.selector === null) {
         state.scrollOffset = 0;
       }
@@ -298,9 +298,7 @@ async function runRuntimeNextTui(config, options) {
         return;
       }
     }
-    if (runtimeAppendStream && commandName === '/top') {
-      enterHistoryMode('History mode: PageDown/Esc or /bottom returns to latest output');
-    }
+    if (runtimeAppendStream && commandName === '/top') enterHistoryMode('Viewing oldest retained history');
     await handleCommand({
       config: activeConfig,
       state: state,
@@ -324,7 +322,7 @@ async function runRuntimeNextTui(config, options) {
     } else if (runtimeAppendStream && commandName === '/top') {
       state.historyMode = state.scrollOffset > 0;
       state.viewingHistory = state.scrollOffset > 0;
-      if (state.historyMode) state.status = 'History mode: PageDown/Esc or /bottom returns to latest output';
+      if (state.historyMode) state.status = 'Viewing oldest retained history';
     }
   }
 

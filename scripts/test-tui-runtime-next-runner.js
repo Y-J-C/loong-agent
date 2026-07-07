@@ -340,6 +340,7 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.historyMode, true, 'append-stream page up enters history mode');
   ok(capturedState.scrollOffset > 0, 'append-stream page up scrolls away from latest output');
+  equal(capturedState.status, 'History mode: PageDown/Esc or /bottom returns to latest output', 'page up records history mode status hint');
   equal(capturedState.lastRender.historyMode, true, 'runner records history mode');
   ok(capturedState.lastRender.historyScrollOffset > 0, 'runner records history scroll offset');
   ok(capturedState.lastRender.historyScrollMaxOffset >= capturedState.lastRender.historyScrollOffset, 'runner records history scroll max');
@@ -348,6 +349,7 @@ async function main() {
   fakeSession.emit({ type: 'assistant_final', text: 'reply while viewing history' });
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.historyMode, true, 'new session event keeps history mode active');
+  equal(capturedState.status, 'New output available; PageDown/Esc or /bottom returns to latest', 'new output while viewing history records status hint');
   ok(capturedState.scrollOffset >= historyOffsetBeforeNewOutput, 'new session event does not jump history view to bottom');
   terminal.inputHandler('\x1b[6~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
@@ -407,6 +409,7 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.historyMode, false, '/bottom exits history mode');
   equal(capturedState.scrollOffset, 0, '/bottom returns to latest output');
+  equal(capturedState.status, 'At latest output', '/bottom records latest output status');
   terminal.inputHandler('/');
   terminal.inputHandler('t');
   terminal.inputHandler('o');
@@ -415,6 +418,7 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.historyMode, true, '/top enters history mode');
   ok(capturedState.scrollOffset > 0, '/top jumps to historical output');
+  equal(capturedState.status, 'Viewing oldest retained history', '/top records oldest retained history status');
   var historyOffsetBeforeOverlay = capturedState.scrollOffset;
   terminal.inputHandler('/');
   terminal.inputHandler('c');
