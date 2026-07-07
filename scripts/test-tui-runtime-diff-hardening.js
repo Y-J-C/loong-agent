@@ -54,6 +54,7 @@ tui.add({
 
 tui.doRender();
 equal(tui.lastDiffMode, 'full', 'first render records full diff mode');
+equal(tui.hardwareCursorRow, 1, 'first full render records last rendered screen row');
 
 terminal.writes = [];
 lines = ['one', 'two', 'three'];
@@ -62,6 +63,7 @@ equal(tui.lastDiffMode, 'append', 'prefix-only growth uses append diff mode');
 ok(terminal.writes.join('').indexOf('three') >= 0, 'append diff writes appended row');
 ok(terminal.writes.join('').indexOf('one') < 0, 'append diff does not rewrite old prefix rows');
 ok(terminal.writes.join('').indexOf('\r\n\x1b[2K') < 0, 'single-line append diff does not need CRLF separator');
+equal(tui.hardwareCursorRow, 2, 'single-line append records appended screen row');
 
 terminal.writes = [];
 tui.doRender();
@@ -74,6 +76,7 @@ tui.doRender();
 equal(tui.lastDiffMode, 'append', 'second prefix-only growth still uses append diff mode');
 ok(terminal.writes.join('').indexOf('\r\n\x1b[2K') >= 0, 'multi-line append diff uses CRLF before clearing next row');
 ok(!hasBareLineFeedBeforeClear(terminal.writes.join('')), 'multi-line append diff does not use bare LF before clearing next row');
+equal(tui.hardwareCursorRow, 4, 'multi-line append records last appended screen row');
 
 terminal.writes = [];
 lines = ['one'];
@@ -81,11 +84,14 @@ tui.doRender();
 equal(tui.lastDiffMode, 'clear-tail', 'shorter frame records clear-tail diff mode');
 ok(terminal.writes.join('').indexOf('\x1b[2K') >= 0, 'shorter frame clears stale tail rows');
 ok(!hasBareLineFeedBeforeClear(terminal.writes.join('')), 'shorter frame does not use bare LF before clearing next row');
+ok(terminal.writes.join('').indexOf('\x1b[11;1H') < 0, 'shorter frame does not address beyond terminal height');
+equal(tui.hardwareCursorRow, 4, 'shorter frame records last cleared visible screen row');
 
 terminal.writes = [];
 lines = ['ONE'];
 tui.doRender();
 equal(tui.lastDiffMode, 'range', 'non-prefix mutation uses range diff mode');
+equal(tui.hardwareCursorRow, 0, 'range mutation records changed screen row');
 
 var viewportTerminal = createTerminal();
 viewportTerminal.rows = 4;
@@ -105,6 +111,7 @@ var viewportOutput = viewportTerminal.writes.join('');
 equal(viewportTui.lastDiffMode, 'range', 'viewport-visible mutation records range diff mode');
 ok(viewportOutput.indexOf('\x1b[1;1H') >= 0, 'viewport-visible mutation maps logical row to first screen row');
 ok(viewportOutput.indexOf('\x1b[3;1H') < 0, 'viewport-visible mutation does not position by logical row');
+equal(viewportTui.hardwareCursorRow, 0, 'viewport-visible mutation records mapped screen row');
 
 viewportTerminal.writes = [];
 viewportLines = ['HIDDEN-0', 'hidden-1', 'VISIBLE-2', 'visible-3', 'visible-4', 'visible-5'];
@@ -128,6 +135,7 @@ hiddenAppendLines = hiddenAppendLines.concat(['row-6']);
 hiddenAppendTui.doRender();
 equal(hiddenAppendTui.lastDiffMode, 'append-hidden', 'off-screen append records hidden append mode');
 ok(hiddenAppendTerminal.writes.join('').indexOf('\x1b[7;1H') < 0, 'off-screen append does not address logical row beyond screen');
+equal(hiddenAppendTui.hardwareCursorRow, 3, 'off-screen append keeps previous visible cursor row');
 
 var visibleAppendTerminal = createTerminal();
 visibleAppendTerminal.rows = 5;
@@ -147,6 +155,7 @@ var visibleAppendOutput = visibleAppendTerminal.writes.join('');
 ok(visibleAppendOutput.indexOf('\x1b[4;1H') >= 0, 'visible append positions at mapped screen row');
 ok(visibleAppendOutput.indexOf('\r\n\x1b[2K') >= 0, 'visible append uses CRLF before second appended row');
 ok(!hasBareLineFeedBeforeClear(visibleAppendOutput), 'visible append does not use bare LF before clearing next row');
+equal(visibleAppendTui.hardwareCursorRow, 4, 'visible append records last appended screen row');
 
 var appendStreamTerminal = createTerminal();
 appendStreamTerminal.rows = 4;

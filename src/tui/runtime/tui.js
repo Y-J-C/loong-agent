@@ -317,7 +317,7 @@ TUI.prototype._fullRender = function _fullRender(newLines, width, height, cursor
   this.terminal.write(buffer);
 
   this.cursorRow = Math.max(0, newLines.length - 1);
-  this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.cursorRow);
+  this._setHardwareCursorRow(this.cursorRow, height);
   if (clear) {
     this.maxLinesRendered = newLines.length;
   } else {
@@ -333,10 +333,21 @@ TUI.prototype._screenRowForLogicalRow = function _screenRowForLogicalRow(logical
   return logicalRow - viewportTop;
 };
 
+TUI.prototype._setHardwareCursorRow = function _setHardwareCursorRow(screenRow, height) {
+  var safeHeight = Math.max(1, Number(height) || this.previousHeight || this.terminal.rows || 1);
+  var target = Math.max(0, Math.min(safeHeight - 1, Number(screenRow) || 0));
+  this.hardwareCursorRow = target;
+  return target;
+};
+
+TUI.prototype._advanceHardwareCursorRow = function _advanceHardwareCursorRow(delta, height) {
+  return this._setHardwareCursorRow((Number(this.hardwareCursorRow) || 0) + (Number(delta) || 0), height);
+};
+
 TUI.prototype._moveToScreenRow = function _moveToScreenRow(screenRow) {
   var target = Math.max(0, Number(screenRow) || 0);
   var delta = target - this.hardwareCursorRow;
-  this.hardwareCursorRow = target;
+  this._setHardwareCursorRow(target);
   if (delta > 0) return '\x1b[' + delta + 'B\r';
   if (delta < 0) return '\x1b[' + (-delta) + 'A\r';
   return '\r';
@@ -455,10 +466,10 @@ TUI.prototype._writeAppendStreamStableLines = function _writeAppendStreamStableL
   if (stableAdded.length > 0) {
     buffer += '\x1b[1;' + scrollRegionEnd + 'r\x1b[' + scrollRegionEnd + ';1H';
     this.scrollRegionActive = true;
-    this.hardwareCursorRow = scrollRegionEnd - 1;
+    this._setHardwareCursorRow(scrollRegionEnd - 1, height);
     for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
       buffer += '\r\n\x1b[2K' + stableAdded[addedIndex];
-      this.hardwareCursorRow = scrollRegionEnd - 1;
+      this._setHardwareCursorRow(scrollRegionEnd - 1, height);
     }
     buffer += '\x1b[r';
     this.scrollRegionActive = false;
@@ -468,7 +479,7 @@ TUI.prototype._writeAppendStreamStableLines = function _writeAppendStreamStableL
   for (var tailIndex = 0; tailIndex < tailCount; tailIndex += 1) {
     var screenRow = tailStartRow + tailIndex;
     buffer += '\x1b[' + (screenRow + 1) + ';1H\x1b[2K' + safeTailLines[tailIndex];
-    this.hardwareCursorRow = screenRow;
+    this._setHardwareCursorRow(screenRow, height);
   }
   buffer += '\x1b[?2026l';
   this.terminal.write(buffer);
@@ -484,11 +495,11 @@ TUI.prototype._writeAppendStreamRange = function _writeAppendStreamRange(newLine
   if (startRow === null) return false;
 
   var buffer = '\x1b[?2026h\x1b[?25l\x1b[' + (startRow + 1) + ';1H';
-  this.hardwareCursorRow = startRow;
+  this._setHardwareCursorRow(startRow, height);
   for (var logicalRow = startLogical; logicalRow <= endLogical; logicalRow += 1) {
     if (logicalRow > startLogical) {
       buffer += '\r\n';
-      this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
+      this._advanceHardwareCursorRow(1, height);
     }
     buffer += '\x1b[2K' + newLines[logicalRow];
   }
@@ -498,7 +509,44 @@ TUI.prototype._writeAppendStreamRange = function _writeAppendStreamRange(newLine
   return true;
 };
 
+TUI.prototype._writeAppendStreamShrinkClear = function _writeAppendStreamShrinkClear(newLines, height, viewportTop, volatileTailLineCount) {
+  var safeHeight = Math.max(0, Number(height) || 0);
+  if (safeHeight <= 0) return false;
+
+  var buffer = '\x1b[?2026h\x1b[?25l';
+  var wrote = false;
+  for (var screenRow = 0; screenRow < safeHeight; screenRow += 1) {
+    var logicalRow = viewportTop + screenRow;
+    var line = logicalRow < newLines.length ? newLines[logicalRow] : '';
+    buffer += '\x1b[' + (screenRow + 1) + ';1H\x1b[2K' + line;
+    this._setHardwareCursorRow(screenRow, safeHeight);
+    wrote = true;
+  }
+  buffer += '\x1b[?2026l';
+  if (!wrote) return false;
+  this.terminal.write(buffer);
+  this.lastDiffMode = 'append-stream-shrink-clear';
+  return true;
+};
+
 TUI.prototype._appendStreamRender = function _appendStreamRender(newLines, width, height, cursorPos, viewportTop, volatileTailLineCount) {
+  if (newLines.length < this.previousLines.length) {
+    if (height <= 0) {
+      this._fullRender(newLines, width, height, cursorPos, true);
+      this.previousViewportTop = viewportTop;
+      this.lastDiffMode = 'append-stream-full';
+      return;
+    }
+    if (this._writeAppendStreamShrinkClear(newLines, height, viewportTop, volatileTailLineCount)) {
+      this.previousViewportTop = viewportTop;
+      return;
+    }
+    this._fullRender(newLines, width, height, cursorPos, true);
+    this.previousViewportTop = viewportTop;
+    this.lastDiffMode = 'append-stream-full';
+    return;
+  }
+
   var decision = this._classifyAppendStreamChange(newLines, height, viewportTop, volatileTailLineCount);
 
   if (decision.type === 'stable-append') {
@@ -577,7 +625,7 @@ TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursor
       }
       appendBuffer += '\x1b[?2026l';
       this.terminal.write(appendBuffer);
-      this.hardwareCursorRow = appendScreenRow;
+      this._setHardwareCursorRow(appendScreenRow, height);
       this.previousViewportTop = viewportTop;
       this.lastDiffMode = 'append';
       return;
@@ -631,7 +679,7 @@ TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursor
   buffer += '\x1b[?2026l';
   this.terminal.write(buffer);
 
-  this.hardwareCursorRow = screenRow;
+  this._setHardwareCursorRow(screenRow, height);
   this.previousViewportTop = viewportTop;
   this.lastDiffMode = newLines.length < this.previousLines.length && lastChanged >= newLines.length
     ? 'clear-tail' : 'range';
@@ -670,7 +718,7 @@ TUI.prototype._positionHardwareCursor = function _positionHardwareCursor(cursorP
   else if (rowDelta < 0) buf += '\x1b[' + (-rowDelta) + 'A';
   buf += '\x1b[' + (targetCol + 1) + 'G';
   this.terminal.write(buf);
-  this.hardwareCursorRow = targetRow;
+  this._setHardwareCursorRow(targetRow, height);
   if (this.showHardwareCursor) {
     if (this.terminal && typeof this.terminal.showCursor === 'function') this.terminal.showCursor();
   } else if (this.terminal && typeof this.terminal.hideCursor === 'function') {

@@ -47,12 +47,14 @@ equal(clears, 1, 'render clears screen');
 ok(writes.join('').indexOf('\x1b[r') >= 0, 'full render resets scroll region');
 ok(writes.join('').indexOf('hello') >= 0, 'render writes text');
 ok(writes.join('').indexOf('中文') >= 0, 'render writes CJK');
+equal(tui.hardwareCursorRow, 1, 'full render records last rendered screen row');
 terminal.rows = 6;
 writes.length = 0;
 tui.doRender();
 equal(clears, 2, 'resize render clears screen');
 ok(writes.join('').indexOf('\x1b[r') >= 0, 'resize full render resets scroll region');
 equal(tui.scrollRegionActive, false, 'resize full render leaves scroll region diagnostic inactive');
+equal(tui.hardwareCursorRow, 1, 'resize full render records last rendered screen row');
 
 var seenContext = null;
 var contextTui = new runtime.TUI(terminal);
@@ -96,6 +98,37 @@ ok(cursorWrites.join('').indexOf('\x1b[2G') < 0, 'runtime cursor at line start d
 ok(cursorShows > 0, 'runtime cursor at line start shows hardware cursor');
 equal(cursorTui.cursorColumn, 0, 'runtime cursor diagnostic records first column');
 equal(cursorTui.cursorRow, 0, 'runtime cursor diagnostic records first row');
+
+var appendCursorWrites = [];
+var appendCursorHides = 0;
+var appendCursorTerminal = {
+  columns: 20,
+  rows: 2,
+  write: function(data) { appendCursorWrites.push(String(data || '')); },
+  clearScreen: function() {},
+  start: function() {},
+  stop: function() {},
+  hideCursor: function() { appendCursorHides += 1; },
+  showCursor: function() {},
+};
+var appendCursorTui = new runtime.TUI(appendCursorTerminal, { runtimeAppendStream: true });
+var appendCursorLines = ['hidden', runtime.CURSOR_MARKER + 'visible', 'tail'];
+appendCursorTui.add({
+  render: function() {
+    return appendCursorLines.slice();
+  },
+});
+appendCursorTui.doRender();
+equal(appendCursorTui.hardwareCursorRow, 0, 'append-stream cursor in viewport maps to screen row');
+equal(appendCursorTui.cursorRow, 0, 'append-stream cursor diagnostic records mapped row');
+ok(appendCursorWrites.join('').indexOf('\x1b[1G') >= 0, 'append-stream cursor in viewport moves to first column');
+
+appendCursorWrites.length = 0;
+appendCursorHides = 0;
+appendCursorLines = [runtime.CURSOR_MARKER + 'hidden', 'visible', 'tail'];
+appendCursorTui.renderNow();
+equal(appendCursorTui.hardwareCursorRow, 1, 'append-stream cursor above viewport keeps last visible hardware row');
+ok(appendCursorHides > 0, 'append-stream cursor above viewport hides hardware cursor');
 
 var focusBase = { focused: false };
 var hiddenOverlay = { focused: false, render: function() { return ['hidden']; } };
@@ -211,6 +244,7 @@ ok(appendOutput.indexOf('\r\ninput') < 0, 'append-stream render does not append 
 ok(appendOutput.indexOf('\r\nfooter') < 0, 'append-stream render does not append footer tail into output stream');
 ok(appendOutput.indexOf('\x1b[5;1H') < 0, 'append-stream render does not address logical row beyond screen');
 equal(appendTui.lastDiffMode, 'append-stream', 'append-stream render records diff mode');
+equal(appendTui.hardwareCursorRow, 3, 'append-stream stable append records last tail screen row');
 
 function createAppendStreamHarness(rows) {
   var localWrites = [];
@@ -253,6 +287,7 @@ ok(tailGrowOutput.indexOf('stream line 3') >= 0, 'tail-grow writes new visible s
 ok(tailGrowOutput.indexOf('\r\ninput') < 0, 'tail-grow does not append input tail into output stream');
 ok(tailGrowOutput.indexOf('\r\nfooter') < 0, 'tail-grow does not append footer tail into output stream');
 ok(tailGrowOutput.indexOf('\x1b[6;1H') < 0, 'tail-grow does not address logical row beyond screen');
+equal(tailGrow.tui.hardwareCursorRow, 3, 'tail-grow records last tail screen row');
 
 var silentAbove = createAppendStreamHarness(4);
 silentAbove.setLines(['old hidden', 'history-1', 'history-2', 'history-3', 'input', 'footer']);
@@ -283,6 +318,7 @@ equal(viewportRange.tui.lastDiffMode, 'append-stream-range', 'viewport change re
 ok(rangeOutput.indexOf('visible-2 changed') >= 0, 'viewport range redraw writes changed visible line');
 ok(rangeOutput.indexOf('\x1b[1;1H') >= 0, 'viewport range maps logical row to screen row');
 ok(rangeOutput.indexOf('\x1b[6;1H') < 0, 'viewport range does not address logical row beyond screen');
+equal(viewportRange.tui.hardwareCursorRow, 0, 'viewport range records last changed screen row');
 
 var fallback = createAppendStreamHarness(4);
 fallback.setLines(['hidden-0', 'hidden-1', 'visible-2', 'visible-3', 'input', 'footer']);
@@ -290,7 +326,24 @@ fallback.tui.doRender();
 fallback.setLines(['hidden-0', 'hidden-1', 'visible-2', 'visible-3', 'input']);
 fallback.writes.length = 0;
 fallback.tui.doRender();
-equal(fallback.tui.lastDiffMode, 'append-stream-full', 'unsafe append-stream change falls back to full redraw');
+equal(fallback.tui.lastDiffMode, 'append-stream-shrink-clear', 'append-stream shrink uses local clear instead of full redraw');
+ok(fallback.writes.join('').indexOf('\x1b[2J') < 0, 'append-stream shrink fallback path does not clear whole screen');
+
+var shrink = createAppendStreamHarness(4);
+shrink.setLines(['history-0', 'history-1', 'history-2', 'history-3', 'input', 'footer']);
+shrink.tui.doRender();
+shrink.setLines(['history-0', 'input', 'footer']);
+shrink.writes.length = 0;
+shrink.tui.doRender();
+var shrinkOutput = shrink.writes.join('');
+equal(shrink.tui.lastDiffMode, 'append-stream-shrink-clear', 'append-stream shrink records shrink clear mode');
+ok(shrinkOutput.indexOf('\x1b[2J') < 0, 'append-stream shrink does not clear the whole screen');
+ok(shrinkOutput.indexOf('\x1b[5;1H') < 0, 'append-stream shrink does not address beyond screen height');
+ok(shrinkOutput.indexOf('\x1b[2K') >= 0, 'append-stream shrink clears stale visible rows');
+ok(shrinkOutput.indexOf('input') >= 0, 'append-stream shrink redraws input tail');
+ok(shrinkOutput.indexOf('footer') >= 0, 'append-stream shrink redraws footer tail');
+ok(shrinkOutput.indexOf('history-3') < 0, 'append-stream shrink does not preserve stale old tail line');
+equal(shrink.tui.hardwareCursorRow, 3, 'append-stream shrink records last cleared or redrawn screen row');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);
