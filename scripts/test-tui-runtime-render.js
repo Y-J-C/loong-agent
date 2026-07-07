@@ -62,6 +62,29 @@ ok(resetLines[0].indexOf('\x1b[0m') >= 0, 'line reset includes SGR reset');
 ok(resetLines[0].indexOf('\x1b]8;;\x1b\\') >= 0, 'line reset includes OSC 8 hyperlink reset');
 equal(runtime.visibleWidth(resetLines[0]), 4, 'line resets do not change visible width');
 
+var cursorWrites = [];
+var cursorShows = 0;
+var cursorTerminal = {
+  columns: 20,
+  rows: 3,
+  write: function(data) { cursorWrites.push(String(data || '')); },
+  clearScreen: function() {},
+  start: function() {},
+  stop: function() {},
+  hideCursor: function() {},
+  showCursor: function() { cursorShows += 1; },
+};
+var cursorTui = new runtime.TUI(cursorTerminal);
+cursorTui.add({
+  render: function() {
+    return [runtime.CURSOR_MARKER + 'input'];
+  },
+});
+cursorTui.doRender();
+ok(cursorWrites.join('').indexOf('\x1b[1G') >= 0, 'runtime cursor at line start moves to first column');
+ok(cursorWrites.join('').indexOf('\x1b[2G') < 0, 'runtime cursor at line start does not move to second column');
+ok(cursorShows > 0, 'runtime cursor at line start shows hardware cursor');
+
 var focusBase = { focused: false };
 var hiddenOverlay = { focused: false, render: function() { return ['hidden']; } };
 var focusTui = new runtime.TUI(terminal);

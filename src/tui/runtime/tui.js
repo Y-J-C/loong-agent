@@ -571,7 +571,7 @@ TUI.prototype._positionHardwareCursor = function _positionHardwareCursor(cursorP
     }
     targetRow = mapped;
   }
-  var targetCol = Math.max(0, cursorPos.column || 0);
+  var targetCol = Math.max(0, (Number(cursorPos.column) || 1) - 1);
   var rowDelta = targetRow - this.hardwareCursorRow;
   var buf = '';
   if (rowDelta > 0) buf += '\x1b[' + rowDelta + 'B';
