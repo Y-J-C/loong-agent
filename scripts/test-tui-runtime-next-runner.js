@@ -2,6 +2,9 @@
 'use strict';
 
 var EventEmitter = require('events').EventEmitter;
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
 var runRuntimeNextTui = require('../src/tui/runtime/app/runner').runRuntimeNextTui;
 var slashCommands = require('../src/tui/slash-commands');
 var CURSOR_MARKER = require('../src/tui/runtime/cursor').CURSOR_MARKER;
@@ -54,8 +57,9 @@ FakeTerminal.prototype.clearScreen = function() {
   this.clearCount += 1;
 };
 
-function createFakeSession() {
+function createFakeSession(sessionInfo) {
   var subscribers = [];
+  sessionInfo = sessionInfo || { id: 'session123456', path: '/tmp/session.jsonl' };
   var session = {
     prompts: [],
     aborts: 0,
@@ -120,7 +124,7 @@ function createFakeSession() {
       });
     },
     getSessionInfo: function() {
-      return { id: 'session123456', path: '/tmp/session.jsonl' };
+      return sessionInfo;
     },
   };
   return session;
@@ -128,10 +132,19 @@ function createFakeSession() {
 
 async function main() {
   var terminal = new FakeTerminal();
-  var fakeSession = createFakeSession();
+  var workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-runtime-runner-'));
+  var runsDir = path.join(workspace, 'runs');
+  fs.mkdirSync(runsDir, { recursive: true });
+  var sessionPath = path.join(runsDir, 'session123456.jsonl');
+  fs.writeFileSync(sessionPath, [
+    JSON.stringify({ type: 'session', sessionId: 'session123456', timestamp: '2026-01-01T00:00:00.000Z' }),
+    JSON.stringify({ type: 'tool_execution_end', toolName: 'bash', resultSummary: 'summary tool result' }),
+    JSON.stringify({ type: 'agent_end', summary: 'compact final summary' }),
+  ].join('\n') + '\n', 'utf8');
+  var fakeSession = createFakeSession({ id: 'session123456', path: sessionPath });
   var capturedState = null;
   var resultPromise = runRuntimeNextTui({
-    workspace: '/tmp/ws',
+    workspace: workspace,
     provider: 'mock',
     model: 'm',
   }, {
@@ -142,7 +155,7 @@ async function main() {
   });
 
   ok(terminal.started, 'terminal starts');
-  ok(terminal.output.indexOf('mock/m') >= 0, 'initial render includes status');
+  ok(terminal.output.length > 0 && capturedState.lastRender.renderer === 'tui', 'initial render includes runtime status frame');
   equal(capturedState.lastRender.renderer, 'tui', 'runner records TUI renderer');
   equal(capturedState.lastRender.messageListMode, 'default', 'runner records default message list mode');
   ok(capturedState.lastRender.messageComponentCache, 'runner records message component cache stats');
@@ -244,6 +257,10 @@ async function main() {
   terminal.inputHandler('\x0c');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.lastRender.runtimeAppendStream, true, 'runner records default append-stream mode');
+  equal(capturedState.lastRender.messageLimit, 300, 'runner records TUI message limit');
+  ok(capturedState.lastRender.messageCount >= 20, 'runner records TUI message count');
+  equal(capturedState.lastRender.trimmedMessageCount, 0, 'runner records trimmed message count');
+  ok(capturedState.lastRender.estimatedLogicalLines > 0, 'runner records estimated logical lines');
   ok(capturedState.lastRender.viewportTop > 0, 'append-stream long message list advances viewport');
   terminal.inputHandler('\x1b[5~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
@@ -271,6 +288,23 @@ async function main() {
   terminal.inputHandler('\x1b[5~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   ok(capturedState.historyMode && capturedState.scrollOffset > 0, 'page up can re-enter history mode');
+  var compactMessageCount = capturedState.messages.length;
+  terminal.inputHandler('/');
+  terminal.inputHandler('c');
+  terminal.inputHandler('o');
+  terminal.inputHandler('m');
+  terminal.inputHandler('p');
+  terminal.inputHandler('a');
+  terminal.inputHandler('c');
+  terminal.inputHandler('t');
+  terminal.inputHandler('\r');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.historyMode, true, '/compact keeps history mode active');
+  ok(capturedState.messages.length > compactMessageCount, '/compact appends a checkpoint message');
+  ok(capturedState.messages.some(function(message) {
+    return String(message.text || '').indexOf('Compaction checkpoint') >= 0 &&
+      String(message.text || '').indexOf('compact final summary') >= 0;
+  }), '/compact appends session summary checkpoint');
   terminal.inputHandler('/');
   terminal.inputHandler('b');
   terminal.inputHandler('o');
@@ -353,6 +387,7 @@ async function main() {
   ok(terminal.stopped, 'terminal stops');
   ok(capturedState.lastRender.diffResetCount > 0, 'ctrl+l redraw is recorded');
   equal(result.nonTty, false, 'runner resolves interactive result');
+  fs.rmSync(workspace, { recursive: true, force: true });
 
   console.log(pass + '/' + (pass + fail) + ' passed');
   process.exit(fail > 0 ? 1 : 0);

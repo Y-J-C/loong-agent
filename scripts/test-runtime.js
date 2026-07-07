@@ -1365,24 +1365,43 @@ test('config uses profile context budget unless env overrides it', () => {
   const previous = {
     profile: process.env.LOONG_AGENT_PROVIDER_PROFILE,
     budget: process.env.LOONG_AGENT_CONTEXT_BUDGET,
+    tuiMessageLimit: process.env.LOONG_AGENT_TUI_MESSAGE_LIMIT,
+    tuiTranscriptLineLimit: process.env.LOONG_AGENT_TUI_TRANSCRIPT_LINE_LIMIT,
   };
   delete process.env.LOONG_AGENT_PROVIDER_PROFILE;
   delete process.env.LOONG_AGENT_CONTEXT_BUDGET;
+  delete process.env.LOONG_AGENT_TUI_MESSAGE_LIMIT;
+  delete process.env.LOONG_AGENT_TUI_TRANSCRIPT_LINE_LIMIT;
   const deepseek = loadConfig();
   assert(deepseek.contextBudgetChars === 12000, 'deepseek profile budget should default to 12000');
   assert(deepseek.contextBudgetSource === 'provider_profile', 'profile budget source mismatch');
   assert(deepseek.contextBudgetProfileDefault === 12000, 'profile budget default mismatch');
+  assert(deepseek.tuiMessageLimit === 300, 'TUI message limit should default to 300');
+  assert(deepseek.tuiTranscriptLineLimit === 5000, 'TUI transcript line limit should default to 5000');
   process.env.LOONG_AGENT_PROVIDER_PROFILE = 'ollama';
   const ollama = loadConfig();
   assert(ollama.contextBudgetChars === 5000, 'ollama profile budget should default to 5000');
   process.env.LOONG_AGENT_CONTEXT_BUDGET = '1800';
+  process.env.LOONG_AGENT_TUI_MESSAGE_LIMIT = '1000';
+  process.env.LOONG_AGENT_TUI_TRANSCRIPT_LINE_LIMIT = '7000';
   const overridden = loadConfig();
   assert(overridden.contextBudgetChars === 1800, 'env budget override should win');
   assert(overridden.contextBudgetSource === 'env', 'env budget source mismatch');
+  assert(overridden.tuiMessageLimit === 1000, 'TUI message limit env override should win');
+  assert(overridden.tuiTranscriptLineLimit === 7000, 'TUI transcript line limit env override should win');
+  process.env.LOONG_AGENT_TUI_MESSAGE_LIMIT = '49';
+  process.env.LOONG_AGENT_TUI_TRANSCRIPT_LINE_LIMIT = 'not-a-number';
+  const invalidTuiLimits = loadConfig();
+  assert(invalidTuiLimits.tuiMessageLimit === 300, 'invalid TUI message limit should fall back to default');
+  assert(invalidTuiLimits.tuiTranscriptLineLimit === 5000, 'invalid transcript line limit should fall back to default');
   if (previous.profile === undefined) delete process.env.LOONG_AGENT_PROVIDER_PROFILE;
   else process.env.LOONG_AGENT_PROVIDER_PROFILE = previous.profile;
   if (previous.budget === undefined) delete process.env.LOONG_AGENT_CONTEXT_BUDGET;
   else process.env.LOONG_AGENT_CONTEXT_BUDGET = previous.budget;
+  if (previous.tuiMessageLimit === undefined) delete process.env.LOONG_AGENT_TUI_MESSAGE_LIMIT;
+  else process.env.LOONG_AGENT_TUI_MESSAGE_LIMIT = previous.tuiMessageLimit;
+  if (previous.tuiTranscriptLineLimit === undefined) delete process.env.LOONG_AGENT_TUI_TRANSCRIPT_LINE_LIMIT;
+  else process.env.LOONG_AGENT_TUI_TRANSCRIPT_LINE_LIMIT = previous.tuiTranscriptLineLimit;
 });
 
 test('model request off mode emits no model_request event', async () => {

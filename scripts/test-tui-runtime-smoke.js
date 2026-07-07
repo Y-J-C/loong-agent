@@ -2,6 +2,9 @@
 'use strict';
 
 var EventEmitter = require('events').EventEmitter;
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
 var runTui = require('../src/tui').runTui;
 var pass = 0;
 var fail = 0;
@@ -45,6 +48,31 @@ FakeTerminal.prototype.stop = function stop() {
   this.stopped = true;
 };
 FakeTerminal.prototype.write = function write(data) {
+  this.output += String(data || '');
+};
+
+function FakeLegacyInput() {
+  EventEmitter.call(this);
+  this.isTTY = true;
+  this.rawMode = false;
+  this.paused = false;
+}
+FakeLegacyInput.prototype = Object.create(EventEmitter.prototype);
+FakeLegacyInput.prototype.constructor = FakeLegacyInput;
+FakeLegacyInput.prototype.setRawMode = function(flag) { this.rawMode = Boolean(flag); };
+FakeLegacyInput.prototype.resume = function() { this.paused = false; };
+FakeLegacyInput.prototype.pause = function() { this.paused = true; };
+
+function FakeLegacyOutput() {
+  EventEmitter.call(this);
+  this.isTTY = true;
+  this.columns = 72;
+  this.rows = 16;
+  this.output = '';
+}
+FakeLegacyOutput.prototype = Object.create(EventEmitter.prototype);
+FakeLegacyOutput.prototype.constructor = FakeLegacyOutput;
+FakeLegacyOutput.prototype.write = function(data) {
   this.output += String(data || '');
 };
 
@@ -123,6 +151,25 @@ async function main() {
   var result = await resultPromise;
   ok(terminal.stopped, 'default runtime-next stops terminal');
   equal(result.nonTty, false, 'default runTui resolves interactive result');
+
+  var legacyWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-legacy-tui-'));
+  var legacyInput = new FakeLegacyInput();
+  var legacyOutput = new FakeLegacyOutput();
+  var legacyPromise = runTui({
+    workspace: legacyWorkspace,
+    provider: 'mock',
+    model: 'm',
+  }, {
+    legacyTui: true,
+    input: legacyInput,
+    output: legacyOutput,
+  });
+  ok(legacyInput.rawMode, 'legacyTui true starts legacy raw input path');
+  legacyInput.emit('data', Buffer.from('\x04'));
+  var legacyResult = await legacyPromise;
+  equal(legacyResult.nonTty, false, 'legacyTui true resolves interactive result');
+  ok(legacyInput.paused, 'legacyTui true stops legacy input path');
+  fs.rmSync(legacyWorkspace, { recursive: true, force: true });
 
   console.log(pass + '/' + (pass + fail) + ' passed');
   process.exit(fail > 0 ? 1 : 0);

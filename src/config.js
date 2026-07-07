@@ -39,6 +39,15 @@ function nonNegativeIntEnv(name, defaultValue) {
   return Number.isFinite(value) && value >= 0 ? value : defaultValue;
 }
 
+function boundedIntEnv(name, defaultValue, minValue, maxValue) {
+  const value = Number(process.env[name]);
+  const min = Number(minValue);
+  const max = Number(maxValue);
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return defaultValue;
+  if (value < min || value > max) return defaultValue;
+  return Math.floor(value);
+}
+
 function listEnv(name, defaultValue) {
   const value = process.env[name];
   if (value === undefined) return defaultValue;
@@ -130,6 +139,8 @@ function loadConfig() {
     nativeToolChoice: normalizeNativeToolChoice(process.env.LOONG_AGENT_NATIVE_TOOL_CHOICE),
     streaming: boolEnv('LOONG_AGENT_STREAMING', true),
     runtimeAppendStream: boolEnv('LOONG_AGENT_RUNTIME_APPEND_STREAM', true),
+    tuiMessageLimit: boundedIntEnv('LOONG_AGENT_TUI_MESSAGE_LIMIT', 300, 50, 5000),
+    tuiTranscriptLineLimit: boundedIntEnv('LOONG_AGENT_TUI_TRANSCRIPT_LINE_LIMIT', 5000, 50, 50000),
     recordModelRequest: normalizeRecordModelRequest(
       process.env.LOONG_AGENT_RECORD_MODEL_REQUEST || 'summary',
       boolEnv('LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG', false)
@@ -145,5 +156,6 @@ module.exports = {
   normalizeNativeToolChoice,
   normalizeThinkingLevel,
   normalizeRecordModelRequest,
+  boundedIntEnv,
   PROVIDER_PROFILES,
 };

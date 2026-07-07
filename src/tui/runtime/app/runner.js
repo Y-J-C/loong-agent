@@ -170,6 +170,10 @@ async function runRuntimeNextTui(config, options) {
       historyMode: Boolean(state.historyMode),
       historyScrollOffset: Number(state.scrollOffset) || 0,
       historyScrollMaxOffset: Number(state.scrollMaxOffset) || 0,
+      messageCount: Math.max(Number(state.messageCount) || 0, state.messages ? state.messages.length : 0),
+      messageLimit: Number(state.messageLimit) || 0,
+      trimmedMessageCount: Number(state.trimmedMessageCount) || 0,
+      estimatedLogicalLines: tui && tui.previousLines ? tui.previousLines.length : 0,
       messageListMode: chatView ? chatView.messageListMode : 'default',
       messageComponentCache: chatView && chatView.getMessageComponentCacheStats
         ? chatView.getMessageComponentCacheStats() : null,

@@ -10,8 +10,16 @@ const { createSearchState } = require('./search');
 
 const SLASH_COMMAND_DEFINITIONS = slashCommandDefinitions();
 const SLASH_COMMANDS = SLASH_COMMAND_DEFINITIONS.map((item) => item.command);
+const DEFAULT_MESSAGE_LIMIT = 300;
+
+function normalizeMessageLimit(value) {
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit < 50 || limit > 5000) return DEFAULT_MESSAGE_LIMIT;
+  return Math.floor(limit);
+}
 
 function createTuiState(config) {
+  const messageLimit = normalizeMessageLimit(config && config.tuiMessageLimit);
   return {
     mode: 'idle',
     inputBuffer: '',
@@ -19,6 +27,10 @@ function createTuiState(config) {
     history: [],
     historyIndex: -1,
     messages: [],
+    messageLimit,
+    messageCount: 0,
+    trimmedMessageCount: 0,
+    tuiTranscriptLineLimit: config && config.tuiTranscriptLineLimit ? config.tuiTranscriptLineLimit : 5000,
     pendingMessages: [],
     selectedMessageId: '',
     selectedSessionId: '',
@@ -85,7 +97,14 @@ function addMessage(state, message) {
   const id = message.id || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const item = Object.assign({ id, timestamp: new Date().toISOString() }, message);
   state.messages.push(item);
-  if (state.messages.length > 300) state.messages = state.messages.slice(-300);
+  const limit = normalizeMessageLimit(state.messageLimit);
+  if (state.messages.length > limit) {
+    const removed = state.messages.length - limit;
+    state.messages = state.messages.slice(-limit);
+    state.trimmedMessageCount = (Number(state.trimmedMessageCount) || 0) + removed;
+  }
+  state.messageLimit = limit;
+  state.messageCount = state.messages.length;
   return item;
 }
 
@@ -98,10 +117,13 @@ function updateMessage(state, id, patch) {
 
 function removeMessage(state, id) {
   state.messages = state.messages.filter((message) => message.id !== id);
+  state.messageCount = state.messages.length;
 }
 
 function clearMessages(state) {
   state.messages = [];
+  state.messageCount = 0;
+  state.trimmedMessageCount = 0;
   state.currentAssistantEventId = '';
   state.currentToolEventIdByKey = {};
   state.pendingMessages = [];
@@ -171,6 +193,7 @@ module.exports = {
   addMessage,
   clearMessages,
   createTuiState,
+  normalizeMessageLimit,
   removeMessage,
   SLASH_COMMANDS,
   SLASH_COMMAND_DEFINITIONS,

@@ -190,6 +190,28 @@ function currentSessionWriter(state) {
   return openJsonlSession(state.currentSession.path, state.currentSession.id);
 }
 
+function transcriptOptions(config, state) {
+  return {
+    lineLimit: config && config.tuiTranscriptLineLimit || state && state.tuiTranscriptLineLimit || 5000,
+  };
+}
+
+function formatCompactCheckpoint(result) {
+  const context = result && result.context ? result.context : {};
+  const recentTools = Array.isArray(context.recentToolEvents) ? context.recentToolEvents.length : 0;
+  const summary = context.summary || result && result.summary || '';
+  const sourcePath = result && result.path ? result.path : '';
+  const sessionId = result && result.id ? result.id : '';
+  return [
+    'Compaction checkpoint',
+    sessionId ? `session=${sessionId}` : '',
+    `recentTools=${recentTools}`,
+    sourcePath ? `source=${sourcePath}` : '',
+    '',
+    summary || '(no final summary available)',
+  ].filter((line) => line !== '').join('\n');
+}
+
 function latestEntryId(events) {
   const items = events || [];
   for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -787,7 +809,7 @@ async function dispatchSlashCommand(context, parsed) {
   }
   if (command.name === 'transcript') {
     state.mode = 'panel';
-    state.activePanel = createTranscriptPanel(state);
+    state.activePanel = createTranscriptPanel(state, transcriptOptions(context.config, state));
     return;
   }
   if (command.name === 'skill') {
@@ -877,7 +899,7 @@ async function runSlashCommandLegacy(context, text) {
 
   if (name === '/transcript') {
     state.mode = 'panel';
-    state.activePanel = createTranscriptPanel(state);
+    state.activePanel = createTranscriptPanel(state, transcriptOptions(config, state));
     return;
   }
 
@@ -972,11 +994,16 @@ async function runSlashCommandLegacy(context, text) {
   }
 
   if (name === '/compact') {
-    const result = await createDefaultToolRegistry().execute(config, 'session_summary', { session: 'latest' });
-    addMessage(state, {
-      type: 'system',
-      text: `压缩摘要暂未正式启用 / Compaction is not implemented in this Node 14 subset yet.\nSession summary:\n${JSON.stringify(result, null, 2)}`,
-    });
+    try {
+      const sessionTarget = state.currentSession && state.currentSession.id ? state.currentSession.id : 'latest';
+      const result = await createDefaultToolRegistry().execute(config, 'session_summary', { session: sessionTarget });
+      addMessage(state, { type: 'system', text: formatCompactCheckpoint(result) });
+    } catch (error) {
+      addMessage(state, {
+        type: 'error',
+        text: 'Compaction checkpoint failed: ' + (error && error.message ? error.message : String(error)),
+      });
+    }
     return;
   }
 

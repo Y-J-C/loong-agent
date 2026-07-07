@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
 var renderRuntimeChatView = require('../src/tui/runtime/app/chat-view').renderRuntimeChatView;
 var renderRuntimeMessageList = require('../src/tui/runtime/app/message-list').renderRuntimeMessageList;
 var renderRuntimeMessageListFull = require('../src/tui/runtime/app/message-list').renderRuntimeMessageListFull;
 var ChatView = require('../src/tui/runtime/app/chat-view').ChatView;
+var tuiState = require('../src/tui/state');
+var createTranscriptPanel = require('../src/tui/viewer').createTranscriptPanel;
 var themeMod = require('../src/tui/runtime/theme');
 var stripAnsi = require('../src/tui/runtime/utils').stripAnsi;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
@@ -234,6 +239,33 @@ var historyModeLines = (new ChatView(historyModeState)).render(50, historyModeCo
 equal(historyModeLines.length, 8, 'history mode chat view returns frame height');
 equal(historyModeContext.volatileTailLineCount, 0, 'history mode disables append-stream volatile tail');
 equal(historyModeContext.runtimeAppendStreamFrameFallback, true, 'history mode uses frame fallback under append-stream');
+
+var limitedState = tuiState.createTuiState({ tuiMessageLimit: 50 });
+for (var limitedIndex = 0; limitedIndex < 55; limitedIndex += 1) {
+  tuiState.addMessage(limitedState, { type: 'system', text: 'limited-' + limitedIndex });
+}
+equal(limitedState.messages.length, 50, 'TUI state keeps configured message limit');
+equal(limitedState.messageCount, 50, 'TUI state records current message count');
+equal(limitedState.trimmedMessageCount, 5, 'TUI state records trimmed message count');
+ok(limitedState.messages[0].text === 'limited-5', 'TUI state keeps newest messages after trim');
+
+var transcriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-transcript-'));
+var transcriptPath = path.join(transcriptDir, 'session.jsonl');
+fs.writeFileSync(transcriptPath, [
+  JSON.stringify({ type: 'session', timestamp: '2026-01-01T00:00:00.000Z' }),
+  JSON.stringify({ type: 'message_end', role: 'user', content: 'old user prompt' }),
+  JSON.stringify({ type: 'tool_execution_end', toolName: 'bash', resultSummary: 'old tool output' }),
+  JSON.stringify({ type: 'message_end', role: 'assistant', content: 'old assistant answer' }),
+].join('\n') + '\n', 'utf8');
+var transcriptState = tuiState.createTuiState({ tuiTranscriptLineLimit: 6 });
+transcriptState.currentSession = { id: 'session', path: transcriptPath };
+transcriptState.messages = [{ type: 'system', text: 'live fallback only' }];
+var transcriptPanel = createTranscriptPanel(transcriptState, { lineLimit: 6 });
+var transcriptText = transcriptPanel.lines.join('\n');
+ok(transcriptText.indexOf('old assistant answer') >= 0, 'transcript panel replays JSONL session content');
+ok(transcriptText.indexOf('live fallback only') < 0, 'transcript panel prefers JSONL session over live trimmed messages');
+ok(transcriptText.indexOf('transcript truncated') >= 0, 'transcript panel reports truncation when line limit is exceeded');
+fs.rmSync(transcriptDir, { recursive: true, force: true });
 
 var longToolText = [];
 for (var toolLine = 0; toolLine < 20; toolLine += 1) {
