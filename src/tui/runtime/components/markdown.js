@@ -61,6 +61,17 @@ function isTableSeparator(line) {
   });
 }
 
+function parseTableAlignment(separatorLine) {
+  return splitTableRow(separatorLine).map(function(cell) {
+    var text = String(cell || '').trim();
+    var left = text.charAt(0) === ':';
+    var right = text.charAt(text.length - 1) === ':';
+    if (left && right) return 'center';
+    if (right) return 'right';
+    return 'left';
+  });
+}
+
 function looksLikeTableHeader(line, nextLine) {
   if (String(line || '').indexOf('|') < 0) return false;
   var cells = splitTableRow(line);
@@ -118,7 +129,10 @@ function pushWrapped(output, raw, width, theme, markdownTheme, token, options) {
 }
 
 function pushNestedList(output, marker, text, indent, width, theme, markdownTheme, token) {
-  var level = Math.floor(Math.max(0, indent) / 2);
+  var normalizedIndent = typeof indent === 'string'
+    ? indent.replace(/\t/g, '  ').length
+    : Math.max(0, Number(indent) || 0);
+  var level = Math.floor(Math.max(0, normalizedIndent) / 2);
   var prefix = '  '.repeat(level) + marker;
   var contentWidth = Math.max(1, width - utils.visibleWidth(prefix));
   var wrapped = utils.wrapTextWithAnsi(renderInlineMarkup(text, markdownTheme), contentWidth);
@@ -132,24 +146,63 @@ function pushNestedList(output, marker, text, indent, width, theme, markdownThem
 function tableColumnWidths(rows, width) {
   var columnCount = rows.reduce(function(max, row) { return Math.max(max, row.length); }, 0);
   if (columnCount < 2) return null;
-  var separatorWidth = (columnCount + 1) * 3;
-  if (width < separatorWidth + columnCount) return null;
-  var available = width - separatorWidth;
+  var minColumnWidth = 3;
+  var fixedWidth = (columnCount * 3) + 1;
+  var available = width - fixedWidth;
+  if (available < columnCount * minColumnWidth) return null;
   var widths = [];
-  var equal = Math.max(1, Math.floor(available / columnCount));
   for (var col = 0; col < columnCount; col += 1) {
-    var natural = 1;
+    var natural = minColumnWidth;
     for (var row = 0; row < rows.length; row += 1) {
       natural = Math.max(natural, utils.visibleWidth(rows[row][col] || ''));
     }
-    widths[col] = Math.max(1, Math.min(natural, equal));
+    widths[col] = natural;
+  }
+  function totalWidth() {
+    return widths.reduce(function(sum, item) { return sum + item; }, 0);
+  }
+  while (totalWidth() > available) {
+    var longest = 0;
+    for (var index = 1; index < widths.length; index += 1) {
+      if (widths[index] > widths[longest]) longest = index;
+    }
+    if (widths[longest] <= minColumnWidth) break;
+    widths[longest] -= 1;
   }
   return widths;
 }
 
-function renderTableRows(rows, width, theme, markdownTheme, token) {
+function alignCell(text, width, alignment) {
+  var value = fit(text, width);
+  var remaining = Math.max(0, width - utils.visibleWidth(value));
+  if (alignment === 'right') return ' '.repeat(remaining) + value;
+  if (alignment === 'center') {
+    var left = Math.floor(remaining / 2);
+    return ' '.repeat(left) + value + ' '.repeat(remaining - left);
+  }
+  return value + ' '.repeat(remaining);
+}
+
+function renderNarrowTableFallback(rows, width, theme, markdownTheme, token) {
+  var output = [];
+  var headers = rows[0] || [];
+  for (var row = 1; row < rows.length; row += 1) {
+    for (var col = 0; col < headers.length; col += 1) {
+      pushWrapped(output, (headers[col] || ('Column ' + (col + 1))) + ': ' + (rows[row][col] || ''), width, theme, markdownTheme, token);
+    }
+    if (row < rows.length - 1) output.push('');
+  }
+  if (!output.length) {
+    headers.forEach(function(header) {
+      pushWrapped(output, header, width, theme, markdownTheme, token);
+    });
+  }
+  return output;
+}
+
+function renderTableRows(rows, alignments, width, theme, markdownTheme, token) {
   var widths = tableColumnWidths(rows, width);
-  if (!widths) return null;
+  if (!widths) return renderNarrowTableFallback(rows, width, theme, markdownTheme, token);
   var output = [];
   for (var row = 0; row < rows.length; row += 1) {
     var wrappedCells = [];
@@ -164,7 +217,7 @@ function renderTableRows(rows, width, theme, markdownTheme, token) {
       var line = '|';
       for (var cellIndex = 0; cellIndex < widths.length; cellIndex += 1) {
         var cell = wrappedCells[cellIndex][lineIndex] || '';
-        line += ' ' + pad(cell, widths[cellIndex]) + ' |';
+        line += ' ' + alignCell(cell, widths[cellIndex], row === 0 ? 'left' : alignments[cellIndex]) + ' |';
       }
       output.push(themeMod.paint(theme, token, fit(line, width)));
     }
@@ -240,13 +293,14 @@ Markdown.prototype.render = function render(width, context) {
 
     if (looksLikeTableHeader(line, lines[index + 1])) {
       var tableRows = [splitTableRow(line)];
+      var alignments = parseTableAlignment(lines[index + 1]);
       index += 2;
       while (index < lines.length && String(lines[index] || '').indexOf('|') >= 0 && String(lines[index] || '').trim()) {
         tableRows.push(splitTableRow(lines[index]));
         index += 1;
       }
       index -= 1;
-      var tableOutput = renderTableRows(tableRows, maxWidth, theme, markdownTheme, this.token);
+      var tableOutput = renderTableRows(tableRows, alignments, maxWidth, theme, markdownTheme, this.token);
       if (tableOutput) {
         output = output.concat(tableOutput);
         continue;
@@ -269,9 +323,9 @@ Markdown.prototype.render = function render(width, context) {
       continue;
     }
 
-    var unordered = line.match(/^(\s*)[-*+]\s+(.+)$/);
+    var unordered = line.match(/^(\s*)([-*+])\s+(.+)$/);
     if (unordered) {
-      pushNestedList(output, '- ', unordered[2], countIndentSpaces(unordered[1]), maxWidth, theme, markdownTheme, this.token);
+      pushNestedList(output, unordered[2] + ' ', unordered[3], unordered[1], maxWidth, theme, markdownTheme, this.token);
       continue;
     }
 

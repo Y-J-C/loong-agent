@@ -68,6 +68,7 @@ function ptyStatus(report) {
       conclusion: 'Missing structured pty smoke JSON evidence.',
       evidence: '',
       checks: {},
+      screenChecks: {},
       nextSteps: ['Run node scripts/test-tui-pty-smoke.js to generate structured evidence.'],
     };
   }
@@ -77,6 +78,7 @@ function ptyStatus(report) {
       conclusion: 'Automated pty smoke passed; real terminal resize still needs manual verification.',
       evidence: report.jsonPath || '',
       checks: report.checks || {},
+      screenChecks: report.screenChecks && report.screenChecks.checks || {},
       nextSteps: ['Manually verify terminal resize behavior if needed.'],
     };
   }
@@ -85,6 +87,7 @@ function ptyStatus(report) {
     conclusion: report.timedOut ? 'pty smoke timed out or did not exit cleanly.' : 'pty smoke structured checks failed.',
     evidence: report.jsonPath || '',
     checks: report.checks || {},
+    screenChecks: report.screenChecks && report.screenChecks.checks || {},
     nextSteps: report.nextSteps || ['Review pty smoke JSON and log.'],
   };
 }
@@ -104,6 +107,11 @@ function row(id, environment, status, capabilities, evidence, conclusion, nextSt
       resize: 'pending',
       exit: 'pending',
       noResidualProcess: 'pending',
+      lastScreenNotBlank: 'pending',
+      initialClearAndHome: 'pending',
+      scrollRegionReset: 'pending',
+      noApprovalResidue: 'pending',
+      inputNotAtTop: 'pending',
     }, capabilities || {}),
     evidence: evidence || '',
     conclusion: conclusion || '',
@@ -111,9 +119,20 @@ function row(id, environment, status, capabilities, evidence, conclusion, nextSt
   };
 }
 
-function ptyCapabilities(status) {
+function screenCheckCapabilities(checks) {
+  const source = checks || {};
+  return {
+    lastScreenNotBlank: source.lastScreenNotBlank === true ? 'pass' : source.lastScreenNotBlank === false ? 'fail' : 'pending',
+    initialClearAndHome: source.initialClearAndHome === true ? 'pass' : source.initialClearAndHome === false ? 'fail' : 'pending',
+    scrollRegionReset: source.scrollRegionReset === true ? 'pass' : source.scrollRegionReset === false ? 'fail' : 'pending',
+    noApprovalResidue: source.noApprovalResidue === true ? 'pass' : source.noApprovalResidue === false ? 'fail' : 'pending',
+    inputNotAtTop: source.inputNotAtTop === true ? 'pass' : source.inputNotAtTop === false ? 'fail' : 'pending',
+  };
+}
+
+function ptyCapabilities(status, screenChecks) {
   if (status === 'fail') {
-    return {
+    return Object.assign({
       startup: 'fail',
       input: 'fail',
       panel: 'fail',
@@ -123,10 +142,10 @@ function ptyCapabilities(status) {
       resize: 'pending',
       exit: 'fail',
       noResidualProcess: 'fail',
-    };
+    }, screenCheckCapabilities(screenChecks));
   }
   if (status === 'pending') return {};
-  return {
+  return Object.assign({
     startup: 'pass',
     input: 'pass',
     panel: 'pass',
@@ -136,7 +155,7 @@ function ptyCapabilities(status) {
     resize: 'pending',
     exit: 'pass',
     noResidualProcess: 'pass',
-  };
+  }, screenCheckCapabilities(screenChecks));
 }
 
 function buildMatrix(options, ptyReport) {
@@ -147,7 +166,7 @@ function buildMatrix(options, ptyReport) {
       'windows-openssh-loong-pi-pty',
       'Windows Terminal / OpenSSH -> Loong Pi pty',
       pty.status,
-      ptyCapabilities(pty.status),
+      ptyCapabilities(pty.status, pty.screenChecks),
       pty.evidence || options.ptyJson,
       pty.conclusion,
       pty.nextSteps
@@ -156,7 +175,7 @@ function buildMatrix(options, ptyReport) {
       'ssh-loong-pi-pty',
       'SSH to Loong Pi pty',
       pty.status,
-      ptyCapabilities(pty.status),
+      ptyCapabilities(pty.status, pty.screenChecks),
       pty.evidence || options.ptyJson,
       pty.conclusion,
       pty.nextSteps
@@ -175,6 +194,11 @@ function buildMatrix(options, ptyReport) {
         resize: 'pass',
         exit: 'not_applicable',
         noResidualProcess: 'not_applicable',
+        lastScreenNotBlank: 'pass',
+        initialClearAndHome: 'pass',
+        scrollRegionReset: 'pass',
+        noApprovalResidue: 'pass',
+        inputNotAtTop: 'pass',
       },
       'scripts/test-tui-virtual-terminal.js',
       'Final screen, surface exclusivity, redraw, resize, and cursor marker tests passed.',
@@ -210,7 +234,7 @@ function buildMatrix(options, ptyReport) {
     ),
   ];
   return {
-    schema: 'loong-agent.tui-terminal-matrix.v1',
+    schema: 'loong-agent.tui-terminal-matrix.v2',
     generatedAt,
     source: {
       ptyJson: options.ptyJson,
@@ -232,8 +256,8 @@ function renderMarkdown(matrix) {
     '',
     'Judgement source: structured pty JSON and virtual terminal tests. Raw pty log text repetition is not used as a pass/fail signal.',
     '',
-    '| Environment | Status | Startup | Input | Panel | Viewer | Debug package | Ctrl+L | Resize | Exit | No residual process | Evidence | Conclusion |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| Environment | Status | Startup | Input | Panel | Viewer | Debug package | Ctrl+L | Resize | Exit | No residual process | Last screen | Initial clear | Scroll region | Approval residue | Input not top | Evidence | Conclusion |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   matrix.rows.forEach((item) => {
     const c = item.capabilities || {};
@@ -249,6 +273,11 @@ function renderMarkdown(matrix) {
       c.resize,
       c.exit,
       c.noResidualProcess,
+      c.lastScreenNotBlank,
+      c.initialClearAndHome,
+      c.scrollRegionReset,
+      c.noApprovalResidue,
+      c.inputNotAtTop,
       item.evidence,
       item.conclusion,
     ].map(escapeCell).join(' | ').replace(/^/, '| ').replace(/$/, ' |'));

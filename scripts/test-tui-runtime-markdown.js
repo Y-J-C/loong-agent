@@ -79,6 +79,31 @@ var narrowTable = new Markdown({
 var narrowLines = narrowTable.render(8, { theme: theme.getTheme('plain') });
 ok(narrowLines.every(function(line) { return utils.visibleWidth(line) <= 8; }), 'narrow table degrades within width');
 
+var alignedTable = new Markdown({
+  text: '| LeftValue | RightValue | Centered |\n| :--- | ---: | :---: |\n| a | 9 | m |\n| 中文 | 123 | mid |',
+  maxLines: 40,
+});
+var alignedTableLines = alignedTable.render(52, { theme: theme.getTheme('plain') });
+var alignedTablePlain = alignedTableLines.join('\n');
+var alignedDataRow = alignedTableLines.find(function(line) {
+  return line.indexOf('|') === 0 && line.indexOf(' a ') >= 0 && line.indexOf(' 9 ') >= 0 && line.indexOf(' m ') >= 0;
+}) || '';
+ok(/\s9\s+\|/.test(alignedDataRow), 'right aligned table cell pads before separator');
+ok(/\|\s{2,}m\s{2,}\|/.test(alignedDataRow), 'center aligned table cell pads both sides');
+ok(alignedTablePlain.indexOf('中文') >= 0, 'aligned table keeps CJK cells');
+ok(alignedTableLines.every(function(line) { return utils.visibleWidth(line) <= 52; }), 'aligned table lines fit width');
+
+var fallbackTable = new Markdown({
+  text: '| A | B |\n| --- | --- |\n| narrow | table |',
+  maxLines: 20,
+});
+var fallbackLines = fallbackTable.render(10, { theme: theme.getTheme('plain') });
+var fallbackPlain = fallbackLines.join('\n');
+ok(fallbackPlain.indexOf('A: narrow') >= 0, 'very narrow table degrades to key value rows');
+ok(fallbackPlain.indexOf('B: table') >= 0, 'very narrow table preserves second column value');
+ok(!fallbackLines.some(function(line) { return line.charAt(0) === '|' && line.charAt(line.length - 1) === '|'; }), 'very narrow table does not render broken table borders');
+ok(fallbackLines.every(function(line) { return utils.visibleWidth(line) <= 10; }), 'fallback table lines fit width');
+
 var nested = new Markdown({
   text: '- parent item with a long tail that wraps\n  - child item wraps too\n    3. numbered child remains numbered',
   maxLines: 40,
@@ -89,6 +114,28 @@ ok(nestedPlain.indexOf('- parent item') >= 0, 'renders parent list item');
 ok(nestedPlain.indexOf('  - child item') >= 0, 'renders nested unordered list indent');
 ok(nestedPlain.indexOf('    3. numbered child') >= 0, 'preserves ordered nested number');
 ok(nestedLines.every(function(line) { return utils.visibleWidth(line) <= 30; }), 'nested list lines fit width');
+
+var markerList = new Markdown({
+  text: '* star marker has a very long continuation that wraps over multiple visual rows\n  + plus marker remains plus',
+  maxLines: 40,
+});
+var markerLines = markerList.render(28, { theme: theme.getTheme('plain') });
+var markerPlain = markerLines.join('\n');
+ok(markerPlain.indexOf('* star marker') >= 0, 'preserves star list marker');
+ok(markerPlain.indexOf('  + plus marker') >= 0, 'preserves plus list marker');
+ok(markerLines.some(function(line, index) {
+  return index > 0 && line.indexOf('  ') === 0 && line.indexOf('* ') !== 0 && line.indexOf('+ ') !== 0;
+}), 'wrapped list continuation aligns to item text');
+ok(markerLines.every(function(line) { return utils.visibleWidth(line) <= 28; }), 'marker list lines fit width');
+
+var longQuote = new Markdown({
+  text: '> quoted block with a very long continuation that wraps over several visual rows',
+  maxLines: 20,
+});
+var quoteLines = longQuote.render(24, { theme: theme.getTheme('plain') });
+ok(quoteLines.length > 1, 'long quote wraps');
+ok(quoteLines.every(function(line) { return line.indexOf('> ') === 0; }), 'wrapped quote lines keep quote prefix');
+ok(quoteLines.every(function(line) { return utils.visibleWidth(line) <= 24; }), 'wrapped quote lines fit width');
 
 var customMarkdownTheme = {
   signature: 'custom-md-theme',

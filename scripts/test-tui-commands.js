@@ -585,6 +585,16 @@ test('terminal matrix records pass partial fail and pending states from structur
       noResidualTuiProcess: true,
       logHasSmokeMarker: true,
     },
+    screenChecks: {
+      checks: {
+        lastScreenNotBlank: true,
+        initialClearAndHome: true,
+        scrollRegionReset: true,
+        noApprovalResidue: true,
+        inputNotAtTop: true,
+      },
+      failures: [],
+    },
   }), 'utf8');
   const outJson = path.join(runs, 'matrix-pass.json');
   const outMd = path.join(runs, 'matrix-pass.md');
@@ -592,13 +602,20 @@ test('terminal matrix records pass partial fail and pending states from structur
   const windows = passMatrix.rows.find((row) => row.id === 'windows-openssh-loong-pi-pty');
   const physical = passMatrix.rows.find((row) => row.id === 'loong-pi-local-terminal');
   const virtual = passMatrix.rows.find((row) => row.id === 'virtual-terminal-final-screen');
+  assert(passMatrix.schema === 'loong-agent.tui-terminal-matrix.v2', 'terminal matrix should use v2 schema');
   assert(windows.status === 'partial', 'passing pty should be partial until resize is manually verified');
   assert(windows.capabilities.debugPackage === 'pass', 'passing pty should include debug package pass');
+  assert(windows.capabilities.initialClearAndHome === 'pass', 'passing pty should include initial clear screen check');
+  assert(windows.capabilities.inputNotAtTop === 'pass', 'passing pty should include input position screen check');
+  assert(windows.capabilities.noApprovalResidue === 'pass', 'passing pty should include approval residue screen check');
+  assert(windows.capabilities.scrollRegionReset === 'pass', 'passing pty should include scroll region screen check');
+  assert(windows.capabilities.lastScreenNotBlank === 'pass', 'passing pty should include last screen screen check');
   assert(windows.evidence.indexOf('pty-pass.json') >= 0, 'passing pty evidence path missing');
   assert(physical.status === 'pending', 'physical terminal should remain pending');
   assert(virtual.status === 'pass', 'virtual terminal harness should be recorded as pass');
   const markdown = fs.readFileSync(outMd, 'utf8');
   assert(markdown.indexOf('Raw pty log text repetition is not used') >= 0, 'markdown should state raw log is not a judgement source');
+  assert(markdown.indexOf('Initial clear') >= 0 && markdown.indexOf('Input not top') >= 0, 'markdown should include screen check columns');
   assert(markdown.indexOf('Loong Pi local physical terminal') >= 0, 'markdown missing pending physical terminal row');
 
   const failPty = path.join(runs, 'pty-fail.json');
@@ -621,6 +638,7 @@ test('terminal matrix records pass partial fail and pending states from structur
   });
   const failed = failMatrix.rows.find((row) => row.id === 'windows-openssh-loong-pi-pty');
   assert(failed.status === 'fail', 'failing pty should mark matrix row failed');
+  assert(failed.capabilities.initialClearAndHome === 'pending', 'missing screen checks should remain pending on old reports');
   assert(failed.nextSteps.indexOf('Review log') >= 0, 'failing pty should preserve next steps');
 });
 
