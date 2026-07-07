@@ -26,6 +26,7 @@ function createTuiState(config) {
     currentToolEventIdByKey: {},
     currentSession: null,
     expandedTools: false,
+    historyMode: false,
     scrollOffset: 0,
     search: createSearchState(),
     queuedFollowUps: [],

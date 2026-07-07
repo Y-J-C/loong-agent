@@ -28,6 +28,7 @@ function updateScrollMetrics(state, bodyLength, visibleRows) {
   state.scrollMaxOffset = maxOffset;
   state.scrollOffset = offset;
   state.viewingHistory = offset > 0;
+  if (state.historyMode && offset <= 0) state.historyMode = false;
   return { bodyLength: length, visibleRows: rows, maxOffset, offset };
 }
 
@@ -38,6 +39,7 @@ function scrollByPages(state, direction) {
   const offset = clampScrollOffset(next, state.scrollBodyLength || 0, state.scrollVisibleRows || 1);
   state.scrollOffset = offset;
   state.viewingHistory = offset > 0;
+  state.historyMode = offset > 0;
   return offset;
 }
 
@@ -45,6 +47,7 @@ function scrollToBottom(state) {
   if (!state) return 0;
   state.scrollOffset = 0;
   state.viewingHistory = false;
+  state.historyMode = false;
   return 0;
 }
 
@@ -53,6 +56,7 @@ function scrollToTop(state) {
   const offset = maxScrollOffset(state.scrollBodyLength || 0, state.scrollVisibleRows || 1);
   state.scrollOffset = offset;
   state.viewingHistory = offset > 0;
+  state.historyMode = offset > 0;
   return offset;
 }
 

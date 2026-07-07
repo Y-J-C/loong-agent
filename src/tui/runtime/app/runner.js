@@ -7,6 +7,7 @@ var handleCommand = require('../../commands').handleCommand;
 var handleAgentEvent = require('../../event-adapter').handleAgentEvent;
 var interactions = require('../../interactions');
 var input = require('../../input');
+var scroll = require('../../scroll');
 var stateModule = require('../../state');
 var toolFocus = require('../../tool-focus');
 var openJsonlSession = require('../../../session').openJsonlSession;
@@ -16,6 +17,8 @@ var runtimeTheme = require('../theme');
 var TUI = require('../tui').TUI;
 var ChatView = require('./chat-view').ChatView;
 var createRuntimeInputDispatcher = require('./input-dispatcher').createRuntimeInputDispatcher;
+var renderRuntimeInputBlock = require('./input-line').renderRuntimeInputBlock;
+var renderRuntimeMessageListFull = require('./message-list').renderRuntimeMessageListFull;
 var createStateOverlayController = require('./state-overlay-controller').createStateOverlayController;
 var surfacePolicy = require('./surface-policy');
 
@@ -117,7 +120,9 @@ async function runRuntimeNextTui(config, options) {
       if (state.messages.length === before) applyFallbackAgentEvent(state, event);
       var info = session.getSessionInfo && session.getSessionInfo();
       if (info) state.currentSession = { id: info.id, path: info.path };
-      if (!state.viewingHistory && state.selector === null) {
+      if (state.historyMode) {
+        state.status = 'New output available; PageDown/Esc returns to latest';
+      } else if (!state.viewingHistory && state.selector === null) {
         state.scrollOffset = 0;
       }
       requestRender();
@@ -162,6 +167,9 @@ async function runRuntimeNextTui(config, options) {
       runtimeAppendStream: runtimeAppendStream,
       volatileTailLines: tui ? tui.previousVolatileTailLineCount || 0 : 0,
       viewportTop: tui ? tui.previousViewportTop || 0 : 0,
+      historyMode: Boolean(state.historyMode),
+      historyScrollOffset: Number(state.scrollOffset) || 0,
+      historyScrollMaxOffset: Number(state.scrollMaxOffset) || 0,
       messageListMode: chatView ? chatView.messageListMode : 'default',
       messageComponentCache: chatView && chatView.getMessageComponentCacheStats
         ? chatView.getMessageComponentCacheStats() : null,
@@ -175,6 +183,36 @@ async function runRuntimeNextTui(config, options) {
     chatView.invalidate();
     updateLastRender();
     tui.requestRender(force);
+  }
+
+  function updateHistoryScrollMetrics() {
+    var size = terminalSize(terminal);
+    var theme = runtimeTheme.getTheme(state.theme);
+    var renderContext = { state: state, theme: theme, rows: size.rows, columns: size.columns };
+    var inputLines = renderRuntimeInputBlock(state, size.columns, {
+      focused: false,
+      theme: theme,
+      rows: size.rows,
+      showHardwareCursor: false,
+    });
+    var footerLines = chatView && chatView.footer ? chatView.footer.render(size.columns, renderContext) : [''];
+    var runningLines = (state.mode === 'running' || state.agentStatus === 'running') && state.mode !== 'approval' ? 1 : 0;
+    var visibleRows = Math.max(1, size.rows - inputLines.length - footerLines.length - runningLines);
+    var totalLines = renderRuntimeMessageListFull(state, size.columns, renderContext).length;
+    return scroll.updateScrollMetrics(state, totalLines, visibleRows);
+  }
+
+  function enterHistoryMode(status) {
+    state.historyMode = true;
+    updateHistoryScrollMetrics();
+    if (status) state.status = status;
+    return state.scrollOffset || 0;
+  }
+
+  function exitHistoryMode(status) {
+    scroll.scrollToBottom(state);
+    if (status) state.status = status;
+    requestRender(true);
   }
 
   function handleRenderError(error, renderContext) {
@@ -231,6 +269,7 @@ async function runRuntimeNextTui(config, options) {
 
   async function runCommand(value) {
     var rawCommand = String(value || '').trim();
+    var commandName = rawCommand.split(/\s+/)[0];
     if (rawCommand.indexOf('/theme') === 0) {
       var parts = rawCommand.split(/\s+/);
       var nextTheme = parts[1];
@@ -243,6 +282,9 @@ async function runRuntimeNextTui(config, options) {
         stateModule.addMessage(state, { type: 'system', text: 'Theme set: ' + nextTheme });
         return;
       }
+    }
+    if (runtimeAppendStream && commandName === '/top') {
+      enterHistoryMode('History mode: PageDown/Esc or /bottom returns to latest output');
     }
     await handleCommand({
       config: activeConfig,
@@ -260,6 +302,15 @@ async function runRuntimeNextTui(config, options) {
       },
       refreshBoardStatus: refreshBoardStatus,
     }, value);
+    if (runtimeAppendStream && commandName === '/bottom') {
+      scroll.scrollToBottom(state);
+      state.status = 'At latest output';
+      requestRender(true);
+    } else if (runtimeAppendStream && commandName === '/top') {
+      state.historyMode = state.scrollOffset > 0;
+      state.viewingHistory = state.scrollOffset > 0;
+      if (state.historyMode) state.status = 'History mode: PageDown/Esc or /bottom returns to latest output';
+    }
   }
 
   async function submit(text) {
@@ -448,7 +499,9 @@ async function runRuntimeNextTui(config, options) {
     }
 
     if (key.type === 'ctrl_c' || key.type === 'escape') {
-      if (state.mode === 'running' && agentSession && typeof agentSession.abort === 'function') {
+      if (state.historyMode) {
+        exitHistoryMode('At latest output');
+      } else if (state.mode === 'running' && agentSession && typeof agentSession.abort === 'function') {
         agentSession.abort();
         state.mode = 'idle';
         state.status = 'idle';
@@ -466,14 +519,17 @@ async function runRuntimeNextTui(config, options) {
 
     if (key.type === 'page_up') {
       if (runtimeAppendStream) {
-        state.status = 'Use terminal scrollback for history in append-stream mode';
-        state.viewingHistory = false;
-        state.scrollOffset = 0;
-        requestRender();
+        enterHistoryMode('History mode: PageDown/Esc or /bottom returns to latest output');
+        scroll.scrollByPages(state, -1);
+        if (state.scrollOffset <= 0) {
+          state.status = 'No earlier history';
+          scroll.scrollToBottom(state);
+        }
+        stateModule.updateAutocomplete(state);
+        requestRender(true);
         return;
       }
-      var scrollPage = require('../../scroll');
-      scrollPage.scrollByPages(state, -1);
+      scroll.scrollByPages(state, -1);
       stateModule.updateAutocomplete(state);
       requestRender();
       return;
@@ -481,14 +537,25 @@ async function runRuntimeNextTui(config, options) {
 
     if (key.type === 'page_down') {
       if (runtimeAppendStream) {
-        state.status = 'At latest output';
-        state.viewingHistory = false;
-        state.scrollOffset = 0;
-        requestRender();
+        if (state.historyMode) {
+          updateHistoryScrollMetrics();
+          scroll.scrollByPages(state, 1);
+          if (state.scrollOffset <= 0) {
+            exitHistoryMode('At latest output');
+          } else {
+            state.status = 'History mode: PageDown/Esc or /bottom returns to latest output';
+            stateModule.updateAutocomplete(state);
+            requestRender();
+          }
+        } else {
+          state.status = 'At latest output';
+          state.viewingHistory = false;
+          state.scrollOffset = 0;
+          requestRender();
+        }
         return;
       }
-      var scrollPage = require('../../scroll');
-      scrollPage.scrollByPages(state, 1);
+      scroll.scrollByPages(state, 1);
       stateModule.updateAutocomplete(state);
       requestRender();
       return;

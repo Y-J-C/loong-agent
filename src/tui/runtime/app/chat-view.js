@@ -69,7 +69,7 @@ ChatView.prototype.render = function render(width, context) {
   var runningLines = this._renderRunningLines(cols, Object.assign({}, renderCtx, { tui: context && context.tui }));
 
   var bodyHeight = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length);
-  var appendStream = Boolean(context && context.runtimeAppendStream) && overlays.length === 0;
+  var appendStream = Boolean(context && context.runtimeAppendStream) && !state.historyMode && overlays.length === 0;
   if (appendStream) {
     var appendBody = this._renderMessageBody(state, cols, bodyHeight, renderCtx, true);
     var appendLines = appendBody.concat(runningLines).concat(inputLines).concat(footerLines);

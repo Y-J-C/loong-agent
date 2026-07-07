@@ -224,6 +224,17 @@ ok(appendPlain.indexOf('append-line-0') >= 0, 'append-stream chat view includes 
 ok(appendPlain.indexOf('tail input') >= 0, 'append-stream chat view keeps input tail');
 ok(appendContext.volatileTailLineCount > 0, 'append-stream chat view records volatile tail lines');
 
+var historyModeState = Object.assign({}, appendChatState, {
+  historyMode: true,
+  scrollOffset: 3,
+  viewingHistory: true,
+});
+var historyModeContext = { rows: 8, runtimeAppendStream: true, showHardwareCursor: true };
+var historyModeLines = (new ChatView(historyModeState)).render(50, historyModeContext);
+equal(historyModeLines.length, 8, 'history mode chat view returns frame height');
+equal(historyModeContext.volatileTailLineCount, 0, 'history mode disables append-stream volatile tail');
+equal(historyModeContext.runtimeAppendStreamFrameFallback, true, 'history mode uses frame fallback under append-stream');
+
 var longToolText = [];
 for (var toolLine = 0; toolLine < 20; toolLine += 1) {
   longToolText.push('tool output line ' + toolLine);
