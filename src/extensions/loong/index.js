@@ -499,9 +499,24 @@ function isI2cQuestion(text) {
   return contextHasSubject(classifyRequestContext(text || ''), ['hardware.i2c']);
 }
 
+function isCameraKnowledgeQuestion(text) {
+  return /usb.*camera|camera.*usb|uvc|v4l2|\/dev\/video|uvcvideo|opencv|cv2|video4linux|libusb|libuvc/i.test(String(text || ''));
+}
+
 function finalAnswerEvidenceGuard(context) {
   const state = context && context.state;
   const prompt = String((context && context.prompt) || (state && state.userPrompt) || '');
+  if (isCameraKnowledgeQuestion(prompt) && !hasObservationFrom(state, ['kb_search'])) {
+    return {
+      reason: 'missing_camera_knowledge_search',
+      action: {
+        tool: 'kb_search',
+        input: { query: prompt, limit: 10 },
+        reason: 'Required local camera/UVC/OpenCV knowledge search before answering.',
+      },
+      message: 'The user asked about a known USB camera/UVC/OpenCV board failure pattern. Search the local KB first, then verify current state with read-only command evidence before proposing fixes.',
+    };
+  }
   if (isCurrentMemoryQuestion(prompt) && !hasCurrentObservationSubject(state, 'system.memory')) {
     return {
       reason: 'missing_current_memory_evidence',
@@ -607,6 +622,7 @@ function loongPromptGuidelines() {
     '- For historical board state such as 当时/上次/history/session, prefer kb_topic/kb_search/session_summary and label any current re-check separately.',
     '- For project readiness, npm unavailable impact, dependency/build/test suitability, or "can this project run on the Loong board" questions, call loong_env_check first and answer from confirmed runtime/toolchain evidence.',
     '- For "can this project/repo run on the Loong board" questions, inspect package.json or README after loong_env_check before making a project-specific conclusion.',
+    '- For USB camera, UVC, V4L2, /dev/video*, OpenCV, or cv2 board issues, call kb_search first to load known board boundaries and fallback playbooks, then collect current read-only evidence.',
     '- For current I2C/sensor/peripheral questions, collect current I2C evidence first; use command_reference before recommending diagnostic commands.',
     '- Long-running sensor/logger/server tasks must use bash background=true and process_status/process_wait/process_logs/process_stop.',
     '- BMP280 logger scripts for test runs must support --interval, --samples, --output, --bus, --addr; default bus=1 addr=0x76 and validate chip id 0x58.',
@@ -625,6 +641,7 @@ function loongCompatibilityPromptGuidelines() {
     '- If loong_env_check is used while answering a historical question, label it as 当前复测/current re-check, not historical evidence.',
     '- Historical-state answers must include: 时间点 / 来源 / 证据 / 当前复测是否参与 / 待确认.',
     '- For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.',
+    '- For USB camera, UVC, V4L2, /dev/video*, OpenCV, or cv2 board issues, prefer kb_search before current re-checks so known no-/dev/video and userland UVC fallback boundaries are considered.',
     '- For risk, install, repair, boot/storage, network modification, or peripheral operation questions, use risk_lookup or command_reference first.',
     '- For current disk/storage answers, use loong_storage_check and structure the answer as: physical devices / partitions and mounts / filesystem usage / bounded directory usage / risks and pending confirmation / next read-only checks.',
     '- Do not claim disk I/O health without smartctl, dmesg, or explicit I/O-error evidence. Do not infer SSD/HDD/eMMC without model or rotation evidence.',

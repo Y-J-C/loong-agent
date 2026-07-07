@@ -14,6 +14,7 @@ const CORE_RULES = `Core rules:
 - Use typed observations and current tool evidence for current-state answers; do not invent versions, measurements, paths, PIDs, addresses, or device state.
 - Use kb_topic, kb_search, risk_lookup, or session_summary for local knowledge. Treat draft, unknown, low-confidence, and 待确认 knowledge as uncertain supporting context, not fact.
 - For historical evidence or documentation, use kb_search; when raw evidence is requested, pass includeRaw=true.
+- For known board peripheral/runtime failure patterns such as USB camera, UVC, V4L2, /dev/video*, OpenCV, or cv2, call kb_search before proposing fixes; then verify current state with read-only commands.
 - Use read, write, edit, ls, grep, and find as the primary file tools. Use legacy read_file, list_directory, and search_files only for compatibility.
 - Use write for new files or complete rewrites, including multi-line scripts and CSV/logging helpers. Do not create large files with bash heredocs when write is available.
 - Use csv_html_report when the user asks to turn a CSV file into a web page, HTML report, chart, or dashboard. This avoids embedding large HTML/JS content in tool-call JSON.

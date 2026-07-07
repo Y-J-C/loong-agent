@@ -9,6 +9,7 @@ const { createHookRunner, knowledgeContextHook } = require('../src/hooks');
 const { listTopics, readHistoricalEnvironmentFacts, readKnowledgeIndex, readTopic, searchKnowledge } = require('../src/kb');
 const { buildMessagesFromTurnContext, buildSystemPrompt, buildTurnContext } = require('../src/prompts');
 const { READONLY_COMMAND_METADATA } = require('../src/command-policy');
+const { finalAnswerEvidenceGuard } = require('../src/extensions/loong');
 
 const ROOT = path.resolve(__dirname, '..');
 const PREVIEW_ROOT = path.join(ROOT, 'kb', 'loongson-2k1000-board-kb-preview');
@@ -781,6 +782,48 @@ test('Phase A knowledgeContextHook preserves search match metadata', () => {
   assert(match._arch === 'loongarch64', `unexpected hook _arch: ${match._arch}`);
   assert(match._source === 'board_measured', `unexpected hook _source: ${match._source}`);
   assert(match._verification === 'verified', `unexpected hook _verification: ${match._verification}`);
+});
+
+test('Camera knowledgeContextHook injects USB camera and UVC fallback matches', () => {
+  const state = {
+    turn: 2,
+    observations: [],
+    messages: [
+      { role: 'user', content: '当前设备的 USB camera 没有 /dev/video0，OpenCV cv2 能不能抓图？' },
+    ],
+  };
+  const result = knowledgeContextHook({
+    config: config(),
+    state,
+    action: { tool: 'bash', input: { command: 'ls /dev/video* 2>&1' } },
+    result: { summary: 'ls: cannot access /dev/video*' },
+  });
+  assert(result, 'camera knowledge context should be returned');
+  assert(
+    result.data.searchMatches.some((item) => item.path === 'kb/playbooks/usb-camera-no-dev-video.md'),
+    'missing no-/dev/video camera playbook match'
+  );
+  assert(
+    result.data.searchMatches.some((item) => item.path === 'kb/playbooks/usb-camera-userland-uvc-capture.md'),
+    'missing userland UVC fallback playbook match'
+  );
+});
+
+test('Loong final guard requires kb_search for camera UVC questions before answering', () => {
+  const guard = finalAnswerEvidenceGuard({
+    prompt: '当前 USB camera 没有 /dev/video0，能否通过 libusb 或 UVC 其他办法抓图？',
+    state: { observations: [] },
+  });
+  assert(guard, 'expected camera knowledge guard');
+  assert(guard.reason === 'missing_camera_knowledge_search', `unexpected guard reason: ${guard.reason}`);
+  assert(guard.action && guard.action.tool === 'kb_search', 'camera guard should request kb_search');
+  assert(/USB camera/i.test(guard.action.input.query), 'camera guard query should preserve user prompt');
+
+  const afterSearch = finalAnswerEvidenceGuard({
+    prompt: '当前 USB camera 没有 /dev/video0，能否通过 libusb 或 UVC 其他办法抓图？',
+    state: { observations: [{ tool: 'kb_search', input: { query: 'USB camera UVC' } }] },
+  });
+  assert(!afterSearch || afterSearch.reason !== 'missing_camera_knowledge_search', 'camera guard should not repeat after kb_search');
 });
 
 

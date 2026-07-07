@@ -3,6 +3,9 @@
 const { buildTopicEnvelope, searchKnowledge } = require('../kb');
 const { summarize } = require('../tool-utils');
 
+const CAMERA_KNOWLEDGE_PATTERN =
+  /usb.*camera|camera.*usb|uvc|v4l2|\/dev\/video|uvcvideo|opencv|cv2|video4linux|libusb|libuvc/i;
+
 const TOPIC_HINTS = [
   { topic: 'risk_list', pattern: /risk|danger|blocked|error|fail|安全|风险|失败|拒绝|阻断/i },
   { topic: 'unknowns', pattern: /unknown|uncertain|todo|待确认|不确定|未知/i },
@@ -11,6 +14,8 @@ const TOPIC_HINTS = [
   { topic: 'environment_report', pattern: /environment|node|runtime|os|kernel|环境|运行时/i },
   { topic: 'software_stack', pattern: /software|stack|npm|commonjs|compiler|g\+\+|docker|podman|pip|软件|依赖/i },
   { topic: 'compatibility_matrix', pattern: /compat|node 14|compatibility|兼容/i },
+  { topic: 'usb_camera_uvc_boundary', pattern: CAMERA_KNOWLEDGE_PATTERN },
+  { topic: 'camera_opencv_runtime', pattern: CAMERA_KNOWLEDGE_PATTERN },
 ];
 
 const TROUBLESHOOTING_PATTERN =
@@ -80,7 +85,10 @@ function includeRawEvidence(text) {
 }
 
 function searchLimit(text) {
-  return TROUBLESHOOTING_PATTERN.test(String(text || '')) || includeRawEvidence(text) || temporalIntent(text) === 'historical'
+  return TROUBLESHOOTING_PATTERN.test(String(text || '')) ||
+    CAMERA_KNOWLEDGE_PATTERN.test(String(text || '')) ||
+    includeRawEvidence(text) ||
+    temporalIntent(text) === 'historical'
     ? 10
     : 2;
 }
@@ -104,7 +112,7 @@ function selectSearchContextMatches(matches, text) {
     seen[match.topic] = true;
     selected.push(match);
   }
-  if (TROUBLESHOOTING_PATTERN.test(String(text || ''))) {
+  if (TROUBLESHOOTING_PATTERN.test(String(text || '')) || CAMERA_KNOWLEDGE_PATTERN.test(String(text || ''))) {
     (matches || [])
       .filter((match) => match.topic === 'maintenance.troubleshooting')
       .forEach(add);
