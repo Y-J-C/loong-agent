@@ -45,6 +45,7 @@ function TUI(terminal, options) {
   this.fullRedrawCount = 0;
   this.lastDiffMode = 'none';
   this.stopped = false;
+  this.stopCursorRestored = false;
   this.clearOnShrink = true;
 
   // Focus & overlay
@@ -788,9 +789,33 @@ TUI.prototype.hasCapturingOverlay = function hasCapturingOverlay() {
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
+TUI.prototype._moveCursorToRenderedEndBeforeStop = function _moveCursorToRenderedEndBeforeStop() {
+  if (this.stopCursorRestored) return false;
+  if (!this.previousLines || this.previousLines.length === 0) return false;
+  if (!this.terminal || typeof this.terminal.write !== 'function') return false;
+
+  var rawHeight = Number(this.previousHeight) || Number(this.terminal.rows) || 0;
+  if (rawHeight <= 0) return false;
+
+  var height = Math.max(1, rawHeight);
+  var lastLogicalRow = this.previousLines.length - 1;
+  var viewportTop = this.runtimeAppendStream ? this.currentViewportTop : this.previousViewportTop;
+  viewportTop = Math.max(0, Number(viewportTop) || 0);
+
+  var targetScreenRow = this._screenRowForLogicalRow(lastLogicalRow, viewportTop, height);
+  if (targetScreenRow === null) targetScreenRow = height - 1;
+  targetScreenRow = Math.max(0, Math.min(height - 1, targetScreenRow));
+
+  this.terminal.write(this._moveToScreenRow(targetScreenRow) + '\r\n');
+  this._setHardwareCursorRow(Math.min(targetScreenRow + 1, height - 1), height);
+  this.stopCursorRestored = true;
+  return true;
+};
+
 TUI.prototype.start = function start() {
   var self = this;
   this.stopped = false;
+  this.stopCursorRestored = false;
   this.terminal.start(function(data) {
     Promise.resolve(self.handleInput(data)).catch(function(error) {
       if (self.onInputError) self.onInputError(error);
@@ -805,6 +830,7 @@ TUI.prototype.start = function start() {
 TUI.prototype.stop = function stop() {
   this.stopped = true;
   if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = undefined; }
+  this._moveCursorToRenderedEndBeforeStop();
   if (this.terminal.stop) this.terminal.stop();
 };
 

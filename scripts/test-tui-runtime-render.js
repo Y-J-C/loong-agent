@@ -26,6 +26,16 @@ function ok(value, msg) {
   console.error('FAIL: ' + msg);
 }
 
+function countOccurrences(haystack, needle) {
+  var count = 0;
+  var index = 0;
+  while (needle && (index = haystack.indexOf(needle, index)) >= 0) {
+    count += 1;
+    index += needle.length;
+  }
+  return count;
+}
+
 var writes = [];
 var clears = 0;
 var terminal = {
@@ -350,6 +360,73 @@ ok(shrinkOutput.indexOf('input') >= 0, 'append-stream shrink redraws input tail'
 ok(shrinkOutput.indexOf('footer') >= 0, 'append-stream shrink redraws footer tail');
 ok(shrinkOutput.indexOf('history-3') < 0, 'append-stream shrink does not preserve stale old tail line');
 equal(shrink.tui.hardwareCursorRow, 3, 'append-stream shrink records last cleared or redrawn screen row');
+
+function createStopHarness(rows, appendStream) {
+  var localWrites = [];
+  var localTerminal = {
+    columns: 40,
+    rows: rows || 4,
+    write: function(data) { localWrites.push(String(data || '')); },
+    clearScreen: function() {},
+    start: function() {},
+    stop: function() { this.stopCount += 1; },
+    stopCount: 0,
+    hideCursor: function() {},
+    showCursor: function() {},
+  };
+  var lines = [];
+  var localTui = new runtime.TUI(localTerminal, { runtimeAppendStream: Boolean(appendStream) });
+  localTui.add({
+    render: function(width, context) {
+      if (appendStream) context.volatileTailLineCount = 2;
+      return lines.slice();
+    },
+  });
+  return {
+    terminal: localTerminal,
+    tui: localTui,
+    writes: localWrites,
+    setLines: function(nextLines) { lines = nextLines.slice(); },
+  };
+}
+
+var frameStop = createStopHarness(5, false);
+frameStop.setLines(['line-0', 'line-1', 'line-2']);
+frameStop.tui.doRender();
+frameStop.writes.length = 0;
+frameStop.tui.hardwareCursorRow = 0;
+frameStop.tui.stop();
+var frameStopOutput = frameStop.writes.join('');
+ok(frameStopOutput.indexOf('\x1b[2B\r\r\n') >= 0, 'stop moves frame cursor to rendered end before newline');
+equal(frameStop.terminal.stopCount, 1, 'stop still delegates to terminal.stop');
+equal(frameStop.tui.hardwareCursorRow, 3, 'stop records conservative row after frame newline');
+
+var appendStop = createStopHarness(4, true);
+appendStop.setLines(['hidden-0', 'hidden-1', 'visible-2', 'visible-3', 'input', 'footer']);
+appendStop.tui.doRender();
+appendStop.writes.length = 0;
+appendStop.tui.hardwareCursorRow = 0;
+appendStop.tui.stop();
+var appendStopOutput = appendStop.writes.join('');
+ok(appendStopOutput.indexOf('\x1b[3B\r\r\n') >= 0, 'stop moves append-stream cursor to visible end before newline');
+ok(appendStopOutput.indexOf('\x1b[6;1H') < 0, 'stop does not address append-stream logical row');
+ok(appendStopOutput.indexOf('\x1b[5;1H') < 0, 'stop does not address beyond screen height');
+equal(appendStop.terminal.stopCount, 1, 'append-stream stop still delegates to terminal.stop');
+equal(appendStop.tui.hardwareCursorRow, 3, 'stop clamps append-stream newline row to screen bottom');
+
+var emptyStop = createStopHarness(4, false);
+emptyStop.tui.stop();
+equal(emptyStop.writes.join(''), '', 'stop without rendered content does not write extra newline');
+equal(emptyStop.terminal.stopCount, 1, 'empty stop still delegates to terminal.stop');
+
+var repeatedStop = createStopHarness(4, false);
+repeatedStop.setLines(['line-0', 'line-1']);
+repeatedStop.tui.doRender();
+repeatedStop.writes.length = 0;
+repeatedStop.tui.hardwareCursorRow = 0;
+repeatedStop.tui.stop();
+repeatedStop.tui.stop();
+equal(countOccurrences(repeatedStop.writes.join(''), '\r\n'), 1, 'repeated stop writes exit newline once');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);
