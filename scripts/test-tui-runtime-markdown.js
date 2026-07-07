@@ -16,6 +16,16 @@ function ok(value, msg) {
   console.error('FAIL: ' + msg);
 }
 
+function stripLines(lines) {
+  return lines.map(function(line) { return utils.stripAnsi(line); });
+}
+
+function tableRows(lines) {
+  return stripLines(lines).filter(function(line) {
+    return line.charAt(0) === '|' && line.charAt(line.length - 1) === '|';
+  });
+}
+
 var component = new Markdown({
   text: '# Title\n\n- item one\n> quote\n```js\nconsole.log("hi")\n```\n中文显示',
   maxLines: 20,
@@ -60,6 +70,52 @@ ok(tablePlain.indexOf('中文') >= 0, 'renders CJK table cell');
 ok(tablePlain.indexOf('a|b') >= 0, 'renders escaped pipe inside table cell');
 ok(tablePlain.indexOf('| not | table |') >= 0, 'keeps pipe text inside code block');
 ok(tableLines.every(function(line) { return utils.visibleWidth(line) <= 36; }), 'table markdown lines fit width');
+
+var asciiTable = new Markdown({
+  text: '| Name | Value |\n| --- | --- |\n| Node | v14.16.1 |\n| npm | missing |',
+  maxLines: 20,
+});
+var asciiTableLines = asciiTable.render(40, { theme: theme.getTheme('plain') });
+var asciiTablePlainLines = stripLines(asciiTableLines);
+var asciiRenderedRows = tableRows(asciiTableLines);
+ok(asciiTablePlainLines.some(function(line) { return line.indexOf('| Name') === 0; }), 'ascii table keeps pipe-delimited header');
+ok(asciiTablePlainLines.some(function(line) { return /^\| -{3,}/.test(line); }), 'ascii table keeps separator row');
+ok(asciiTablePlainLines.some(function(line) { return line.indexOf('| Node') === 0 && line.indexOf('v14.16.1') >= 0; }), 'ascii table keeps data rows');
+ok(asciiRenderedRows.length >= 4, 'ascii table renders header, separator, and data rows as table rows');
+ok(asciiRenderedRows.every(function(line) { return line.charAt(0) === '|' && line.charAt(line.length - 1) === '|'; }), 'ascii table rows keep left and right pipe boundaries');
+ok(asciiTableLines.every(function(line) { return utils.visibleWidth(line) <= 40; }), 'ascii table baseline lines fit width');
+
+var cjkTable = new Markdown({
+  text: '| \u540d\u79f0 | \u63cf\u8ff0 |\n| --- | --- |\n| \u5185\u6838\u7248\u672c | 4.19.0-18-loongson-2k |\n| Node.js | \u53ef\u7528 |',
+  maxLines: 20,
+});
+var cjkTableLines = cjkTable.render(42, { theme: theme.getTheme('plain') });
+var cjkTablePlain = stripLines(cjkTableLines).join('\n');
+ok(cjkTablePlain.indexOf('\u540d\u79f0') >= 0, 'cjk table keeps Chinese header');
+ok(cjkTablePlain.indexOf('\u5185\u6838\u7248\u672c') >= 0, 'cjk table keeps Chinese data cell');
+ok(cjkTablePlain.indexOf('4.19.0-18-loongson-2k') >= 0, 'cjk table keeps mixed ASCII version value');
+ok(cjkTableLines.every(function(line) { return utils.visibleWidth(line) <= 42; }), 'cjk table lines fit width');
+
+var unevenTable = new Markdown({
+  text: '| A | B | C |\n| --- | --- | --- |\n| 1 | 2 |\n| 3 | | 5 |',
+  maxLines: 20,
+});
+var unevenLines = unevenTable.render(28, { theme: theme.getTheme('plain') });
+var unevenPlain = stripLines(unevenLines).join('\n');
+ok(unevenPlain.indexOf('| 1') >= 0 && unevenPlain.indexOf('2') >= 0, 'uneven table renders row with missing trailing cell');
+ok(unevenPlain.indexOf('| 3') >= 0 && unevenPlain.indexOf('5') >= 0, 'uneven table renders row with empty middle cell');
+ok(tableRows(unevenLines).every(function(line) { return line.charAt(0) === '|' && line.charAt(line.length - 1) === '|'; }), 'uneven table rows keep pipe boundaries');
+ok(unevenLines.every(function(line) { return utils.visibleWidth(line) <= 28; }), 'uneven table lines fit width');
+
+var codeOnlyTable = new Markdown({
+  text: '```txt\n| Code | Table |\n| --- | --- |\n| A | B |\n```',
+  maxLines: 20,
+});
+var codeOnlyLines = codeOnlyTable.render(40, { theme: theme.getTheme('plain') });
+var codeOnlyPlain = stripLines(codeOnlyLines).join('\n');
+ok(codeOnlyPlain.indexOf('+- txt ') >= 0, 'table-looking code block keeps code block border');
+ok(codeOnlyPlain.indexOf('| --- | --- |') >= 0, 'table-looking code block keeps literal separator text');
+ok(!stripLines(codeOnlyLines).some(function(line) { return /^\| -{3,} \|/.test(line); }), 'table-looking code block is not converted to markdown table separator');
 
 var bashCode = new Markdown({
   text: '```bash\n# 查看内存详细分布\ncat /proc/meminfo\n```',
