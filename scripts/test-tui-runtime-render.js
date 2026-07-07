@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
 var runtime = require('../src/tui/runtime');
 var pass = 0;
 var fail = 0;
@@ -112,6 +115,68 @@ try {
   threw = /exceeds width/.test(error.message);
 }
 ok(threw, 'render throws on width overflow');
+
+var originalCwd = process.cwd();
+var sanitizeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-tui-sanitize-'));
+process.chdir(sanitizeRoot);
+try {
+  var sanitizeWrites = [];
+  var sanitizeTerminal = {
+    columns: 10,
+    rows: 4,
+    write: function(data) { sanitizeWrites.push(String(data || '')); },
+    clearScreen: function() {},
+    start: function() {},
+    stop: function() {},
+    hideCursor: function() {},
+    showCursor: function() {},
+  };
+  var sanitizeTui = new runtime.TUI(sanitizeTerminal);
+  sanitizeTui.render = function() {
+    return ['abcdefghijklmnopqrstuvwxyz'];
+  };
+  sanitizeTui.doRender();
+  var sanitizeOutput = sanitizeWrites.join('');
+  ok(sanitizeOutput.indexOf('abcdefghijklmnopqrstuvwxyz') < 0, 'TUI sanitizer does not write full over-width line');
+  ok(sanitizeOutput.indexOf('abcdefg...') >= 0, 'TUI sanitizer writes truncated safe line');
+  ok(sanitizeOutput.indexOf('\x1b[0m') >= 0, 'TUI sanitizer output keeps line reset');
+  ok(runtime.visibleWidth('abcdefg...') <= sanitizeTerminal.columns, 'TUI sanitizer truncated text fits terminal width');
+  var sanitizeLog = path.join(sanitizeRoot, '.loong-agent', 'logs', 'tui-render-crash.log');
+  ok(fs.existsSync(sanitizeLog), 'TUI sanitizer writes diagnostic log');
+  var sanitizeLogText = fs.readFileSync(sanitizeLog, 'utf8');
+  ok(sanitizeLogText.indexOf('path=doRender') >= 0, 'TUI sanitizer diagnostic records path');
+  ok(sanitizeLogText.indexOf('width=10') >= 0, 'TUI sanitizer diagnostic records width');
+  ok(sanitizeLogText.indexOf('actualWidth=26') >= 0, 'TUI sanitizer diagnostic records actual width');
+
+  sanitizeWrites.length = 0;
+  var ansiTui = new runtime.TUI(sanitizeTerminal);
+  ansiTui.render = function() {
+    return ['\x1b[31mabcdefghijklmnop\x1b[0m'];
+  };
+  ansiTui.doRender();
+  var ansiOutput = sanitizeWrites.join('');
+  ok(ansiOutput.indexOf('abcdefghijklmnop') < 0, 'ANSI over-width line is not written in full');
+  ok(ansiOutput.indexOf('\x1b[31m') >= 0, 'ANSI over-width line keeps ANSI prefix after truncation');
+  ok(runtime.visibleWidth(runtime.truncateToWidth('\x1b[31mabcdefghijklmnop\x1b[0m', 10)) <= 10, 'ANSI truncated line fits terminal width');
+
+  sanitizeWrites.length = 0;
+  var fallbackTui = new runtime.TUI(sanitizeTerminal, {
+    onRenderError: function() {
+      return ['fallback line is much too wide'];
+    },
+  });
+  fallbackTui.add({
+    render: function() {
+      throw new Error('render failed');
+    },
+  });
+  fallbackTui.doRender();
+  var fallbackOutput = sanitizeWrites.join('');
+  ok(fallbackOutput.indexOf('fallback line is much too wide') < 0, 'onRenderError fallback is sanitized before write');
+  ok(fallbackOutput.indexOf('fallbac...') >= 0, 'onRenderError fallback still writes safe truncated content');
+} finally {
+  process.chdir(originalCwd);
+}
 
 var appendWrites = [];
 var appendClears = 0;

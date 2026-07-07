@@ -1,5 +1,7 @@
 'use strict';
 
+var fs = require('fs');
+var path = require('path');
 var component = require('./component');
 var focus = require('./focus');
 var terminalModule = require('./terminal');
@@ -158,6 +160,54 @@ TUI.prototype._now = function _now() {
   return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
 };
 
+TUI.prototype._writeRenderDiagnostic = function _writeRenderDiagnostic(details) {
+  try {
+    details = details || {};
+    var logDir = path.join(process.cwd(), '.loong-agent', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    var preview = utils.truncateToWidth(
+      utils.stripAnsi(String(details.line || '')).replace(/\s+/g, ' ').trim(),
+      80
+    ).replace(/"/g, '\\"');
+    var entry = [
+      '[' + new Date().toISOString() + ']',
+      'path=' + (details.path || 'render'),
+      'mode=' + (details.mode || 'sanitize'),
+      'logicalRow=' + (details.logicalRow !== undefined ? details.logicalRow : ''),
+      'width=' + details.width,
+      'actualWidth=' + details.actualWidth,
+      'preview="' + preview + '"',
+    ].join(' ') + '\n';
+    fs.appendFileSync(path.join(logDir, 'tui-render-crash.log'), entry, 'utf8');
+  } catch (error) {
+    // Diagnostics must not break terminal rendering.
+  }
+};
+
+TUI.prototype._sanitizeLineForTerminal = function _sanitizeLineForTerminal(line, width, meta) {
+  var text = String(line || '');
+  var safeWidth = Math.max(0, Number(width) || 0);
+  var actualWidth = utils.visibleWidth(text);
+  if (actualWidth <= safeWidth) return text;
+  this._writeRenderDiagnostic(Object.assign({}, meta || {}, {
+    line: text,
+    width: safeWidth,
+    actualWidth: actualWidth,
+  }));
+  return utils.truncateToWidth(text, safeWidth);
+};
+
+TUI.prototype._sanitizeLinesForTerminal = function _sanitizeLinesForTerminal(lines, width, meta) {
+  var input = Array.isArray(lines) ? lines : [];
+  var output = new Array(input.length);
+  for (var index = 0; index < input.length; index += 1) {
+    output[index] = this._sanitizeLineForTerminal(input[index], width, Object.assign({}, meta || {}, {
+      logicalRow: index,
+    }));
+  }
+  return output;
+};
+
 // ─── doRender ─────────────────────────────────────────────────────────────────
 
 TUI.prototype.doRender = function doRender() {
@@ -216,7 +266,8 @@ TUI.prototype.doRender = function doRender() {
   var cursorPos = cursorResult.cursor;
   newLines = cursorResult.lines;
 
-  // 4. Apply line resets
+  // 4. Keep terminal writes width-safe, then apply line resets
+  newLines = this._sanitizeLinesForTerminal(newLines, width, { path: 'doRender' });
   newLines = this._applyLineResets(newLines);
 
   // 5. Full vs diff render
@@ -406,7 +457,7 @@ TUI.prototype._writeAppendStreamStableLines = function _writeAppendStreamStableL
     this.scrollRegionActive = true;
     this.hardwareCursorRow = scrollRegionEnd - 1;
     for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
-      buffer += '\n\r\x1b[2K' + stableAdded[addedIndex];
+      buffer += '\r\n\x1b[2K' + stableAdded[addedIndex];
       this.hardwareCursorRow = scrollRegionEnd - 1;
     }
     buffer += '\x1b[r';
@@ -436,7 +487,7 @@ TUI.prototype._writeAppendStreamRange = function _writeAppendStreamRange(newLine
   this.hardwareCursorRow = startRow;
   for (var logicalRow = startLogical; logicalRow <= endLogical; logicalRow += 1) {
     if (logicalRow > startLogical) {
-      buffer += '\n';
+      buffer += '\r\n';
       this.hardwareCursorRow = Math.min(Math.max(0, height - 1), this.hardwareCursorRow + 1);
     }
     buffer += '\x1b[2K' + newLines[logicalRow];
@@ -503,15 +554,30 @@ TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursor
       }
     }
     if (appendOnly) {
-      var startRow = this.previousLines.length;
-      var appendBuffer = '\x1b[?2026h\x1b[?25l\x1b[' + (startRow + 1) + ';1H';
-      for (var ai = startRow; ai < newLines.length; ai += 1) {
-        if (ai > startRow) appendBuffer += '\n';
+      var startLogical = this.previousLines.length;
+      var endLogical = Math.min(newLines.length - 1, viewportTop + height - 1);
+      if (startLogical > endLogical) {
+        this.previousViewportTop = viewportTop;
+        this.lastDiffMode = 'append-hidden';
+        return;
+      }
+      var startScreenRow = this._screenRowForLogicalRow(startLogical, viewportTop, height);
+      if (startScreenRow === null) {
+        this._fullRender(newLines, width, height, cursorPos, true);
+        return;
+      }
+      var appendBuffer = '\x1b[?2026h\x1b[?25l\x1b[' + (startScreenRow + 1) + ';1H';
+      var appendScreenRow = startScreenRow;
+      for (var ai = startLogical; ai <= endLogical; ai += 1) {
+        if (ai > startLogical) {
+          appendBuffer += '\r\n';
+          appendScreenRow += 1;
+        }
         appendBuffer += '\x1b[2K' + newLines[ai];
       }
       appendBuffer += '\x1b[?2026l';
       this.terminal.write(appendBuffer);
-      this.hardwareCursorRow = Math.max(0, newLines.length - 1);
+      this.hardwareCursorRow = appendScreenRow;
       this.previousViewportTop = viewportTop;
       this.lastDiffMode = 'append';
       return;
@@ -539,15 +605,33 @@ TUI.prototype._diffRender = function _diffRender(newLines, width, height, cursor
   }
 
   // Build diff output
-  var buffer = '\x1b[?2026h\x1b[?25l\x1b[' + (firstChanged + 1) + ';1H';
-  for (var i = firstChanged; i <= lastChanged; i++) {
-    if (i > firstChanged) buffer += '\n';
+  var startLogical = Math.max(firstChanged, viewportTop);
+  var endLogical = Math.min(lastChanged, viewportTop + height - 1);
+  if (startLogical > endLogical) {
+    this.previousViewportTop = viewportTop;
+    this.lastDiffMode = 'range-hidden';
+    return;
+  }
+
+  var startScreenRow = this._screenRowForLogicalRow(startLogical, viewportTop, height);
+  if (startScreenRow === null) {
+    this._fullRender(newLines, width, height, cursorPos, true);
+    return;
+  }
+
+  var buffer = '\x1b[?2026h\x1b[?25l\x1b[' + (startScreenRow + 1) + ';1H';
+  var screenRow = startScreenRow;
+  for (var i = startLogical; i <= endLogical; i++) {
+    if (i > startLogical) {
+      buffer += '\r\n';
+      screenRow += 1;
+    }
     buffer += '\x1b[2K' + (i < newLines.length ? newLines[i] : '');
   }
   buffer += '\x1b[?2026l';
   this.terminal.write(buffer);
 
-  this.hardwareCursorRow = Math.min(lastChanged, newLines.length - 1);
+  this.hardwareCursorRow = screenRow;
   this.previousViewportTop = viewportTop;
   this.lastDiffMode = newLines.length < this.previousLines.length && lastChanged >= newLines.length
     ? 'clear-tail' : 'range';
