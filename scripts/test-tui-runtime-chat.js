@@ -229,6 +229,17 @@ ok(appendPlain.indexOf('append-line-0') >= 0, 'append-stream chat view includes 
 ok(appendPlain.indexOf('tail input') >= 0, 'append-stream chat view keeps input tail');
 ok(appendContext.volatileTailLineCount > 0, 'append-stream chat view records volatile tail lines');
 
+var shortAppendState = Object.assign({}, state, {
+  inputBuffer: '',
+  messages: [],
+});
+var shortAppendContext = { rows: 8, runtimeAppendStream: true, showHardwareCursor: true };
+var shortAppendLines = (new ChatView(shortAppendState)).render(50, shortAppendContext);
+var shortAppendPlainLines = shortAppendLines.map(function(line) { return stripAnsi(line).trim(); });
+equal(shortAppendLines.length, 8, 'short append-stream chat view fills screen height');
+equal(shortAppendPlainLines[0], '', 'short append-stream chat view pads above the input area');
+ok(shortAppendPlainLines.slice(-3).join('\n').indexOf('deepseek-v4-flash') >= 0 || shortAppendPlainLines.slice(-3).join('\n').indexOf('m') >= 0, 'short append-stream footer stays at bottom');
+
 var historyModeState = Object.assign({}, appendChatState, {
   historyMode: true,
   scrollOffset: 3,

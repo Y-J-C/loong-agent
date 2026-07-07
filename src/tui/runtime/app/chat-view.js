@@ -73,6 +73,7 @@ ChatView.prototype.render = function render(width, context) {
   if (appendStream) {
     var appendBody = this._renderMessageBody(state, cols, bodyHeight, renderCtx, true);
     var appendLines = appendBody.concat(runningLines).concat(inputLines).concat(footerLines);
+    while (appendLines.length < rows) appendLines.unshift('');
     var volatileTailLineCount = runningLines.length + inputLines.length + footerLines.length;
     if (context) {
       context.volatileTailLineCount = volatileTailLineCount;
