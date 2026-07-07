@@ -32,6 +32,9 @@ function TUI(terminal, options) {
   this.previousVolatileTailLineCount = 0;
   this.currentViewportTop = 0;
   this.runtimeAppendStream = Boolean(options.runtimeAppendStream);
+  this.cursorColumn = 0;
+  this.scrollRegionActive = false;
+  this.appendStreamFrameFallback = false;
 
   // Rendering control
   this.renderRequested = false;
@@ -221,6 +224,7 @@ TUI.prototype.doRender = function doRender() {
   var clear = this.clearOnShrink && newLines.length < this.maxLinesRendered && this.overlayStack.length === 0;
   var volatileTailLineCount = Math.max(0, Math.min(newLines.length, Number(renderContext.volatileTailLineCount) || 0));
   var appendStreamActive = this.runtimeAppendStream && !hasVisibleOverlays && !renderContext.runtimeAppendStreamFrameFallback;
+  this.appendStreamFrameFallback = Boolean(renderContext.runtimeAppendStreamFrameFallback);
   var appendViewportTop = Math.max(0, newLines.length - height);
   if (appendStreamActive) viewportTop = appendViewportTop;
   this.currentViewportTop = viewportTop;
@@ -399,12 +403,14 @@ TUI.prototype._writeAppendStreamStableLines = function _writeAppendStreamStableL
 
   if (stableAdded.length > 0) {
     buffer += '\x1b[1;' + scrollRegionEnd + 'r\x1b[' + scrollRegionEnd + ';1H';
+    this.scrollRegionActive = true;
     this.hardwareCursorRow = scrollRegionEnd - 1;
     for (var addedIndex = 0; addedIndex < stableAdded.length; addedIndex += 1) {
       buffer += '\n\r\x1b[2K' + stableAdded[addedIndex];
       this.hardwareCursorRow = scrollRegionEnd - 1;
     }
     buffer += '\x1b[r';
+    this.scrollRegionActive = false;
   }
 
   var tailStartRow = Math.max(0, height - tailCount);
@@ -572,6 +578,8 @@ TUI.prototype._positionHardwareCursor = function _positionHardwareCursor(cursorP
     targetRow = mapped;
   }
   var targetCol = Math.max(0, (Number(cursorPos.column) || 1) - 1);
+  this.cursorRow = targetRow;
+  this.cursorColumn = targetCol;
   var rowDelta = targetRow - this.hardwareCursorRow;
   var buf = '';
   if (rowDelta > 0) buf += '\x1b[' + rowDelta + 'B';

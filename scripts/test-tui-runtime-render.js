@@ -44,6 +44,12 @@ equal(clears, 1, 'render clears screen');
 ok(writes.join('').indexOf('\x1b[r') >= 0, 'full render resets scroll region');
 ok(writes.join('').indexOf('hello') >= 0, 'render writes text');
 ok(writes.join('').indexOf('中文') >= 0, 'render writes CJK');
+terminal.rows = 6;
+writes.length = 0;
+tui.doRender();
+equal(clears, 2, 'resize render clears screen');
+ok(writes.join('').indexOf('\x1b[r') >= 0, 'resize full render resets scroll region');
+equal(tui.scrollRegionActive, false, 'resize full render leaves scroll region diagnostic inactive');
 
 var seenContext = null;
 var contextTui = new runtime.TUI(terminal);
@@ -85,6 +91,8 @@ cursorTui.doRender();
 ok(cursorWrites.join('').indexOf('\x1b[1G') >= 0, 'runtime cursor at line start moves to first column');
 ok(cursorWrites.join('').indexOf('\x1b[2G') < 0, 'runtime cursor at line start does not move to second column');
 ok(cursorShows > 0, 'runtime cursor at line start shows hardware cursor');
+equal(cursorTui.cursorColumn, 0, 'runtime cursor diagnostic records first column');
+equal(cursorTui.cursorRow, 0, 'runtime cursor diagnostic records first row');
 
 var focusBase = { focused: false };
 var hiddenOverlay = { focused: false, render: function() { return ['hidden']; } };

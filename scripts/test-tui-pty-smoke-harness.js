@@ -55,6 +55,36 @@ ok(!smoke.hasSmokeMarker('plain ssh banner only'), 'smoke markers reject unrelat
 var last = smoke.extractLastScreen('\x1b[?25lfirst\nsecond\nthird\nfourth', 2);
 equal(last, 'third\nfourth', 'last screen keeps trailing rows and strips ansi');
 
+var goodScreen = [
+  'system ready',
+  'assistant hello',
+  '',
+  '────────────────',
+  '',
+  '~ - 20260707      in:0 out:0',
+].join('\n');
+var goodChecks = smoke.buildScreenChecks('log with \x1b[2J\x1b[H and \x1b[r', goodScreen);
+equal(goodChecks.category, '', 'healthy screen has no failure category');
+equal(goodChecks.checks.lastScreenNotBlank, true, 'screen checks detect nonblank screen');
+equal(goodChecks.checks.initialClearAndHome, true, 'screen checks detect clear and home sequence');
+equal(goodChecks.checks.scrollRegionReset, true, 'screen checks detect scroll region reset');
+equal(goodChecks.checks.noApprovalResidue, true, 'screen checks accept non-approval final state');
+equal(goodChecks.checks.inputNotAtTop, true, 'screen checks accept input near bottom');
+
+var badScreen = [
+  '────────────────',
+  '',
+  '~ - 20260707      in:0 out:0',
+  '',
+  'assistant line',
+  '| approval',
+].join('\n');
+var badChecks = smoke.buildScreenChecks('log without clear', badScreen);
+equal(badChecks.category, 'screen_invariant_failed', 'bad screen reports invariant failure');
+equal(badChecks.checks.initialClearAndHome, false, 'screen checks reject missing initial clear');
+equal(badChecks.checks.noApprovalResidue, false, 'screen checks detect stale approval status');
+equal(badChecks.checks.inputNotAtTop, false, 'screen checks detect top-mounted input area');
+
 equal(smoke.classifyFailure({
   timedOut: true,
   exitCode: null,

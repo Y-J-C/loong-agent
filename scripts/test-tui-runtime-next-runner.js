@@ -273,10 +273,15 @@ async function main() {
   terminal.inputHandler('\r');
   await new Promise(function(resolve) { setTimeout(resolve, 80); });
   ok(capturedState.pendingToolApproval, 'approval prompt enters pending approval state');
+  equal(capturedState.lastRender.approvalVisible, true, 'runner records visible approval prompt');
+  equal(capturedState.lastRender.pendingApproval, true, 'runner records pending approval diagnostic');
+  equal(capturedState.lastRender.overlayVisible, true, 'runner records approval as visible overlay surface');
   var redrawsBeforeApproval = capturedState.lastRender.fullRedrawCount;
   terminal.inputHandler('y');
   await new Promise(function(resolve) { setTimeout(resolve, 120); });
   equal(capturedState.pendingToolApproval, null, 'approval confirm clears pending approval');
+  equal(capturedState.lastRender.approvalVisible, false, 'approval confirm clears approval visibility diagnostic');
+  equal(capturedState.lastRender.pendingApproval, false, 'approval confirm clears pending approval diagnostic');
   ok(capturedState.status !== 'approval', 'approval confirm clears approval status');
   equal(capturedState.agentStatus, 'idle', 'approval flow finishes without stale running status');
   ok(capturedState.lastRender.fullRedrawCount > redrawsBeforeApproval, 'approval close forces a clean redraw');
@@ -308,6 +313,13 @@ async function main() {
   equal(capturedState.lastRender.trimmedMessageCount, 0, 'runner records trimmed message count');
   ok(capturedState.lastRender.estimatedLogicalLines > 0, 'runner records estimated logical lines');
   ok(capturedState.lastRender.viewportTop > 0, 'append-stream long message list advances viewport');
+  ok(capturedState.lastRender.previousViewportTop >= 0, 'runner records previous viewport top');
+  ok(capturedState.lastRender.currentViewportTop >= 0, 'runner records current viewport top');
+  ok(capturedState.lastRender.cursorRow >= 0, 'runner records cursor row');
+  ok(capturedState.lastRender.cursorColumn >= 0, 'runner records cursor column');
+  ok(capturedState.lastRender.hardwareCursorRow >= 0, 'runner records hardware cursor row');
+  equal(typeof capturedState.lastRender.scrollRegionActive, 'boolean', 'runner records scroll region diagnostic');
+  equal(typeof capturedState.lastRender.appendStreamFrameFallback, 'boolean', 'runner records append-stream frame fallback diagnostic');
   terminal.inputHandler('\x1b[5~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.historyMode, true, 'append-stream page up enters history mode');
@@ -387,6 +399,28 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.historyMode, true, '/top enters history mode');
   ok(capturedState.scrollOffset > 0, '/top jumps to historical output');
+  var historyOffsetBeforeOverlay = capturedState.scrollOffset;
+  terminal.inputHandler('/');
+  terminal.inputHandler('c');
+  terminal.inputHandler('o');
+  terminal.inputHandler('m');
+  terminal.inputHandler('m');
+  terminal.inputHandler('a');
+  terminal.inputHandler('n');
+  terminal.inputHandler('d');
+  terminal.inputHandler('s');
+  terminal.inputHandler('\r');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.activePanel, 'commands opens an overlay panel while viewing history');
+  equal(capturedState.lastRender.overlayVisible, true, 'runner records command panel overlay visibility');
+  terminal.inputHandler('\x1b[6~');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.historyMode, true, 'overlay page down keeps history mode active');
+  equal(capturedState.scrollOffset, historyOffsetBeforeOverlay, 'overlay page down does not browse history underneath');
+  terminal.inputHandler('\x1b');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.activePanel, null, 'escape closes command overlay');
+  equal(capturedState.lastRender.overlayVisible, false, 'runner clears overlay visibility after command panel closes');
   for (var pageDownIndex = 0; pageDownIndex < 20; pageDownIndex += 1) {
     terminal.inputHandler('\x1b[6~');
   }

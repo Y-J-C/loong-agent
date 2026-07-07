@@ -416,6 +416,26 @@ function hasSmokeMarker(log) {
   return /loong-agent v0\.x|Commands:|Command Palette|Hotkeys|Keyboard Shortcuts|Session selector|Session tree|Transcript Viewer|Tool Detail Viewer|match \d+\/\d+|\/help/i.test(log || '');
 }
 
+function buildScreenChecks(logText, lastScreen) {
+  const rawLog = String(logText || '');
+  const screen = stripAnsiForScreen(lastScreen || '');
+  const topLines = String(screen || '').split('\n').slice(0, 3).map((line) => line.trim());
+  const topText = topLines.join('\n');
+  const checks = {
+    lastScreenNotBlank: screen.trim().length > 0,
+    initialClearAndHome: rawLog.indexOf('\x1b[2J\x1b[H') >= 0 || /\x1b\[2J[\s\S]{0,12}\x1b\[H/.test(rawLog),
+    scrollRegionReset: rawLog.indexOf('\x1b[r') >= 0,
+    noApprovalResidue: !/(^|\n)\s*(?:\|\s*)?approval\b|status:\s*approval\b/i.test(screen),
+    inputNotAtTop: !/(^|\n)\s*(?:[─\-]{8,}|~\s*-|in:\d|out:\d)/i.test(topText),
+  };
+  const failures = Object.keys(checks).filter((key) => !checks[key]);
+  return {
+    category: failures.length ? 'screen_invariant_failed' : '',
+    checks,
+    failures,
+  };
+}
+
 async function runSmoke(options) {
   const startedAt = new Date();
   const artifacts = resolveArtifactPaths(options, startedAt, process.pid);
@@ -451,6 +471,7 @@ async function runSmoke(options) {
   ensureParent(artifacts.lastScreenPath);
   fs.writeFileSync(artifacts.lastScreenPath, `${lastScreen}\n`, 'utf8');
   const noScriptStartedInSource = !hasScriptStartedInSource(logText);
+  const screenChecks = buildScreenChecks(logText, lastScreen);
   const terminalRestored = result.exitCode === 0
     && !result.timedOut
     && residualOutput.length === 0
@@ -463,6 +484,7 @@ async function runSmoke(options) {
     stdinWriteError: result.stdinWriteError,
     residualProcessOutput: residualOutput,
   });
+  const effectiveFailureCategory = failureCategory || screenChecks.category;
   const checks = {
     sshExitZero: result.exitCode === 0,
     watchdogNotTimedOut: !result.timedOut,
@@ -473,7 +495,8 @@ async function runSmoke(options) {
     payloadWriteComplete: result.payloadWriteComplete,
     noStdinWriteError: !result.stdinWriteError,
   };
-  const passed = Object.keys(checks).every((key) => checks[key]) && failureCategory === '';
+  const screenPassed = Object.keys(screenChecks.checks).every((key) => screenChecks.checks[key]);
+  const passed = Object.keys(checks).every((key) => checks[key]) && screenPassed && effectiveFailureCategory === '';
   const report = {
     startedAt: startedAt.toISOString(),
     endedAt: endedAt.toISOString(),
@@ -488,7 +511,7 @@ async function runSmoke(options) {
     payloadWriteComplete: result.payloadWriteComplete,
     stdinWriteError: result.stdinWriteError,
     bytesWritten: result.bytesWritten,
-    failureCategory,
+    failureCategory: effectiveFailureCategory,
     runDir: artifacts.runDir,
     logPath: artifacts.logPath,
     jsonPath: artifacts.jsonPath,
@@ -500,6 +523,7 @@ async function runSmoke(options) {
     cleanupAttempted: false,
     passed,
     checks,
+    screenChecks,
     nextSteps: passed ? [] : [
       `Review log: ${artifacts.logPath}`,
       `Review last screen: ${artifacts.lastScreenPath}`,
@@ -575,6 +599,7 @@ if (require.main === module) {
 module.exports = {
   PAYLOAD,
   classifyFailure,
+  buildScreenChecks,
   dryRunPlan,
   extractLastScreen,
   hasSmokeMarker,

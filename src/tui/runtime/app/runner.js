@@ -150,6 +150,7 @@ async function runRuntimeNextTui(config, options) {
     var size = renderContext || terminalSize(terminal);
     var overlaySurface = surfacePolicy.overlaySurfaceKind(state);
     var inputSurface = surfacePolicy.inputSurfaceKind(state);
+    var panelVisible = Boolean(interactions.activePanel(state));
     state.lastRender = {
       at: new Date().toISOString(),
       columns: size.columns,
@@ -167,6 +168,16 @@ async function runRuntimeNextTui(config, options) {
       runtimeAppendStream: runtimeAppendStream,
       volatileTailLines: tui ? tui.previousVolatileTailLineCount || 0 : 0,
       viewportTop: tui ? tui.previousViewportTop || 0 : 0,
+      previousViewportTop: tui ? tui.previousViewportTop || 0 : 0,
+      currentViewportTop: tui ? tui.currentViewportTop || 0 : 0,
+      cursorRow: tui ? tui.cursorRow || 0 : 0,
+      cursorColumn: tui ? tui.cursorColumn || 0 : 0,
+      hardwareCursorRow: tui ? tui.hardwareCursorRow || 0 : 0,
+      scrollRegionActive: tui ? Boolean(tui.scrollRegionActive) : false,
+      overlayVisible: Boolean(overlaySurface || panelVisible || state.pendingToolApproval),
+      approvalVisible: Boolean(state.pendingToolApproval),
+      pendingApproval: Boolean(state.pendingToolApproval),
+      appendStreamFrameFallback: tui ? Boolean(tui.appendStreamFrameFallback) : false,
       historyMode: Boolean(state.historyMode),
       historyScrollOffset: Number(state.scrollOffset) || 0,
       historyScrollMaxOffset: Number(state.scrollMaxOffset) || 0,
