@@ -11,6 +11,7 @@ const { createSearchState } = require('./search');
 const SLASH_COMMAND_DEFINITIONS = slashCommandDefinitions();
 const SLASH_COMMANDS = SLASH_COMMAND_DEFINITIONS.map((item) => item.command);
 const DEFAULT_MESSAGE_LIMIT = 300;
+const DEFAULT_TRANSCRIPT_LINE_LIMIT = 5000;
 
 function normalizeMessageLimit(value) {
   const limit = Number(value);
@@ -18,8 +19,15 @@ function normalizeMessageLimit(value) {
   return Math.floor(limit);
 }
 
+function normalizeTranscriptLineLimit(value) {
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit < 50 || limit > 50000) return DEFAULT_TRANSCRIPT_LINE_LIMIT;
+  return Math.floor(limit);
+}
+
 function createTuiState(config) {
   const messageLimit = normalizeMessageLimit(config && config.tuiMessageLimit);
+  const tuiTranscriptLineLimit = normalizeTranscriptLineLimit(config && config.tuiTranscriptLineLimit);
   return {
     mode: 'idle',
     inputBuffer: '',
@@ -30,7 +38,7 @@ function createTuiState(config) {
     messageLimit,
     messageCount: 0,
     trimmedMessageCount: 0,
-    tuiTranscriptLineLimit: config && config.tuiTranscriptLineLimit ? config.tuiTranscriptLineLimit : 5000,
+    tuiTranscriptLineLimit,
     pendingMessages: [],
     selectedMessageId: '',
     selectedSessionId: '',
@@ -194,6 +202,7 @@ module.exports = {
   clearMessages,
   createTuiState,
   normalizeMessageLimit,
+  normalizeTranscriptLineLimit,
   removeMessage,
   SLASH_COMMANDS,
   SLASH_COMMAND_DEFINITIONS,

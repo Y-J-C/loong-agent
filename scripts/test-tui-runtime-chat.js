@@ -265,6 +265,19 @@ var transcriptText = transcriptPanel.lines.join('\n');
 ok(transcriptText.indexOf('old assistant answer') >= 0, 'transcript panel replays JSONL session content');
 ok(transcriptText.indexOf('live fallback only') < 0, 'transcript panel prefers JSONL session over live trimmed messages');
 ok(transcriptText.indexOf('transcript truncated') >= 0, 'transcript panel reports truncation when line limit is exceeded');
+
+var invalidLimitState = tuiState.createTuiState({ tuiTranscriptLineLimit: 'bad' });
+equal(invalidLimitState.tuiTranscriptLineLimit, 5000, 'TUI state normalizes invalid transcript line limit');
+
+var brokenTranscriptPath = path.join(transcriptDir, 'broken.jsonl');
+fs.writeFileSync(brokenTranscriptPath, '{bad json}\n', 'utf8');
+var brokenTranscriptState = tuiState.createTuiState({ tuiTranscriptLineLimit: 50 });
+brokenTranscriptState.currentSession = { id: 'broken', path: brokenTranscriptPath };
+brokenTranscriptState.messages = [{ type: 'system', text: 'live fallback after broken replay' }];
+var brokenTranscriptPanel = createTranscriptPanel(brokenTranscriptState, { lineLimit: 50 });
+var brokenTranscriptText = brokenTranscriptPanel.lines.join('\n');
+ok(brokenTranscriptText.indexOf('Transcript replay failed:') >= 0, 'transcript panel reports JSONL replay failure');
+ok(brokenTranscriptText.indexOf('live fallback after broken replay') >= 0, 'transcript panel falls back to live messages after replay failure');
 fs.rmSync(transcriptDir, { recursive: true, force: true });
 
 var longToolText = [];

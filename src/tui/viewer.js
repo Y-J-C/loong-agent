@@ -155,6 +155,10 @@ function sessionEventText(event) {
 function sessionTranscriptLines(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return null;
   const session = require('../session').readSessionFromPath(filePath);
+  const invalid = (session.events || []).find((event) => event && event.type === 'invalid_json');
+  if (invalid) {
+    throw new Error('invalid JSON at line ' + (invalid.line || '?'));
+  }
   const lines = [];
   (session.events || []).forEach((event) => {
     if (event.internal || event.hidden) return;
@@ -197,12 +201,15 @@ function createTranscriptPanel(state, options) {
   const source = state || {};
   const sessionPath = source.currentSession && source.currentSession.path ? source.currentSession.path : '';
   let lines = null;
+  let replayWarning = '';
   try {
     lines = sessionTranscriptLines(sessionPath);
   } catch (error) {
+    replayWarning = 'Transcript replay failed: ' + (error && error.message ? error.message : String(error));
     lines = null;
   }
   if (!lines) lines = liveTranscriptLines(source);
+  if (replayWarning) lines = [replayWarning, '---'].concat(lines);
   lines = clampTranscriptLines(lines, options.lineLimit || source.tuiTranscriptLineLimit || 5000);
   return {
     type: 'transcript',

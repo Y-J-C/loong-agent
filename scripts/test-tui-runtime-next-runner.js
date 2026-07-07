@@ -305,6 +305,23 @@ async function main() {
     return String(message.text || '').indexOf('Compaction checkpoint') >= 0 &&
       String(message.text || '').indexOf('compact final summary') >= 0;
   }), '/compact appends session summary checkpoint');
+  capturedState.currentSession = null;
+  var compactErrorCount = capturedState.messages.length;
+  terminal.inputHandler('/');
+  terminal.inputHandler('c');
+  terminal.inputHandler('o');
+  terminal.inputHandler('m');
+  terminal.inputHandler('p');
+  terminal.inputHandler('a');
+  terminal.inputHandler('c');
+  terminal.inputHandler('t');
+  terminal.inputHandler('\r');
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  ok(capturedState.messages.length > compactErrorCount, '/compact without current session appends a diagnostic message');
+  ok(capturedState.messages.some(function(message) {
+    return message.type === 'error' &&
+      String(message.text || '').indexOf('No current session for compaction checkpoint') >= 0;
+  }), '/compact without current session does not use latest session implicitly');
   terminal.inputHandler('/');
   terminal.inputHandler('b');
   terminal.inputHandler('o');

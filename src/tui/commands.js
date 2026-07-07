@@ -995,7 +995,14 @@ async function runSlashCommandLegacy(context, text) {
 
   if (name === '/compact') {
     try {
-      const sessionTarget = state.currentSession && state.currentSession.id ? state.currentSession.id : 'latest';
+      if (!state.currentSession || !state.currentSession.id) {
+        addMessage(state, {
+          type: 'error',
+          text: 'No current session for compaction checkpoint.',
+        });
+        return;
+      }
+      const sessionTarget = state.currentSession.id;
       const result = await createDefaultToolRegistry().execute(config, 'session_summary', { session: sessionTarget });
       addMessage(state, { type: 'system', text: formatCompactCheckpoint(result) });
     } catch (error) {
