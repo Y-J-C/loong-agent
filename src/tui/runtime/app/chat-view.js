@@ -157,8 +157,17 @@ ChatView.prototype.render = function render(width, context) {
   var appendStream = Boolean(context && context.runtimeAppendStream) && !state.historyMode && overlays.length === 0;
   if (appendStream) {
     var appendBody = this._renderMessageBody(state, cols, bodyHeight, renderCtx, true);
-    var appendLines = appendBody.concat(runningLines).concat(inputLines).concat(footerLines);
-    while (appendLines.length < rows) appendLines.unshift('');
+    var appendTail = runningLines.concat(inputLines).concat(footerLines);
+    var appendLines;
+    if (!hasVisibleMessages(state)) {
+      var appendBodyHeight = Math.max(0, rows - appendTail.length);
+      appendBody = appendBody.slice(0, appendBodyHeight);
+      while (appendBody.length < appendBodyHeight) appendBody.push('');
+      appendLines = appendBody.concat(appendTail);
+    } else {
+      appendLines = appendBody.concat(appendTail);
+      while (appendLines.length < rows) appendLines.unshift('');
+    }
     var volatileTailLineCount = runningLines.length + inputLines.length + footerLines.length;
     if (context) {
       context.volatileTailLineCount = volatileTailLineCount;
