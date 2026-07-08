@@ -11,8 +11,6 @@ const {
 const { paint } = require('./theme');
 const { GLYPHS, hline } = require('./glyphs');
 
-const DEFAULT_MAX_LINES = 80;
-
 function fit(line, width) {
   return truncateToWidth(String(line || ''), width);
 }
@@ -39,7 +37,8 @@ function pushWrapped(output, raw, width, theme, token, options) {
 }
 
 function clamp(output, width, theme, maxLines) {
-  const limit = Math.max(1, maxLines || DEFAULT_MAX_LINES);
+  if (maxLines === undefined || maxLines === null) return output;
+  const limit = Math.max(1, Number(maxLines) || 0);
   if (output.length <= limit) return output;
   const remaining = output.length - limit;
   return output.slice(0, limit).concat([
@@ -113,7 +112,7 @@ function renderMarkdownBlock(text, width, theme, options) {
     pushWrapped(output, line, width, theme, token, { fill });
   }
 
-  return clamp(output.length ? output : [''], width, theme, opts.maxLines || DEFAULT_MAX_LINES);
+  return clamp(output.length ? output : [''], width, theme, opts.maxLines);
 }
 
 module.exports = {

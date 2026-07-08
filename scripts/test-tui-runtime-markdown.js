@@ -47,6 +47,15 @@ ok(plainThemeLines.join('\n').indexOf('\x1b[') < 0, 'plain theme omits ANSI');
 var limited = new Markdown({ text: 'a\nb\nc', maxLines: 2 }).render(20, { theme: theme.getTheme('plain') });
 ok(limited.join('\n').indexOf('truncated') >= 0, 'maxLines adds truncation marker');
 
+var longDefaultText = Array.from({ length: 120 }, function(_, index) {
+  return 'line ' + (index + 1);
+}).join('\n');
+var longDefaultLines = new Markdown({ text: longDefaultText }).render(30, { theme: theme.getTheme('plain') });
+var longDefaultPlain = longDefaultLines.join('\n');
+ok(longDefaultPlain.indexOf('... truncated') < 0, 'default markdown render does not hard truncate assistant body');
+ok(longDefaultPlain.indexOf('line 120') >= 0, 'default markdown render keeps full assistant body');
+ok(longDefaultLines.every(function(line) { return utils.visibleWidth(line) <= 30; }), 'default long markdown lines fit width');
+
 var mixed = new Markdown({
   text: '## Mixed\n\n1. ordered item with `code` and [docs](https://example.test)\n> quoted ' + '\u4e2d\u6587' + '\n```txt\nunterminated code fence ' + '\u4e2d\u6587',
   maxLines: 40,

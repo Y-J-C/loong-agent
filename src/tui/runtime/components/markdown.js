@@ -4,8 +4,6 @@ var utils = require('../utils');
 var themeMod = require('../theme');
 var tableRenderer = require('../table-renderer');
 
-var DEFAULT_MAX_LINES = 80;
-
 function renderInlineMarkup(text, markdownTheme) {
   var md = markdownTheme || themeMod.createMarkdownTheme(themeMod.getTheme());
   return String(text || '')
@@ -168,7 +166,8 @@ function renderTableRows(rows, alignments, width, theme, markdownTheme, token) {
 }
 
 function clampLines(lines, width, theme, maxLines) {
-  var limit = Math.max(1, Number(maxLines) || DEFAULT_MAX_LINES);
+  if (maxLines === undefined || maxLines === null) return lines;
+  var limit = Math.max(1, Number(maxLines) || 0);
   if (lines.length <= limit) return lines;
   var remaining = lines.length - limit;
   return lines.slice(0, limit).concat([
@@ -179,7 +178,7 @@ function clampLines(lines, width, theme, maxLines) {
 function Markdown(options) {
   options = options || {};
   this.text = String(options.text || '');
-  this.maxLines = options.maxLines || DEFAULT_MAX_LINES;
+  this.maxLines = options.maxLines;
   this.token = options.token || 'assistant';
   this.thinking = options.thinking || false;
   this.markdownTheme = options.markdownTheme || null;
