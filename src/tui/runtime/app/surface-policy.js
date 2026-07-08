@@ -21,7 +21,6 @@ function inputSurfaceKind(state) {
 }
 
 function overlaySurfaceKind(state) {
-  if (state && state.pendingToolApproval) return 'approval';
   var panel = state ? activePanel(state) : null;
   if (panel && isViewerPanel(panel)) return 'viewer';
   return '';

@@ -6,7 +6,6 @@ var TUI = require('../src/tui/runtime/tui').TUI;
 var StateOverlay = require('../src/tui/runtime/app/state-overlay').StateOverlay;
 var createStateOverlayController = require('../src/tui/runtime/app/state-overlay-controller').createStateOverlayController;
 var visibleWidth = require('../src/tui/runtime/utils').visibleWidth;
-var resolveOverlayLayout = require('../src/tui/runtime/overlay').resolveOverlayLayout;
 
 var pass = 0;
 var fail = 0;
@@ -141,13 +140,8 @@ async function main() {
     handleKey: function() { return true; },
   });
   approvalController.sync();
-  var approvalEntry = approvalTui.overlayStack[0];
-  equal(approvalEntry.options.anchor, 'bottom-left', 'approval overlay anchors to bottom left');
-  equal(approvalEntry.options.margin.left, 0, 'approval overlay aligns to left edge');
-  equal(approvalEntry.options.margin.bottom, 3, 'approval overlay stays above input/footer');
-  var approvalLayout = resolveOverlayLayout(approvalEntry.options, 6, approvalTerminal.columns, approvalTerminal.rows);
-  equal(approvalLayout.col, 0, 'approval overlay layout starts at left edge');
-  ok(approvalLayout.row > 15, 'approval overlay layout is near output bottom');
+  equal(approvalTui.overlayStack.length, 0, 'approval no longer uses overlay stack');
+  equal(approvalController.getCurrentKind(), '', 'approval controller stays inactive');
 
   var approvalOverlay = new StateOverlay({
     state: approvalState(),

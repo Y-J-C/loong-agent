@@ -13,6 +13,7 @@ var compositeOverlays = require('../overlay').compositeOverlays;
 var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
 var Loader = require('../components/loader').Loader;
 var MessageComponentList = require('./message-component-list').MessageComponentList;
+var ConfirmDialog = require('./confirm-dialog').ConfirmDialog;
 
 var PACKAGE_VERSION = '0.1.0';
 try {
@@ -120,6 +121,18 @@ function writeShadowDiagnostic(state, details) {
   }
 }
 
+function renderApprovalBlock(state, cols, maxRows, context) {
+  if (!state || !state.pendingToolApproval) return [];
+  var availableRows = Math.max(0, Number(maxRows) || 0);
+  if (availableRows <= 0) return [];
+  var width = Math.max(30, Math.min(Math.max(1, Number(cols) || 80), Math.floor((Number(cols) || 80) * 0.82)));
+  var dialog = new ConfirmDialog({
+    title: 'Tool Approval',
+    approval: state.pendingToolApproval.approval || {},
+  });
+  return dialog.render(width, context || {}).slice(0, Math.min(8, availableRows));
+}
+
 function ChatView(state, options) {
   component.Container.call(this);
   options = options || {};
@@ -152,12 +165,14 @@ ChatView.prototype.render = function render(width, context) {
   });
   var footerLines = this.footer.render(cols, renderCtx);
   var runningLines = this._renderRunningLines(cols, Object.assign({}, renderCtx, { tui: context && context.tui }));
+  var approvalMaxRows = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length);
+  var approvalLines = renderApprovalBlock(state, cols, approvalMaxRows, renderCtx);
 
-  var bodyHeight = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length);
+  var bodyHeight = Math.max(0, rows - inputLines.length - footerLines.length - runningLines.length - approvalLines.length);
   var appendStream = Boolean(context && context.runtimeAppendStream) && !state.historyMode && overlays.length === 0;
   if (appendStream) {
     var appendBody = this._renderMessageBody(state, cols, bodyHeight, renderCtx, true);
-    var appendTail = runningLines.concat(inputLines).concat(footerLines);
+    var appendTail = approvalLines.concat(runningLines).concat(inputLines).concat(footerLines);
     var appendLines;
     if (!hasVisibleMessages(state)) {
       var appendBodyHeight = Math.max(0, rows - appendTail.length);
@@ -168,7 +183,7 @@ ChatView.prototype.render = function render(width, context) {
       appendLines = appendBody.concat(appendTail);
       while (appendLines.length < rows) appendLines.unshift('');
     }
-    var volatileTailLineCount = runningLines.length + inputLines.length + footerLines.length;
+    var volatileTailLineCount = approvalLines.length + runningLines.length + inputLines.length + footerLines.length;
     if (context) {
       context.volatileTailLineCount = volatileTailLineCount;
       context.runtimeAppendStreamFrameFallback = false;
@@ -184,7 +199,7 @@ ChatView.prototype.render = function render(width, context) {
   }
   var body = this._renderMessageBody(state, cols, bodyHeight, renderCtx);
 
-  var lines = body.concat(runningLines).concat(inputLines).concat(footerLines).slice(0, rows);
+  var lines = body.concat(approvalLines).concat(runningLines).concat(inputLines).concat(footerLines).slice(0, rows);
   while (lines.length < rows) lines.push('');
 
   lines = lines.map(function(line) {

@@ -229,6 +229,30 @@ ok(appendPlain.indexOf('append-line-0') >= 0, 'append-stream chat view includes 
 ok(appendPlain.indexOf('tail input') >= 0, 'append-stream chat view keeps input tail');
 ok(appendContext.volatileTailLineCount > 0, 'append-stream chat view records volatile tail lines');
 
+var approvalAppendState = Object.assign({}, appendChatState, {
+  inputBuffer: '/mo',
+  autoItems: [{ command: '/model', label: '/model' }],
+  pendingToolApproval: {
+    approval: {
+      tool: 'bash',
+      riskLevel: 'shell_general',
+      operation: 'command=' + 'apt install foo '.repeat(4),
+      reason: 'Command is blocked by safety policy: apt install foo',
+      warnings: ['Dangerous shell command pattern matched.'],
+    },
+  },
+});
+var approvalAppendContext = { rows: 10, runtimeAppendStream: true, showHardwareCursor: true };
+var approvalAppendLines = (new ChatView(approvalAppendState, { renderStateOverlays: false })).render(50, approvalAppendContext);
+var approvalAppendPlain = stripAnsi(approvalAppendLines.join('\n'));
+ok(approvalAppendLines.length > 10, 'approval append-stream chat view keeps full logical stream');
+ok(approvalAppendPlain.indexOf('append-line-0') >= 0, 'approval append-stream keeps old history');
+ok(approvalAppendPlain.indexOf('Tool Approval') >= 0, 'approval append-stream renders reserved approval block');
+ok(approvalAppendPlain.indexOf('/mo') >= 0, 'approval append-stream keeps input below approval');
+ok(approvalAppendPlain.indexOf('/model') < 0, 'approval append-stream hides autocomplete');
+ok(approvalAppendContext.volatileTailLineCount > appendContext.volatileTailLineCount, 'approval block is counted as volatile tail');
+ok(approvalAppendLines.every(function(line) { return visibleWidth(line) <= 50; }), 'approval append-stream lines fit width');
+
 var shortAppendState = Object.assign({}, state, {
   inputBuffer: '',
   messages: [],
@@ -237,7 +261,7 @@ var shortAppendContext = { rows: 8, runtimeAppendStream: true, showHardwareCurso
 var shortAppendLines = (new ChatView(shortAppendState)).render(50, shortAppendContext);
 var shortAppendPlainLines = shortAppendLines.map(function(line) { return stripAnsi(line).trim(); });
 equal(shortAppendLines.length, 8, 'short append-stream chat view fills screen height');
-equal(shortAppendPlainLines[0], '', 'short append-stream chat view pads above the input area');
+ok(shortAppendPlainLines[0] === '' || shortAppendPlainLines[0].indexOf('┌') === 0, 'short append-stream chat view keeps body above the input area');
 ok(shortAppendPlainLines.slice(-3).join('\n').indexOf('deepseek-v4-flash') >= 0 || shortAppendPlainLines.slice(-3).join('\n').indexOf('m') >= 0, 'short append-stream footer stays at bottom');
 
 var historyModeState = Object.assign({}, appendChatState, {

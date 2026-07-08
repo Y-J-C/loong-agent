@@ -150,12 +150,6 @@ function buildApprovalOverlay(state, width, rows, context) {
 function renderRuntimeOverlays(state, width, rows, context) {
   var overlayWidth = Math.max(30, Math.min(width - 2, Math.floor(width * 0.82)));
   var maxRows = Math.max(6, rows - 2);
-  if (state && state.pendingToolApproval) {
-    var approvalOverlay = buildApprovalOverlay(state, overlayWidth, maxRows + 2, context);
-    if (approvalOverlay) {
-      return [approvalOverlay];
-    }
-  }
   var panel = state ? activePanel(state) : null;
   if (panel && policy.overlaySurfaceKind(state) === 'viewer') {
     return [buildPanelOverlay(state, overlayWidth, rows, context)];

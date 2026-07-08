@@ -186,10 +186,13 @@ async function main() {
   ok(capturedState.lastRender.messageComponentCache, 'runner records message component cache stats');
   ok(capturedState.lastRender.diffMode, 'runner records diff mode');
 
+  var redrawsBeforeResize = capturedState.lastRender.fullRedrawCount;
+  terminal.output = '';
   terminal.columns = 62;
   terminal.resizeHandler();
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  ok(terminal.clearCount > 0, 'runner resize render is owned by TUI');
+  ok(capturedState.lastRender.fullRedrawCount > redrawsBeforeResize, 'runner resize render is owned by TUI');
+  ok(terminal.output.indexOf('\x1b[2J\x1b[H') >= 0, 'runner resize render clears through TUI output');
 
   terminal.inputHandler('h');
   terminal.inputHandler('i');

@@ -51,7 +51,7 @@ equal(policy.inputSurfaceKind({
 }), '', 'approval does not use input surface');
 equal(policy.overlaySurfaceKind({
   pendingToolApproval: { approval: { tool: 'bash' } },
-}), 'approval', 'approval uses overlay');
+}), '', 'approval does not use overlay');
 
 equal(policy.inputSurfaceKind({
   activePanel: { type: 'tool_detail', title: 'Tool Detail Viewer', lines: [] },
@@ -77,7 +77,7 @@ equal(policy.overlaySurfaceKind({
 }), '', 'plain autocomplete has no overlay surface');
 
 ok(policy.isInputSurfaceActive({ selector: { view: 'tree' } }), 'input surface active helper detects selector');
-ok(policy.isOverlaySurfaceActive({ pendingToolApproval: { approval: { tool: 'bash' } } }), 'overlay active helper detects approval');
+equal(policy.isOverlaySurfaceActive({ pendingToolApproval: { approval: { tool: 'bash' } } }), false, 'overlay active helper ignores layout approval');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

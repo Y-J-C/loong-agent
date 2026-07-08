@@ -150,6 +150,7 @@ async function runRuntimeNextTui(config, options) {
     var size = renderContext || terminalSize(terminal);
     var overlaySurface = surfacePolicy.overlaySurfaceKind(state);
     var inputSurface = surfacePolicy.inputSurfaceKind(state);
+    var approvalSurface = state.pendingToolApproval ? 'approval' : '';
     var panelVisible = Boolean(interactions.activePanel(state));
     state.lastRender = {
       at: new Date().toISOString(),
@@ -161,7 +162,7 @@ async function runRuntimeNextTui(config, options) {
       renderPath: 'runtime-next',
       renderer: 'tui',
       overlaySurface: overlaySurface,
-      focusedSurface: overlaySurface || inputSurface || 'input',
+      focusedSurface: approvalSurface || overlaySurface || inputSurface || 'input',
       diffResetCount: diffResetCount,
       diffMode: tui ? tui.lastDiffMode : 'none',
       fullRedrawCount: tui ? tui.fullRedrawCount : 0,

@@ -8,7 +8,8 @@ var inputSurface = require('./input-surface');
 var policy = require('./surface-policy');
 
 function hasModal(state) {
-  return Boolean(policy.isInputSurfaceActive(state) || policy.isOverlaySurfaceActive(state));
+  return Boolean(state && state.pendingToolApproval) ||
+    Boolean(policy.isInputSurfaceActive(state) || policy.isOverlaySurfaceActive(state));
 }
 
 function resolveEditorBorderToken(state) {
