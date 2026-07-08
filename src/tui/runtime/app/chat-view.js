@@ -14,9 +14,97 @@ var renderOverlays = require('./overlay-view').renderRuntimeOverlays;
 var Loader = require('../components/loader').Loader;
 var MessageComponentList = require('./message-component-list').MessageComponentList;
 
+var PACKAGE_VERSION = '0.1.0';
+try {
+  PACKAGE_VERSION = require('../../../../package.json').version || PACKAGE_VERSION;
+} catch (error) {
+  // Version display must not break TUI rendering.
+}
+
 function trimLine(line) {
   var text = utils.stripAnsi(String(line || '')).replace(/\s+/g, ' ').trim();
   return text.length > 120 ? text.slice(0, 117) + '...' : text;
+}
+
+function hasVisibleMessages(state) {
+  var messages = state && Array.isArray(state.messages) ? state.messages : [];
+  return messages.some(function(message) {
+    return message && !message.hidden && !message.internal;
+  });
+}
+
+function formatK(n) {
+  var value = Number(n) || 0;
+  if (value < 1000) return String(value);
+  if (value < 1000000) return (value / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return (value / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+}
+
+function fitCell(text, width) {
+  var maxWidth = Math.max(0, Number(width) || 0);
+  var value = utils.truncateToWidth(String(text || ''), maxWidth);
+  return value + ' '.repeat(Math.max(0, maxWidth - utils.visibleWidth(value)));
+}
+
+function boxLine(kind, width) {
+  var maxWidth = Math.max(1, Number(width) || 80);
+  if (maxWidth < 4) return fitCell('─'.repeat(maxWidth), maxWidth);
+  var left = kind === 'bottom' ? '└' : kind === 'middle' ? '├' : '┌';
+  var right = kind === 'bottom' ? '┘' : kind === 'middle' ? '┤' : '┐';
+  return left + '─'.repeat(Math.max(0, maxWidth - 2)) + right;
+}
+
+function boxText(text, width) {
+  var maxWidth = Math.max(1, Number(width) || 80);
+  if (maxWidth < 4) return fitCell(text, maxWidth);
+  var contentWidth = Math.max(0, maxWidth - 2);
+  return '│' + fitCell('  ' + String(text || ''), contentWidth) + '│';
+}
+
+function buildBoardLine(state) {
+  var status = state && state.boardStatus;
+  if (!status) return '板端: 检测中';
+  var parts = [];
+  if (status.model) parts.push(status.model);
+  if (status.arch) parts.push(status.arch);
+  if (status.node) parts.push('node ' + status.node);
+  if (status.npmStatus) parts.push('npm ' + status.npmStatus);
+  if (status.gppStatus) parts.push('g++ ' + status.gppStatus);
+  if (!parts.length) return '板端: 检测中';
+  return '板端: ' + parts.join(' · ');
+}
+
+function buildModelLine(state) {
+  var model = state && state.model ? state.model : '未配置模型';
+  var budget = Number(state && state.contextBudget) || 128000;
+  return '模型: ' + model + ' · 上下文: ' + formatK(budget);
+}
+
+function renderWelcomeHeader(state, cols, theme) {
+  var width = Math.max(1, Number(cols) || 80);
+  var lines = [
+    boxLine('top', width),
+    boxText('loong-agent v' + PACKAGE_VERSION + ' - 龙芯 LoongArch 智能开发终端', width),
+    boxText('/help 帮助 · /hotkeys 快捷键 · /health 检查 · 输入问题开始对话', width),
+    boxLine('middle', width),
+    boxText(buildBoardLine(state), width),
+    boxText(buildModelLine(state), width),
+    boxLine('bottom', width),
+    '',
+  ];
+  return lines.map(function(line) {
+    return themeMod.paint(theme, 'dim', line);
+  });
+}
+
+function prependWelcomeIfEmpty(state, body, cols, bodyHeight, renderCtx, fullHistory) {
+  if (hasVisibleMessages(state)) return body;
+  var visibleHeight = Math.max(0, Number(bodyHeight) || 0);
+  if (!fullHistory && visibleHeight <= 0) return body;
+  var theme = renderCtx && renderCtx.theme ? renderCtx.theme : themeMod.getTheme(state && state.theme);
+  var lines = renderWelcomeHeader(state, cols, theme).concat(body || []);
+  if (fullHistory) return lines;
+  return lines.slice(0, visibleHeight);
 }
 
 function writeShadowDiagnostic(state, details) {
@@ -108,11 +196,14 @@ ChatView.prototype.render = function render(width, context) {
 };
 
 ChatView.prototype._renderMessageBody = function _renderMessageBody(state, cols, bodyHeight, renderCtx, fullHistory) {
+  var body;
   if (this.messageListMode === 'component-cache') {
     if (fullHistory && this.messageComponentList && typeof this.messageComponentList.renderFull === 'function') {
-      return this.messageComponentList.renderFull(state, cols, renderCtx);
+      body = this.messageComponentList.renderFull(state, cols, renderCtx);
+      return prependWelcomeIfEmpty(state, body, cols, bodyHeight, renderCtx, fullHistory);
     }
-    return this.messageComponentList.render(state, cols, bodyHeight, renderCtx);
+    body = this.messageComponentList.render(state, cols, bodyHeight, renderCtx);
+    return prependWelcomeIfEmpty(state, body, cols, bodyHeight, renderCtx, fullHistory);
   }
   if (this.messageListMode === 'shadow') {
     var defaultBody = renderMessageList(state, cols, bodyHeight, renderCtx);
@@ -132,10 +223,12 @@ ChatView.prototype._renderMessageBody = function _renderMessageBody(state, cols,
         preview: trimLine(defaultBody[0]) + ' | ' + trimLine(componentBody[0]),
       });
     }
-    return defaultBody;
+    return prependWelcomeIfEmpty(state, defaultBody, cols, bodyHeight, renderCtx, fullHistory);
   }
-  if (fullHistory) return renderMessageListFull(state, cols, renderCtx);
-  return renderMessageList(state, cols, bodyHeight, renderCtx);
+  body = fullHistory
+    ? renderMessageListFull(state, cols, renderCtx)
+    : renderMessageList(state, cols, bodyHeight, renderCtx);
+  return prependWelcomeIfEmpty(state, body, cols, bodyHeight, renderCtx, fullHistory);
 };
 
 ChatView.prototype._renderRunningLines = function _renderRunningLines(width, context) {
