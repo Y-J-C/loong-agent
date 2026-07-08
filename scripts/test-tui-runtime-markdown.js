@@ -88,6 +88,14 @@ ok(unicodeRenderedRows.length >= 3, 'unicode table renders header and data rows 
 ok(unicodeRenderedRows.every(function(line) { return line.charAt(0) === '\u2502' && line.charAt(line.length - 1) === '\u2502'; }), 'unicode table rows keep left and right vertical boundaries');
 ok(unicodeTableLines.every(function(line) { return utils.visibleWidth(line) <= 40; }), 'unicode table baseline lines fit width');
 
+var finalAnswerTableLines = new Markdown({
+  text: '| Name | Value |\n| --- | --- |\n| Node | ok |',
+  maxLines: 20,
+  token: 'finalAnswer',
+}).render(40, { theme: theme.getTheme('loong-dark') });
+ok(finalAnswerTableLines[0].indexOf(theme.getTheme('loong-dark').finalAnswer) >= 0, 'table border uses message body token color');
+ok(finalAnswerTableLines[0].indexOf(theme.getTheme('loong-dark').borderMuted) < 0, 'table border no longer uses muted border token');
+
 var cjkTable = new Markdown({
   text: '| \u540d\u79f0 | \u63cf\u8ff0 |\n| --- | --- |\n| \u5185\u6838\u7248\u672c | 4.19.0-18-loongson-2k |\n| Node.js | \u53ef\u7528 |',
   maxLines: 20,
@@ -234,8 +242,9 @@ var themedTable = new Markdown({
 });
 var themedTableLines = themedTable.render(40, { theme: theme.getTheme('plain') });
 var themedTableText = themedTableLines.join('\n');
-ok(themedTableText.indexOf('[T]\u250c') >= 0, 'custom markdown theme styles unicode table border');
-ok(themedTableText.indexOf('[T]\u251c') >= 0, 'custom markdown theme styles unicode table separator');
+ok(themedTableText.indexOf('[T]\u250c') < 0, 'custom markdown theme tableBorder no longer styles unicode table border');
+ok(themedTableText.indexOf('[T]\u251c') < 0, 'custom markdown theme tableBorder no longer styles unicode table separator');
+ok(themedTableText.indexOf('\u250c') >= 0 && themedTableText.indexOf('\u251c') >= 0, 'custom themed table still renders unicode borders');
 ok(themedTableText.indexOf('\u2502 Name') >= 0 && themedTableText.indexOf('Node') >= 0, 'custom themed table keeps header and body text');
 ok(themedTableLines.every(function(line) { return utils.visibleWidth(line) <= 40; }), 'custom themed table lines fit width');
 

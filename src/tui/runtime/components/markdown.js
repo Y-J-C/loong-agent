@@ -162,7 +162,6 @@ function renderTableRows(rows, alignments, width, theme, markdownTheme, token) {
   });
   return rendered.map(function(row) {
     var text = fit(row.text, width);
-    if (row.role === 'border') return markdownTheme.tableBorder(text);
     if (row.role === 'fallback' && text === '') return '';
     return themeMod.paint(theme, token, text);
   });
