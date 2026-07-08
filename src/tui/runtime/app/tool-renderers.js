@@ -2,6 +2,7 @@
 
 var utils = require('../utils');
 var themeMod = require('../theme');
+var tableRenderer = require('../table-renderer');
 
 function fit(line, width) {
   return utils.truncateToWidth(String(line || ''), width);
@@ -37,6 +38,11 @@ function detailText(message) {
   } catch (error) {
     return String(message.detail);
   }
+}
+
+function safeText(value) {
+  if (value === undefined || value === null) return '';
+  return String(value);
 }
 
 function renderDetailBlock(message, maxWidth, theme) {
@@ -230,6 +236,169 @@ function renderKnowledgeTool(message, options) {
   ]);
 }
 
+function storageData(detail) {
+  var data = detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)
+    ? detail.data
+    : detail || {};
+  return {
+    filesystems: Array.isArray(data.filesystems) ? data.filesystems : [],
+    blockDevices: Array.isArray(data.blockDevices) ? data.blockDevices : [],
+    directoryUsage: data.directoryUsage || detail.directoryUsage || '',
+  };
+}
+
+function hasStorageData(data) {
+  return Boolean(data.filesystems.length || data.blockDevices.length || safeText(data.directoryUsage));
+}
+
+function storageMetaLine(detail) {
+  var evidence = Array.isArray(detail.evidence) ? detail.evidence.length : 0;
+  var warnings = Array.isArray(detail.warnings) ? detail.warnings.length : 0;
+  var parts = [];
+  if (evidence) parts.push('evidence=' + evidence);
+  if (warnings) parts.push('warnings=' + warnings);
+  return parts.join(' ');
+}
+
+function renderStorageTable(rows, options, borderStyle) {
+  return tableRenderer.renderTable(rows, {
+    width: options.contentWidth,
+    alignments: [],
+    borderStyle: borderStyle,
+    paddingX: 1,
+    minColumnWidth: 3,
+    wrapCells: true,
+    fallback: 'keyValue',
+  });
+}
+
+function compactFilesystemRows(filesystems) {
+  var rows = [['Mount', 'Size', 'Used', 'Avail', 'Use%']];
+  var rootIndex = -1;
+  for (var index = 0; index < filesystems.length; index += 1) {
+    if (filesystems[index] && filesystems[index].mount === '/') {
+      rootIndex = index;
+      break;
+    }
+  }
+  function pushFilesystem(item) {
+    rows.push([
+      safeText(item && item.mount),
+      safeText(item && item.size),
+      safeText(item && item.used),
+      safeText(item && item.available),
+      safeText(item && item.usePercent),
+    ]);
+  }
+  if (rootIndex >= 0) pushFilesystem(filesystems[rootIndex]);
+  for (var fsIndex = 0; fsIndex < filesystems.length && rows.length < 4; fsIndex += 1) {
+    if (fsIndex === rootIndex) continue;
+    pushFilesystem(filesystems[fsIndex] || {});
+  }
+  return rows;
+}
+
+function compactBlockDeviceRows(blockDevices) {
+  var rows = [['Name', 'Size', 'Type', 'Mount']];
+  for (var index = 0; index < blockDevices.length && rows.length < 4; index += 1) {
+    var item = blockDevices[index] || {};
+    rows.push([safeText(item.name), safeText(item.size), safeText(item.type), safeText(item.mount)]);
+  }
+  return rows;
+}
+
+function expandedFilesystemRows(filesystems) {
+  var rows = [['Mount', 'Filesystem', 'Type', 'Size', 'Used', 'Avail', 'Use%']];
+  for (var index = 0; index < filesystems.length && index < 8; index += 1) {
+    var item = filesystems[index] || {};
+    rows.push([
+      safeText(item.mount),
+      safeText(item.filesystem),
+      safeText(item.type),
+      safeText(item.size),
+      safeText(item.used),
+      safeText(item.available),
+      safeText(item.usePercent),
+    ]);
+  }
+  return rows;
+}
+
+function expandedBlockDeviceRows(blockDevices) {
+  var rows = [['Name', 'Size', 'Type', 'Mount', 'Fstype', 'Model', 'Rota']];
+  for (var index = 0; index < blockDevices.length && index < 8; index += 1) {
+    var item = blockDevices[index] || {};
+    rows.push([
+      safeText(item.name),
+      safeText(item.size),
+      safeText(item.type),
+      safeText(item.mount),
+      safeText(item.fstype),
+      safeText(item.model),
+      safeText(item.rota),
+    ]);
+  }
+  return rows;
+}
+
+function parseDirectoryUsageRows(directoryUsage) {
+  var rows = [['Path', 'Used']];
+  var lines = safeText(directoryUsage).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  for (var index = 0; index < lines.length && rows.length < 9; index += 1) {
+    var trimmed = lines[index].trim();
+    if (!trimmed) continue;
+    var parts = trimmed.split(/\s+/);
+    rows.push([parts.slice(1).join(' '), parts[0]]);
+  }
+  return rows;
+}
+
+function appendExpandedSection(output, title, rows, sourceCount, options) {
+  if (rows.length <= 1) return;
+  output.push(fit(title + ':', options.contentWidth));
+  output.push.apply(output, renderStorageTable(rows, options, options.tableBorderStyle || 'unicode'));
+  if (sourceCount > 8) {
+    output.push(themeMod.paint(options.theme, 'dim', fit('... (' + (sourceCount - 8) + ' more rows hidden)', options.contentWidth)));
+  }
+}
+
+function renderStorageTool(message, options) {
+  var d = detailObject(message);
+  var data = storageData(d);
+  if (
+    message && (message.isError || message.status === 'error') ||
+    d.blocked ||
+    d.policy ||
+    !hasStorageData(data)
+  ) {
+    return renderGeneric(message, options);
+  }
+
+  var expanded = Boolean(options.expanded);
+  var lines = [];
+  if (!expanded) {
+    var compactRows = data.filesystems.length
+      ? compactFilesystemRows(data.filesystems)
+      : compactBlockDeviceRows(data.blockDevices);
+    lines = renderStorageTable(compactRows, options, 'compact');
+    var meta = storageMetaLine(d);
+    if (meta) lines.push(themeMod.paint(options.theme, 'dim', fit(meta, options.contentWidth)));
+    if (!lines.length) return renderGeneric(message, options);
+    return { lines: lines, detailLines: [] };
+  }
+
+  appendExpandedSection(lines, 'Filesystems', expandedFilesystemRows(data.filesystems), data.filesystems.length, options);
+  appendExpandedSection(lines, 'Block devices', expandedBlockDeviceRows(data.blockDevices), data.blockDevices.length, options);
+  var directoryRows = parseDirectoryUsageRows(data.directoryUsage);
+  appendExpandedSection(lines, 'Directory usage', directoryRows, Math.max(0, safeText(data.directoryUsage).split(/\r?\n/).filter(function(line) {
+    return line.trim();
+  }).length), options);
+  var expandedMeta = storageMetaLine(d);
+  if (expandedMeta) lines.push(themeMod.paint(options.theme, 'dim', fit(expandedMeta, options.contentWidth)));
+  if (!lines.length) return renderGeneric(message, options);
+  return { lines: lines, detailLines: renderDetailBlock(message, options.maxWidth, options.theme) };
+}
+
 function renderGeneric(message, options) {
   return {
     lines: utils.wrapTextWithAnsi(messageText(message), options.contentWidth),
@@ -240,6 +409,7 @@ function renderGeneric(message, options) {
 function rendererKind(toolName) {
   var name = String(toolName || '');
   if (name === 'bash') return 'bash';
+  if (name === 'loong_storage_check') return 'storage';
   if (/^(read|read_file|write|edit|grep|find|ls|search_files|list_directory)$/.test(name)) return 'file';
   if (/^process_(status|logs|wait|stop)$/.test(name)) return 'process';
   if (/^(kb_|knowledge|memory|command_reference)/.test(name)) return 'knowledge';
@@ -252,6 +422,7 @@ function renderToolMessage(message, options) {
     var kind = rendererKind(message && message.toolName);
     if (opts.forceRendererError) throw new Error('forced renderer failure');
     if (kind === 'bash') return renderBash(message, opts);
+    if (kind === 'storage') return renderStorageTool(message, opts);
     if (kind === 'file') return renderFileTool(message, opts);
     if (kind === 'process') return renderProcessTool(message, opts);
     if (kind === 'knowledge') return renderKnowledgeTool(message, opts);

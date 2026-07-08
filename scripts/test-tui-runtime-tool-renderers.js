@@ -93,6 +93,70 @@ ok(plain(knowledgeTool.lines).indexOf('topic=network') >= 0, 'knowledge renderer
 ok(plain(knowledgeTool.lines).indexOf('evidence=1') >= 0, 'knowledge renderer counts evidence');
 ok(plain(knowledgeTool.lines).indexOf('warnings=1') >= 0, 'knowledge renderer counts warnings');
 
+var storageDetail = {
+  ok: true,
+  summary: 'devices=sda:14.9G root=29G used=14G avail=14G use=50%',
+  data: {
+    filesystems: [
+      { filesystem: '/dev/root', type: 'ext4', size: '29G', used: '14G', available: '14G', usePercent: '50%', mount: '/' },
+      { filesystem: 'tmpfs', type: 'tmpfs', size: '512M', used: '1M', available: '511M', usePercent: '1%', mount: '/run' },
+    ],
+    blockDevices: [
+      { name: 'sda', size: '14.9G', type: 'disk', mount: '', fstype: '', model: 'USB-Disk', rota: '1' },
+      { name: 'sda1', size: '29G', type: 'part', mount: '/', fstype: 'ext4', model: '', rota: '1' },
+    ],
+    directoryUsage: '14G /\n2G /home',
+  },
+  evidence: [{ source: 'command', command: 'df -hT', exitCode: 0 }],
+  warnings: ['du skipped one path'],
+};
+
+var storageCollapsed = renderToolMessage({
+  type: 'tool',
+  toolName: 'loong_storage_check',
+  done: true,
+  detail: storageDetail,
+}, baseOptions);
+var storageCollapsedPlain = plain(storageCollapsed.lines);
+ok(storageCollapsedPlain.indexOf('\u2502') >= 0, 'collapsed storage renderer uses compact table separators');
+ok(storageCollapsedPlain.indexOf('/') >= 0 && storageCollapsedPlain.indexOf('29G') >= 0 && storageCollapsedPlain.indexOf('50%') >= 0, 'collapsed storage renderer shows root filesystem');
+ok(storageCollapsedPlain.indexOf('"filesystems"') < 0, 'collapsed storage renderer hides raw json');
+ok(storageCollapsed.lines.every(function(line) { return utils.visibleWidth(line) <= 52; }), 'collapsed storage renderer lines fit width');
+
+var storageExpanded = renderToolMessage({
+  type: 'tool',
+  toolName: 'loong_storage_check',
+  done: true,
+  detail: storageDetail,
+}, Object.assign({}, baseOptions, { expanded: true }));
+var storageExpandedPlain = plain(storageExpanded.lines);
+ok(storageExpandedPlain.indexOf('Filesystems:') >= 0, 'expanded storage renderer labels filesystems');
+ok(storageExpandedPlain.indexOf('Block devices:') >= 0, 'expanded storage renderer labels block devices');
+ok(storageExpandedPlain.indexOf('Directory usage:') >= 0, 'expanded storage renderer labels directory usage');
+ok(storageExpandedPlain.indexOf('\u250c') >= 0 && storageExpandedPlain.indexOf('\u2502') >= 0 && storageExpandedPlain.indexOf('\u2514') >= 0, 'expanded storage renderer uses unicode table borders');
+ok(storageExpandedPlain.indexOf('/home') >= 0 && storageExpandedPlain.indexOf('2G') >= 0, 'expanded storage renderer shows directory usage rows');
+ok(storageExpanded.lines.every(function(line) { return utils.visibleWidth(line) <= 52; }), 'expanded storage renderer lines fit width');
+
+var narrowStorage = renderToolMessage({
+  type: 'tool',
+  toolName: 'loong_storage_check',
+  done: true,
+  detail: storageDetail,
+}, Object.assign({}, baseOptions, { contentWidth: 14 }));
+ok(narrowStorage.lines.every(function(line) { return utils.visibleWidth(line) <= 14; }), 'narrow storage renderer lines fit width');
+ok(plain(narrowStorage.lines).indexOf('\u2510') < 0 || plain(narrowStorage.lines).indexOf('\u2518') >= 0, 'narrow storage renderer does not leave broken right border');
+
+var failedStorage = renderToolMessage({
+  type: 'tool',
+  toolName: 'loong_storage_check',
+  done: true,
+  isError: true,
+  summary: 'storage failed summary',
+  detail: { blocked: true, error: 'blocked by policy' },
+}, baseOptions);
+ok(plain(failedStorage.lines).indexOf('\u2502') < 0, 'failed storage renderer does not render success table');
+ok(plain(failedStorage.lines).indexOf('storage failed summary') >= 0 || plain(failedStorage.lines).indexOf('blocked') >= 0, 'failed storage renderer keeps fallback summary');
+
 var fallback = renderToolMessage({
   type: 'tool',
   toolName: 'custom_tool',
