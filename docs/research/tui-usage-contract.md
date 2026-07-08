@@ -53,7 +53,9 @@ Session 命令接受以下目标：
 
 - 助手 Markdown 表格默认渲染为 Unicode box drawing 边框，例如 `┌ ┬ │ ├ ┼ └`。
 - Markdown 表格边框与表格正文使用同一消息正文 token 上色，避免横线、竖线和内容行颜色不一致。
+- Markdown inline code 使用前景色高亮，不使用背景色块；表格单元格内的 inline code 也遵循同一规则，避免破坏表格视觉密度。
 - 代码块边框继续保持现有 ASCII `+---+` 风格，不受 Markdown 表格策略影响。
+- 代码块内容可以继续使用独立背景色，不能因为 inline code 弱化而被误改。
 - 底层表格能力由 runtime `table-renderer` 提供，支持 `unicode`、`ascii`、`compact` 三种 `borderStyle`，且只依赖 runtime utils，不依赖 theme。
 - `ascii` 是终端、字体、`TERM`、tmux、串口或 SSH 客户端显示 Unicode 边框异常时的 fallback；当前没有用户级持久化配置开关。
 - `compact` 用于工具摘要和空间较紧的 key/value 风格展示，不作为复杂 Markdown 表格的默认样式。

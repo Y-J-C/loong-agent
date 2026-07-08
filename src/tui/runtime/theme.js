@@ -27,7 +27,7 @@ var ANSI = {
   mdHeading: '\x1b[38;5;221m',
   mdLink: '\x1b[38;5;117m',
   mdListBullet: '\x1b[38;5;116m',
-  mdCode: '\x1b[38;5;116m\x1b[48;5;236m',
+  mdCode: '\x1b[38;5;116m',
   mdCodeBlock: '\x1b[38;5;250m\x1b[48;5;235m',
   mdCodeBlockBorder: '\x1b[38;5;244m',
   mdQuote: '\x1b[38;5;250m',

@@ -96,6 +96,18 @@ var finalAnswerTableLines = new Markdown({
 ok(finalAnswerTableLines[0].indexOf(theme.getTheme('loong-dark').finalAnswer) >= 0, 'table border uses message body token color');
 ok(finalAnswerTableLines[0].indexOf(theme.getTheme('loong-dark').borderMuted) < 0, 'table border no longer uses muted border token');
 
+var darkTheme = theme.getTheme('loong-dark');
+ok(darkTheme.mdCode.indexOf('\x1b[48;') < 0, 'inline code token does not apply background color');
+
+var inlineCodeTableLines = new Markdown({
+  text: '| Field | Value |\n| --- | --- |\n| Bind | `0.0.0.0` |\n| Path | `/home` |',
+  maxLines: 20,
+}).render(42, { theme: darkTheme });
+var inlineCodeTableText = inlineCodeTableLines.join('\n');
+ok(inlineCodeTableText.indexOf(darkTheme.mdCode) >= 0, 'table inline code keeps mdCode foreground token');
+ok(inlineCodeTableText.indexOf('\x1b[48;5;236m') < 0, 'table inline code does not render background blocks');
+ok(inlineCodeTableLines.every(function(line) { return utils.visibleWidth(line) <= 42; }), 'table inline code lines fit width');
+
 var cjkTable = new Markdown({
   text: '| \u540d\u79f0 | \u63cf\u8ff0 |\n| --- | --- |\n| \u5185\u6838\u7248\u672c | 4.19.0-18-loongson-2k |\n| Node.js | \u53ef\u7528 |',
   maxLines: 20,
@@ -138,6 +150,8 @@ ok(bashCodePlain.indexOf('38;5;244m') < 0, 'syntax highlighting does not leak AN
 ok(bashCodePlain.indexOf('# 查看内存详细分布') >= 0, 'code block comment remains visible');
 ok(bashCodeLines[0].indexOf(theme.getTheme('loong-dark').mdCodeBlockBorder) >= 0, 'code block border uses mdCodeBlockBorder token');
 ok(bashCodeLines[0].indexOf(theme.getTheme('loong-dark').borderMuted) < 0, 'code block border does not use generic table border token');
+ok(bashCodeLines.join('\n').indexOf(theme.getTheme('loong-dark').mdCodeBlock) >= 0, 'code block content keeps mdCodeBlock token');
+ok(theme.getTheme('loong-dark').mdCodeBlock.indexOf('\x1b[48;') >= 0, 'code block token keeps background color');
 
 var narrowTable = new Markdown({
   text: '| A | B |\n| --- | --- |\n| narrow | table |',
