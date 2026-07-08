@@ -82,19 +82,16 @@ function buildModelLine(state) {
 
 function renderWelcomeHeader(state, cols, theme) {
   var width = Math.max(1, Number(cols) || 80);
-  var lines = [
-    boxLine('top', width),
-    boxText('loong-agent v' + PACKAGE_VERSION + ' - 龙芯 LoongArch 智能开发终端', width),
+  return [
+    themeMod.paint(theme, 'dim', boxLine('top', width)),
+    boxText(themeMod.paint(theme, 'accent', 'loong-agent v' + PACKAGE_VERSION + ' - 龙芯 LoongArch 智能开发终端'), width),
     boxText('/help 帮助 · /hotkeys 快捷键 · /health 检查 · 输入问题开始对话', width),
-    boxLine('middle', width),
+    themeMod.paint(theme, 'dim', boxLine('middle', width)),
     boxText(buildBoardLine(state), width),
     boxText(buildModelLine(state), width),
-    boxLine('bottom', width),
+    themeMod.paint(theme, 'dim', boxLine('bottom', width)),
     '',
   ];
-  return lines.map(function(line) {
-    return themeMod.paint(theme, 'dim', line);
-  });
 }
 
 function prependWelcomeIfEmpty(state, body, cols, bodyHeight, renderCtx, fullHistory) {
