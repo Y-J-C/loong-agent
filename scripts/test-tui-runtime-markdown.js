@@ -175,6 +175,21 @@ ok(/\u2502\s{2,}m\s{2,}\u2502/.test(alignedDataPlain), 'center aligned table cel
 ok(alignedTablePlain.indexOf('中文') >= 0, 'aligned table keeps CJK cells');
 ok(alignedTableLines.every(function(line) { return utils.visibleWidth(line) <= 52; }), 'aligned table lines fit width');
 
+var emojiStatusTable = new Markdown({
+  text: '| 服务 | 端口 | 风险等级 | 说明 |\n'
+    + '| --- | --- | --- | --- |\n'
+    + '| SSH | 22/TCP | \u26a0\ufe0f 外部暴露 | 正常，远程管理必需 |\n'
+    + '| CUPS (打印) | 631/TCP+UDP | \u2705 本地/外部UDP | TCP 仅本地，UDP 外部可访问 |\n'
+    + '| SMTP (邮件) | 25/TCP | \u2705 仅本地 | 本地邮件传输 |',
+  maxLines: 40,
+});
+var emojiStatusLines = emojiStatusTable.render(80, { theme: theme.getTheme('plain') });
+var emojiStatusRows = tableRows(emojiStatusLines);
+var emojiStatusWidth = emojiStatusRows.length ? utils.visibleWidth(emojiStatusRows[0]) : 0;
+ok(emojiStatusRows.length >= 4, 'emoji status table renders table rows');
+ok(emojiStatusRows.every(function(line) { return utils.visibleWidth(line) === emojiStatusWidth; }), 'emoji status table rows keep equal visible width');
+ok(emojiStatusLines.every(function(line) { return utils.visibleWidth(line) <= 80; }), 'emoji status table lines fit width');
+
 var fallbackTable = new Markdown({
   text: '| A | B |\n| --- | --- |\n| narrow | table |',
   maxLines: 20,

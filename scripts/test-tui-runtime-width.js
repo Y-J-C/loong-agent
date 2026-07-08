@@ -28,6 +28,8 @@ equal(runtime.visibleWidth('中文'), 4, 'CJK width');
 equal(runtime.visibleWidth('\x1b[31mred\x1b[0m'), 3, 'ANSI ignored');
 equal(runtime.visibleWidth('a\tb'), 5, 'tab width');
 equal(runtime.visibleWidth(''), 0, 'empty width');
+equal(runtime.visibleWidth('\u2705'), 2, 'emoji check mark width');
+equal(runtime.visibleWidth('\u26a0\ufe0f'), 2, 'emoji warning variation width');
 equal(runtime.truncateToWidth('abcdef', 4), 'a...', 'ASCII truncation with ellipsis');
 equal(runtime.truncateToWidth('中文测试', 5), '中...', 'CJK truncation does not overflow');
 ok(runtime.visibleWidth(runtime.truncateToWidth('中文测试', 5)) <= 5, 'truncated CJK width fits');

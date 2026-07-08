@@ -6,6 +6,7 @@ var CURSOR_MARKER_RE = /\x1b_pi:c\x07/g;
 var ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*?(?:\x07|\x1b\\)|\x1b_[^\x07]*?(?:\x07|\x1b\\)/g;
 var ANSI_TOKEN_RE = new RegExp(ANSI_RE.source, 'g');
 var ZERO_WIDTH_RE = /^(?:\p{Default_Ignorable_Code_Point}|\p{Control}|\p{Mark}|\p{Surrogate})+$/u;
+var GRAPHEME_CONTINUATION_RE = /^(?:\p{Default_Ignorable_Code_Point}|\p{Mark}|\p{Surrogate})+$/u;
 var RESET = '\x1b[0m';
 
 function getGraphemes(str) {
@@ -15,10 +16,30 @@ function getGraphemes(str) {
       var segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
       return Array.from(segmenter.segment(text)).map(function(item) { return item.segment; });
     } catch (error) {
-      return Array.from(text);
+      return fallbackGraphemes(text);
     }
   }
-  return Array.from(text);
+  return fallbackGraphemes(text);
+}
+
+function isVariationSelector(code) {
+  return (code >= 0xfe00 && code <= 0xfe0f) || (code >= 0xe0100 && code <= 0xe01ef);
+}
+
+function fallbackGraphemes(text) {
+  var chars = Array.from(text);
+  var segments = [];
+  for (var index = 0; index < chars.length; index += 1) {
+    var ch = chars[index];
+    var code = ch.codePointAt(0);
+    var previous = segments.length ? segments[segments.length - 1] : '';
+    if (previous && (isVariationSelector(code) || GRAPHEME_CONTINUATION_RE.test(ch) || previous.charAt(previous.length - 1) === '\u200d')) {
+      segments[segments.length - 1] = previous + ch;
+    } else {
+      segments.push(ch);
+    }
+  }
+  return segments;
 }
 
 function stripAnsi(text) {
@@ -30,6 +51,7 @@ function graphemeWidth(segment) {
   if (segment === '\t') return 3;
   if (ZERO_WIDTH_RE.test(segment)) return 0;
   if (segment.indexOf('\u200d') >= 0) return 2;
+  if (isEmojiPresentationSegment(segment)) return 2;
   var width = 0;
   var chars = Array.from(segment);
   for (var index = 0; index < chars.length; index += 1) {
@@ -38,6 +60,64 @@ function graphemeWidth(segment) {
     width += eastAsianWidth(code);
   }
   return Math.max(width, 0);
+}
+
+function isEmojiPresentationSegment(segment) {
+  var chars = Array.from(segment);
+  var hasVariation = false;
+  for (var index = 0; index < chars.length; index += 1) {
+    var code = chars[index].codePointAt(0);
+    if (code === 0xfe0f) hasVariation = true;
+    if (isDefaultEmojiPresentation(code)) return true;
+  }
+  return hasVariation && chars.some(function(ch) {
+    var code = ch.codePointAt(0);
+    return !isVariationSelector(code) && !ZERO_WIDTH_RE.test(ch);
+  });
+}
+
+function isDefaultEmojiPresentation(code) {
+  return (code >= 0x1f000 && code <= 0x1faff)
+    || (code >= 0x231a && code <= 0x231b)
+    || (code >= 0x23e9 && code <= 0x23f3)
+    || (code >= 0x23f8 && code <= 0x23fa)
+    || (code >= 0x25fb && code <= 0x25fe)
+    || (code >= 0x2614 && code <= 0x2615)
+    || code === 0x2648
+    || code === 0x2649
+    || code === 0x2650
+    || code === 0x2651
+    || code === 0x267f
+    || code === 0x2693
+    || code === 0x26a1
+    || code === 0x26aa
+    || code === 0x26ab
+    || code === 0x26bd
+    || code === 0x26be
+    || code === 0x26c4
+    || code === 0x26c5
+    || code === 0x26ce
+    || code === 0x26d4
+    || code === 0x26ea
+    || (code >= 0x26f2 && code <= 0x26f3)
+    || code === 0x26f5
+    || code === 0x26fa
+    || code === 0x26fd
+    || code === 0x2705
+    || (code >= 0x270a && code <= 0x270b)
+    || code === 0x2728
+    || code === 0x274c
+    || code === 0x274e
+    || (code >= 0x2753 && code <= 0x2755)
+    || code === 0x2757
+    || (code >= 0x2795 && code <= 0x2797)
+    || code === 0x27b0
+    || code === 0x27bf
+    || (code >= 0x2b1b && code <= 0x2b1c)
+    || code === 0x2b50
+    || code === 0x2b55
+    || code === 0x3297
+    || code === 0x3299;
 }
 
 function visibleWidth(str) {
