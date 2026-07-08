@@ -49,6 +49,20 @@ Session 命令接受以下目标：
 - 展开的工具详情必须有边界，不能刷满屏幕。
 - Header 和 status bar 可以在小终端上压缩，但 mode、session、tool-turn 状态必须保持可见。
 
+## 表格渲染规则
+
+- 助手 Markdown 表格默认渲染为 Unicode box drawing 边框，例如 `┌ ┬ │ ├ ┼ └`。
+- 代码块边框继续保持现有 ASCII `+---+` 风格，不受 Markdown 表格策略影响。
+- 底层表格能力由 runtime `table-renderer` 提供，支持 `unicode`、`ascii`、`compact` 三种 `borderStyle`，且只依赖 runtime utils，不依赖 theme。
+- `ascii` 是终端、字体、`TERM`、tmux、串口或 SSH 客户端显示 Unicode 边框异常时的 fallback；当前没有用户级持久化配置开关。
+- `compact` 用于工具摘要和空间较紧的 key/value 风格展示，不作为复杂 Markdown 表格的默认样式。
+- 窄屏无法容纳最小表格时，表格必须降级为 `header: value` 形式，不能输出破损边框。
+- 工具输出不会自动解析 Markdown 表格，也不会自动把任意 JSON 转为表格；当前 runtime 只对白名单工具定制接入。
+- 当前已定制接入 `loong_storage_check`：collapsed 模式使用 `compact` 表格，expanded 模式使用 `unicode` 表格。
+- 表格宽度必须在单元格级处理；禁止把完整表格行作为主要布局手段整体截断。
+- 所有表格输出行必须满足 `visibleWidth(line) <= width`。
+- 当前不支持合并单元格、多级表头，也不保证复杂 ZWJ emoji 或特殊字体环境下的实际终端宽度完全一致。
+
 ## 安全展示
 
 TUI 绝不能渲染以下明文值：
