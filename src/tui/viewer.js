@@ -39,10 +39,32 @@ function addSection(lines, title, values) {
 function compactDetail(detail) {
   if (!detail || typeof detail !== 'object') return detail;
   const compact = Object.assign({}, detail);
+  delete compact.command;
+  delete compact.output;
+  delete compact.stdout;
+  delete compact.stderr;
   delete compact.evidence;
   delete compact.warnings;
   delete compact.recovery;
   return compact;
+}
+
+function detailObject(tool) {
+  const detail = tool && tool.detail;
+  return detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : {};
+}
+
+function addToolOutputSections(lines, tool) {
+  const detail = detailObject(tool);
+  const args = tool && tool.args && typeof tool.args === 'object' ? tool.args : {};
+  const command = detail.command || args.command || tool.command || '';
+  const stdout = detail.stdout !== undefined ? detail.stdout : (
+    detail.output !== undefined && detail.stderr === undefined ? detail.output : ''
+  );
+  const stderr = detail.stderr !== undefined ? detail.stderr : '';
+  addSection(lines, 'Command', command);
+  addSection(lines, 'stdout', stdout);
+  addSection(lines, 'stderr', stderr);
 }
 
 function networkPortRows(rows) {
@@ -90,6 +112,7 @@ function createToolDetailPanel(message) {
   addSection(lines, '概览', overview);
   addSection(lines, '摘要', summarizeToolMessage(tool));
   if (tool.args) addSection(lines, '参数', jsonLines(tool.args));
+  addToolOutputSections(lines, tool);
   const resultLines = [];
   if (tool.resultSummary) resultLines.push(tool.resultSummary);
   const compact = compactDetail(detail);

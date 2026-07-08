@@ -86,7 +86,7 @@ function recoveryShortcutSummary() {
 }
 
 function toolShortcutSummary() {
-  return `Tools: ${keyHint('tool', 'toggleCurrentDetail')} current tool detail, ${keyHint('tool', 'toggleGlobalDetails')} or /more all tool details.`;
+  return `Tools: ${keyHint('tool', 'toggleCurrentDetail')} current tool detail viewer, ${keyHint('tool', 'toggleGlobalDetails')} or /more inline all tool details.`;
 }
 
 function scrollShortcutSummary() {
@@ -168,8 +168,8 @@ function hotkeysTextClean() {
     `${keyHint('global', 'exitIfEmpty')}: exit on empty input`,
     `${keyHint('global', 'forceRedraw')}: force redraw`,
     '/model: model selector',
-    `${keyHint('tool', 'toggleCurrentDetail')}: current tool detail`,
-    `${keyHint('tool', 'toggleGlobalDetails')} or /more: all tool details`,
+    `${keyHint('tool', 'toggleCurrentDetail')}: current tool detail viewer`,
+    `${keyHint('tool', 'toggleGlobalDetails')} or /more: inline all tool details`,
     `${keyHint('editor', 'historyPrev')}/${keyHint('editor', 'historyNext')}: history or list navigation`,
     `${keyHint('editor', 'pageUp')}/${keyHint('editor', 'pageDown')}: scroll and tool focus`,
     `Tree: ${keyHint('tree', 'cycleFilter')} switches filter mode`,

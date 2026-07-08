@@ -342,20 +342,24 @@ test('focused dispatcher uses component-dispatched input behavior', async () => 
   assert(state.inputBuffer === 'x', 'focused dispatcher did not apply input component behavior');
 });
 
-test('tool detail toggle expands latest tool inline without opening viewer', async () => {
+test('tool detail toggle opens viewer without inline expansion', async () => {
   const state = createTuiState({});
-  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', detail: { stdout: 'one' } });
-  state.messages.push({ id: 'tool-two', type: 'tool', toolName: 'bash', detail: { stdout: 'two' } });
+  state.messages.push({ id: 'tool-one', type: 'tool', toolName: 'bash', detail: { command: 'echo one', stdout: 'one' } });
+  state.messages.push({ id: 'tool-two', type: 'tool', toolName: 'bash', detail: { command: 'echo two', stdout: 'two', stderr: 'warn' } });
   const beforeToggleMessages = state.messages.length;
   assert(toggleSelectedToolDetail(state) === true, 'tool detail toggle should handle latest tool');
   assert(state.selectedMessageId === 'tool-two', 'latest tool should become selected');
-  assert(state.activePanel === null, 'ctrl+o should not open detail viewer');
+  assert(state.activePanel && state.activePanel.type === 'tool_detail', 'ctrl+o should open detail viewer');
+  assert(state.activePanel.sourceMessageId === 'tool-two', 'viewer should target latest tool');
+  assert(state.activePanel.lines.join('\n').indexOf('echo two') >= 0, 'viewer should include bash command');
+  assert(state.activePanel.lines.join('\n').indexOf('two') >= 0, 'viewer should include stdout');
+  assert(state.activePanel.lines.join('\n').indexOf('warn') >= 0, 'viewer should include stderr');
   assert(state.messages[0].expanded === false, 'older tool should remain collapsed');
-  assert(state.messages[1].expanded === true, 'latest tool should expand inline');
+  assert(state.messages[1].expanded !== true, 'latest tool should not expand inline');
   assert(state.messages.length === beforeToggleMessages, 'inline tool detail should not append messages');
   toggleSelectedToolDetail(state);
-  assert(state.activePanel === null, 'second toggle should not open detail viewer');
-  assert(state.selectedMessageId === '', 'second toggle should clear selected tool');
+  assert(state.activePanel === null, 'second toggle should close detail viewer');
+  assert(state.mode === 'idle', 'second toggle should return to idle');
   assert(state.messages[0].expanded !== true, 'older tool should remain unchanged');
   assert(state.messages[1].expanded === false, 'second toggle should collapse latest tool');
   assert(state.messages.length === beforeToggleMessages, 'tool detail close should not append messages');
@@ -363,7 +367,12 @@ test('tool detail toggle expands latest tool inline without opening viewer', asy
   state.messages[0].expanded = true;
   assert(toggleSelectedToolDetail(state) === true, 'ctrl+o should reopen latest tool');
   assert(state.messages[0].expanded === false, 'opening latest tool should close older expanded tool');
-  assert(state.messages[1].expanded === true, 'latest tool should be open after older tool was expanded');
+  assert(state.messages[1].expanded === false, 'latest tool should remain collapsed inline');
+
+  state.activePanel = null;
+  state.selectedMessageId = 'tool-one';
+  assert(toggleSelectedToolDetail(state) === true, 'ctrl+o should open selected tool before latest');
+  assert(state.activePanel.sourceMessageId === 'tool-one', 'viewer should target selected tool');
 });
 
 test('viewer panel scrolls and closes without taking input focus', async () => {

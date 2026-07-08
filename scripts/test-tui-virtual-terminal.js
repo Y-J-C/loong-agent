@@ -5,8 +5,10 @@ const { createDiffRenderer } = require('../src/tui/diff');
 const { handleAgentEvent } = require('../src/tui/event-adapter');
 const { renderTui } = require('../src/tui/renderer');
 const { CURSOR_MARKER, stripCursorMarker } = require('../src/tui/cursor');
+const { handlePanelKey } = require('../src/tui/interactions');
 const { ANSI, stripAnsi } = require('../src/tui/screen');
 const { createTuiState, updateAutocomplete } = require('../src/tui/state');
+const { toggleSelectedToolDetail } = require('../src/tui/tool-focus');
 
 const DEFAULT_VIEWPORT = { columns: 100, rows: 20 };
 
@@ -203,6 +205,51 @@ test('virtual terminal tool detail toggle does not mutate message source', () =>
   screen = finalScreen(state, { columns: 90, rows: 16 });
   assert(state.messages.length === before, 'collapsed tool detail should not add messages');
   assertSingleStatusBar(screen);
+});
+
+test('virtual terminal ctrl-o opens long tool output in viewer without expanding transcript', () => {
+  const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
+  state.inputBuffer = 'next command';
+  const stdout = Array.from({ length: 30 }, (_, index) => (
+    index === 16 ? 'secret-middle-line-17' : `stdout line ${index + 1}`
+  )).join('\n');
+  state.messages.push({ type: 'user', text: 'memory status' });
+  state.messages.push({
+    id: 'tool-long',
+    type: 'tool',
+    toolName: 'bash',
+    done: true,
+    detail: {
+      command: 'free -h && cat /proc/meminfo',
+      stdout,
+      stderr: 'stderr warning line',
+    },
+  });
+  state.messages.push({ type: 'assistant_final', text: 'memory looks healthy' });
+  const before = state.messages.length;
+  const renderer = createDiffRenderer();
+
+  let rendered = renderFrame(state, renderer, { columns: 96, rows: 18 });
+  assert(rendered.screen.indexOf('secret-middle-line-17') < 0, 'collapsed transcript should hide middle stdout');
+  assert(rendered.screen.indexOf('tool_detail') < 0, 'viewer should not be open before ctrl-o');
+  assertSingleStatusBar(rendered.screen);
+
+  assert(toggleSelectedToolDetail(state) === true, 'ctrl-o should open tool detail viewer');
+  assert(state.messages.length === before, 'ctrl-o should not mutate message count');
+  assert(state.messages[1].expanded !== true, 'ctrl-o should not inline expand long tool');
+  assert(state.activePanel && state.activePanel.type === 'tool_detail', 'ctrl-o should open tool detail panel');
+  assert(state.activePanel.lines.join('\n').indexOf('secret-middle-line-17') >= 0, 'viewer should contain full stdout');
+  rendered = renderFrame(state, renderer, { columns: 96, rows: 18 });
+  assert(rendered.screen.indexOf('free -h && cat /proc/meminfo') >= 0, 'tool detail viewer should render command');
+  assert(rendered.screen.indexOf('loong>') < 0, 'input should be hidden while viewer is open');
+  assertSingleStatusBar(rendered.screen);
+
+  handlePanelKey(state, { type: 'escape' }, {});
+  rendered = renderFrame(state, renderer, { columns: 96, rows: 18 });
+  assert(state.activePanel === null, 'escape should close tool detail viewer');
+  assert(rendered.screen.indexOf('secret-middle-line-17') < 0, 'long stdout should return to collapsed transcript after escape');
+  assert(rendered.screen.indexOf('next command') >= 0, 'input should return after viewer closes');
+  assertSingleStatusBar(rendered.screen);
 });
 
 test('virtual terminal tool detail and transcript viewers keep one editor slot and status', () => {
