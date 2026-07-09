@@ -112,10 +112,7 @@ loong-agent/
   src/extensions/       Loong 扩展、prompt guideline、observation deriver
   src/agent/            task state、session memory、project-run-check
   scripts/              本地测试、board smoke、知识层检查、demo 脚本
-  docs/research/        核心契约和当前实现 profile
-  docs/dev/             开发记录和阶段说明
-  docs/demo/            演示与验证材料
-  docs/archive/         归档研究和历史方案
+  docs/                 本地文档和归档材料；默认不提交、不同步到板端
   kb/                   龙芯板端知识库、facts、playbooks
   boards/               板卡 profile
   examples/             project-run-check 示例项目
@@ -511,7 +508,6 @@ src/
 boards/
 kb/
 scripts/
-docs/
 examples/
 skills/
 memory/
@@ -530,6 +526,7 @@ node_modules/
 runs/
 dist/
 upstream/
+docs/
 API key
 token
 authorization header
@@ -655,9 +652,11 @@ node scripts/board-smoke.js --full
 node scripts/board-smoke.js --full --with-model
 ```
 
-## 文档索引
+## 本地文档
 
-核心契约：
+`docs/` 仅作为本地文档和归档材料目录。后续默认不把 `docs/` 加入 Git 提交，也不同步到板端；如果需要查阅其中内容，应在本地工作区查看。
+
+当前本地文档主要包括：
 
 - `docs/research/agent-loop-contract.md`
 - `docs/research/tool-system-contract.md`
@@ -665,16 +664,10 @@ node scripts/board-smoke.js --full --with-model
 - `docs/research/provider-streaming-contract.md`
 - `docs/research/knowledge-layer-contract.md`
 - `docs/research/tui-usage-contract.md`
-
-板端和验收：
-
 - `docs/research/board-acceptance.md`
 - `docs/research/loongarch-notes.md`
 - `docs/demo/project-run-check-demo-report.example.md`
 - `docs/demo/project-run-check-real-project-validation.md`
-
-开发记录：
-
 - `docs/dev/agent-core-refactor-baseline.md`
 - `docs/dev/agent-core-refactor-stage3-observation.md`
 - `docs/archive/`

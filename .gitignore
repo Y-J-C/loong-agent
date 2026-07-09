@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 runs/
+docs/
 memory/session-index.jsonl
 memory/*.tmp
 memory/*.jsonl.tmp
