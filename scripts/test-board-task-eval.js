@@ -135,9 +135,9 @@ test('session JSONL preserves UTF-8 Chinese text', () => {
   assert(!fs.readFileSync(session.filePath, 'utf8').includes('\uFFFD'));
 });
 
-test('case catalog exposes the ten deterministic Phase 0 cases', () => {
+test('case catalog exposes the eleven deterministic evidence cases', () => {
   const catalog = createCaseCatalog();
-  assert.strictEqual(catalog.length, 10);
+  assert.strictEqual(catalog.length, 11);
   assert.deepStrictEqual(catalog.map((item) => item.caseId), CASE_IDS);
   assert(catalog.every((item) => item.layer === 'deterministic'));
 });
@@ -183,10 +183,10 @@ test('board smoke skipped count remains a warning without becoming passed', () =
   assert.match(result.warnings[0], /skipped 2/);
 });
 
-test('fixture-only cases are skipped outside mock profile', async () => {
+test('permission fixture-only case is skipped outside mock profile', async () => {
   const result = await runEvaluation({
     profile: 'local',
-    caseIds: ['BKB-002'],
+    caseIds: ['BFAIL-001'],
     withModel: false,
     dryRun: false,
     outJson: path.join('runs', 'unused.json'),
@@ -195,6 +195,19 @@ test('fixture-only cases are skipped outside mock profile', async () => {
   assert.strictEqual(result.report.cases[0].evaluationStatus, 'skipped');
   assert.match(result.report.cases[0].warnings[0], /fixture-only/);
   assert.strictEqual(result.exitCode, 0);
+});
+
+test('evidence priority and applicability cases run on local profile', async () => {
+  const result = await runEvaluation({
+    profile: 'local',
+    caseIds: ['BKB-002', 'BKB-004'],
+    withModel: false,
+    dryRun: false,
+    outJson: path.join('runs', 'unused.json'),
+    outMd: path.join('runs', 'unused.md'),
+  }, { write: false });
+  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, 2);
+  assert(result.report.cases.every((item) => item.evaluationStatus === 'passed'));
 });
 
 test('camera case runs as a real local classification check', async () => {
@@ -210,7 +223,7 @@ test('camera case runs as a real local classification check', async () => {
   assert.notStrictEqual(result.report.cases[0].evaluationStatus, 'skipped');
 });
 
-test('mock profile passes all ten deterministic cases', async () => {
+test('mock profile passes all eleven deterministic cases', async () => {
   const result = await runEvaluation({
     profile: 'mock',
     caseIds: [],
@@ -219,7 +232,7 @@ test('mock profile passes all ten deterministic cases', async () => {
     outJson: path.join('runs', 'unused.json'),
     outMd: path.join('runs', 'unused.md'),
   }, { write: false });
-  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, 10);
+  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, 11);
   assert.strictEqual(result.report.summary.deterministic.requiredFailed, 0);
   assert.strictEqual(result.exitCode, 0);
 });
@@ -247,13 +260,13 @@ test('model failures remain observational and do not change exit code', async ()
   assert.strictEqual(result.exitCode, 0);
 });
 
-test('missing model credentials produce two explicit skipped observations', async () => {
+test('missing model credentials produce four explicit skipped observations', async () => {
   const cases = await runModelCases({
     root: process.cwd(),
     profile: 'local',
     config: { workspace: process.cwd(), apiKey: '' },
   });
-  assert.deepStrictEqual(cases.map((item) => item.caseId), ['MODEL-BENV-001', 'MODEL-BENV-004']);
+  assert.deepStrictEqual(cases.map((item) => item.caseId), ['MODEL-BENV-001', 'MODEL-BENV-004', 'MODEL-BKB-002', 'MODEL-BKB-003']);
   assert(cases.every((item) => item.layer === 'model'));
   assert(cases.every((item) => item.required === false));
   assert(cases.every((item) => item.evaluationStatus === 'skipped'));
@@ -280,7 +293,7 @@ test('dry run lists cases without writing reports', async () => {
     outMd: path.join('runs', 'dry.md'),
   }, { root });
   assert.strictEqual(result.plan.dryRun, true);
-  assert.deepStrictEqual(result.plan.modelCases, ['MODEL-BENV-001', 'MODEL-BENV-004']);
+  assert.deepStrictEqual(result.plan.modelCases, ['MODEL-BENV-001', 'MODEL-BENV-004', 'MODEL-BKB-002', 'MODEL-BKB-003']);
   assert.strictEqual(fs.existsSync(path.join(root, 'runs')), false);
 });
 

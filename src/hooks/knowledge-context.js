@@ -1,6 +1,13 @@
 'use strict';
 
-const { buildTopicEnvelope, searchKnowledge } = require('../kb');
+const { buildTopicEnvelope, readStructuredKnowledgeFacts, searchKnowledge } = require('../kb');
+const {
+  candidateFromCurrentFact,
+  candidateFromKnowledgeFact,
+  candidateFromSessionFact,
+  renderEvidenceResolutionSummary,
+  resolveEvidenceCandidates,
+} = require('../evidence-governance');
 const { summarize } = require('../tool-utils');
 
 const CAMERA_KNOWLEDGE_PATTERN =
@@ -132,6 +139,66 @@ function selectSearchContextMatches(matches, text) {
   return selected;
 }
 
+function factsFromState(state, result) {
+  const groups = [];
+  if (result && result.data && Array.isArray(result.data.facts)) groups.push(result.data.facts);
+  for (const message of (state && state.messages) || []) {
+    if (message && message.role === 'observation' && message.parsed && Array.isArray(message.parsed.facts)) groups.push(message.parsed.facts);
+  }
+  for (const observation of (state && state.observations) || []) {
+    if (!observation) continue;
+    if (observation.parsed && Array.isArray(observation.parsed.facts)) groups.push(observation.parsed.facts);
+    if (observation.data && Array.isArray(observation.data.facts)) groups.push(observation.data.facts);
+    for (const typed of observation.typedObservations || []) {
+      if (typed && typed.parsed && Array.isArray(typed.parsed.facts)) groups.push(typed.parsed.facts);
+    }
+  }
+  return groups.reduce((all, group) => all.concat(group), []).slice(-50);
+}
+
+function profileFromFacts(config, facts) {
+  const profile = { workspace: config && config.workspace ? config.workspace : '' };
+  (facts || []).forEach((fact) => {
+    if (!fact || fact.status !== 'measured') return;
+    if (fact.key === 'system.architecture' || fact.key === 'environment.architecture') profile.arch = fact.value;
+    if (fact.key === 'environment.board.device_tree_model') profile.board = fact.value;
+    if (fact.key === 'environment.os.release' || fact.key === 'system.os.release') profile.os = fact.value;
+  });
+  return profile;
+}
+
+function metadataApplicability(item) {
+  return { arch: item && item._arch, board: item && item._board, os: item && item._os, workspace: item && item._workspace };
+}
+
+function priorityValue(value) {
+  return { P0: 4, P1: 3, P2: 2, P3: 1 }[String(value || '').toUpperCase()] || 0;
+}
+
+function buildEvidenceResolutions(context, text, intent) {
+  const state = context && context.state ? context.state : {};
+  const config = context && context.config ? context.config : {};
+  const currentFacts = factsFromState(state, context && context.result);
+  const profile = profileFromFacts(config, currentFacts);
+  const candidates = currentFacts.map((fact) => candidateFromCurrentFact(fact, { profile }));
+  readStructuredKnowledgeFacts(config, text, { limit: 20 }).forEach((fact) => {
+    candidates.push(candidateFromKnowledgeFact(fact, {
+      sourceRef: fact.sourceRef,
+      verification: fact._verification,
+      applicability: metadataApplicability(fact),
+      sourcePriority: priorityValue(fact._priority),
+      observedAt: fact.last_updated,
+    }, profile));
+  });
+  const snapshot = state.sessionMemorySnapshot || {};
+  const selectedBy = snapshot.sourceSession && snapshot.sourceSession.selectedBy;
+  const sessionPriority = selectedBy === 'parentSession' ? 3 : selectedBy === 'memory_index' ? 2 : 1;
+  (snapshot.relevantFacts || []).forEach((fact) => {
+    if (fact && (fact.key || fact.id)) candidates.push(candidateFromSessionFact(fact, { profile, sourcePriority: sessionPriority }));
+  });
+  return resolveEvidenceCandidates(candidates, { intent: intent === 'historical' ? 'historical' : 'current' });
+}
+
 function knowledgeContextHook(context) {
   if (!context || !context.state) return null;
   const text = contextText(context);
@@ -154,6 +221,7 @@ function knowledgeContextHook(context) {
   const warnings = [];
   const summaries = [];
   const contextAdditions = [];
+  const evidenceResolutions = buildEvidenceResolutions(context, text, intent);
   for (const item of topicResults) {
     summaries.push(item.summary);
     evidence.push.apply(evidence, item.evidence || []);
@@ -186,7 +254,17 @@ function knowledgeContextHook(context) {
       content: formatSearchMatch(match),
     });
   }
-  if (!summaries.length && !evidence.length) return;
+  if (evidenceResolutions.length) {
+    contextAdditions.push({
+      source: 'evidence_resolution',
+      title: 'Evidence resolution',
+      content: renderEvidenceResolutionSummary(evidenceResolutions),
+    });
+    evidenceResolutions.filter((item) => item.status === 'conflict').forEach((item) => {
+      warnings.push(`Evidence conflict remains unresolved for ${item.key}.`);
+    });
+  }
+  if (!summaries.length && !evidence.length && !evidenceResolutions.length) return;
   warnings.push('Knowledge context is supporting evidence only. Treat draft, unknown, and 待确认 entries as uncertain.');
   if (intent === 'historical') {
     warnings.push('Historical intent detected; do not treat current checks as historical evidence unless explicitly labeled as current re-check.');
@@ -194,6 +272,7 @@ function knowledgeContextHook(context) {
   return {
     contextAdditions,
     knowledgeEvidence: evidence,
+    evidenceResolutions,
     warnings,
     data: {
       topics,
@@ -220,6 +299,7 @@ function knowledgeContextHook(context) {
 }
 
 module.exports = {
+  buildEvidenceResolutions,
   knowledgeContextHook,
   temporalIntent,
 };

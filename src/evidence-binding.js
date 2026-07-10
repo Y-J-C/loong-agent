@@ -321,10 +321,71 @@ function validateFinalAnswerBinding(state, prompt, answerText) {
   };
 }
 
+const STATUS_CLAIM_ENTITIES = [
+  { key: 'hardware.camera.device_nodes', pattern: /camera|摄像头|视频设备|\/dev\/video/i },
+  { key: 'runtime.npm.version', pattern: /\bnpm\b/i },
+  { key: 'runtime.node.version', pattern: /\bnode(?:\.js)?\b/i },
+  { key: 'runtime.gcc.version', pattern: /\bgcc\b/i },
+  { key: 'project.workspace.path', pattern: /workspace|工作区|项目路径/i },
+];
+
+function statusClaimPolarity(answerText) {
+  const text = String(answerText || '');
+  if (/不存在|没有|未检测到|缺失|不可用|未安装|not\s+(?:present|available|installed)|\babsent\b|\bmissing\b|\bunavailable\b/i.test(text)) return 'absent';
+  if (/存在|检测到|可用|已安装|\bpresent\b|\bavailable\b|\binstalled\b/i.test(text)) return 'present';
+  return '';
+}
+
+function evidenceResolutionFallback(resolution) {
+  const refs = (resolution && resolution.candidates || []).map((item) => item && item.sourceRef).filter(Boolean).slice(0, 4);
+  return [
+    `无法根据当前证据确定 ${resolution && resolution.key ? resolution.key : '该事实'}。`,
+    `证据状态：${resolution && resolution.status ? resolution.status : 'unknown'}。`,
+    refs.length ? `证据来源：${refs.join('；')}` : '证据来源：未获得可用的当前检查证据。',
+    '请保留未知或冲突状态，并通过当前只读检查确认后再下结论。',
+  ].join('\n');
+}
+
+function validateEvidenceResolutionClaims(state, prompt, answerText) {
+  if (/为什么|为何|如果|假设|会影响|影响哪些|\bwhy\b|\bimpact\b|\bif\b/i.test(String(prompt || ''))) return null;
+  if (!/当前|现在|检查|确认|是否|状态|可用吗|存在吗|版本|\bcurrent\b|\bnow\b|\bcheck\b|\bstatus\b|\bversion\b/i.test(String(prompt || ''))) return null;
+  const polarity = statusClaimPolarity(answerText);
+  const resolutions = state && Array.isArray(state.evidenceResolutions) ? state.evidenceResolutions : [];
+  if (!polarity || !resolutions.length) return null;
+  const combined = `${prompt || ''}\n${answerText || ''}`;
+  const entity = STATUS_CLAIM_ENTITIES.find((item) => item.pattern.test(combined));
+  if (!entity) return null;
+  const resolution = resolutions.find((item) => item && item.key === entity.key);
+  if (!resolution) return null;
+
+  let reason = '';
+  if (resolution.status === 'conflict') reason = 'answer_claim_evidence_resolution_conflict';
+  else if (resolution.status !== 'resolved' || !resolution.selected) reason = 'answer_claim_evidence_resolution_unknown';
+  else {
+    const requestContext = classifyRequestContext(prompt || '');
+    const selected = resolution.selected;
+    if (requestContext.isCurrent && (selected.freshness !== 'current' || selected.evidenceClass !== 'observed')) {
+      reason = 'answer_claim_evidence_resolution_stale';
+    } else if (polarity === 'absent' && selected.factStatus !== 'absent') {
+      reason = 'answer_claim_evidence_resolution_mismatch';
+    } else if (polarity === 'present' && selected.factStatus !== 'measured') {
+      reason = 'answer_claim_evidence_resolution_mismatch';
+    }
+  }
+  if (!reason) return null;
+  return {
+    reason,
+    resolution,
+    message: `The final answer made a definitive ${polarity} claim for ${entity.key}, but the governed evidence does not support it. Rewrite it as unknown or cite a current observed result.`,
+    fallbackSummary: evidenceResolutionFallback(resolution),
+  };
+}
+
 module.exports = {
   bindClaims,
   buildEvidenceCorpus,
   extractClaims,
   formatBindingFallback,
+  validateEvidenceResolutionClaims,
   validateFinalAnswerBinding,
 };

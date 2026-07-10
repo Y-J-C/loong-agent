@@ -9,6 +9,12 @@ const { createLoongEnvCheckToolDefinition } = require('../src/tools/loong-env-ch
 const { createLoongStorageCheckToolDefinition } = require('../src/tools/loong-storage-check');
 const { createLoongCameraCheckToolDefinition } = require('../src/tools/loong-camera-check');
 const { createProjectMapToolDefinition } = require('../src/tools/project-map');
+const {
+  candidateFromCurrentFact,
+  candidateFromKnowledgeFact,
+  candidateFromSessionFact,
+  resolveEvidenceCandidates,
+} = require('../src/evidence-governance');
 
 const CASE_IDS = [
   'BENV-001',
@@ -19,6 +25,7 @@ const CASE_IDS = [
   'BKB-001',
   'BKB-002',
   'BKB-003',
+  'BKB-004',
   'BFAIL-001',
   'BACC-001',
 ];
@@ -223,7 +230,6 @@ async function runProject(context, definition) {
 }
 
 async function runKnownKnowledge(context, definition) {
-  if (context.profile === 'mock') return mockResult(definition.caseId, definition.title);
   const result = await createKbSearchToolDefinition().execute(context.config, {
     query: 'LoongArch Node.js 14',
     limit: 5,
@@ -233,6 +239,8 @@ async function runKnownKnowledge(context, definition) {
   const checks = [
     check('knowledge_match', matches.length > 0, 'Known board query returns at least one topic.'),
     check('knowledge_source', evidence.length > 0, 'Knowledge results retain source evidence.'),
+    check('knowledge_applicability', matches.some((item) => item._arch), 'Knowledge results retain architecture applicability.'),
+    check('knowledge_verification', matches.some((item) => item._verification), 'Knowledge results retain verification metadata.'),
   ];
   return {
     evaluationStatus: evaluationFromChecks(checks),
@@ -242,6 +250,70 @@ async function runKnownKnowledge(context, definition) {
     evidence,
     unsupportedClaims: [],
     warnings: result.warnings || [],
+    error: '',
+  };
+}
+
+async function runEvidencePriority(context, definition) {
+  const current = candidateFromCurrentFact({
+    key: 'runtime.node.version',
+    status: 'measured',
+    value: 'v14.16.1',
+    source: 'command',
+    sourceRef: 'tool:loong_env_check',
+    observedAt: '2026-07-11T08:00:00.000Z',
+    confidence: 'high',
+  });
+  const historical = candidateFromSessionFact({
+    key: 'environment.node.version',
+    status: 'measured',
+    value: 'v20.0.0',
+    sourceRef: 'session:historical:entry:node',
+    observedAt: '2026-06-01T08:00:00.000Z',
+  });
+  const resolution = resolveEvidenceCandidates([historical, current], { intent: 'current' })[0];
+  const checks = [
+    check('current_selected', Boolean(resolution && resolution.selected && resolution.selected.value === 'v14.16.1'), 'Current observed evidence is selected.'),
+    check('historical_preserved', Boolean(resolution && resolution.conflicts.some((item) => item.value === 'v20.0.0')), 'Conflicting historical evidence is preserved.'),
+    check('canonical_key', Boolean(resolution && resolution.key === 'runtime.node.version'), 'Explicit fact aliases resolve to one canonical key.'),
+  ];
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: 'success',
+    checks,
+    requiredEvidence: ['current observed fact', 'historical sourced fact', 'evidence resolution'],
+    evidence: resolution ? [resolution] : [],
+    unsupportedClaims: [],
+    warnings: [],
+    error: '',
+  };
+}
+
+async function runApplicabilityBoundary(context, definition) {
+  const candidate = candidateFromKnowledgeFact({
+    id: 'environment.architecture',
+    status: 'measured',
+    value: 'x64',
+    confidence: 'high',
+  }, {
+    sourceRef: 'kb:fixture:x64',
+    verification: 'verified',
+    applicability: { arch: 'x64' },
+  }, { arch: 'loongarch64' });
+  const resolution = resolveEvidenceCandidates([candidate], { intent: 'current' })[0];
+  const checks = [
+    check('mismatch_classified', candidate.applicability.arch === 'mismatched', 'Architecture mismatch is explicit.'),
+    check('mismatch_not_selected', Boolean(resolution && resolution.status === 'unknown' && !resolution.selected), 'Mismatched evidence cannot form a definitive result.'),
+    check('mismatch_preserved', Boolean(resolution && resolution.candidates.length === 1), 'Mismatched evidence remains auditable.'),
+  ];
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: 'inconclusive',
+    checks,
+    requiredEvidence: ['knowledge applicability', 'current environment profile'],
+    evidence: resolution ? [resolution] : [],
+    unsupportedClaims: [],
+    warnings: ['The mismatched knowledge candidate was retained but not selected.'],
     error: '',
   };
 }
@@ -385,8 +457,9 @@ function createCaseCatalog() {
     { caseId: 'BENV-004', title: 'Current camera device state classification', layer: 'deterministic', fixtureOnly: false, execute: runCamera },
     { caseId: 'BENV-005', title: 'Project runtime prerequisites', layer: 'deterministic', fixtureOnly: false, execute: runProject },
     { caseId: 'BKB-001', title: 'Board knowledge retains sources', layer: 'deterministic', fixtureOnly: false, execute: runKnownKnowledge },
-    { caseId: 'BKB-002', title: 'Current evidence takes precedence over historical evidence', layer: 'deterministic', fixtureOnly: true, execute: async (ctx, def) => mockResult(def.caseId, def.title, { evidence: [{ source: 'current', value: 'current' }, { source: 'historical', value: 'old' }] }) },
+    { caseId: 'BKB-002', title: 'Current evidence takes precedence over historical evidence', layer: 'deterministic', fixtureOnly: false, execute: runEvidencePriority },
     { caseId: 'BKB-003', title: 'Missing knowledge remains unknown', layer: 'deterministic', fixtureOnly: false, execute: runMissingKnowledge },
+    { caseId: 'BKB-004', title: 'Knowledge applicability mismatch remains non-definitive', layer: 'deterministic', fixtureOnly: false, execute: runApplicabilityBoundary },
     { caseId: 'BFAIL-001', title: 'Permission denied is not absence', layer: 'deterministic', fixtureOnly: true, execute: async (ctx, def) => mockResult(def.caseId, def.title, { taskOutcome: 'blocked', checks: [check('permission_denied_not_absent', true, 'permission_denied remains blocked.')] }) },
     { caseId: 'BACC-001', title: 'Quick board smoke JSON is machine-readable', layer: 'deterministic', fixtureOnly: false, execute: runQuickSmoke },
   ];

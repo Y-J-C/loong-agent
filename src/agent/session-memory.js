@@ -122,33 +122,51 @@ function failureFromTool(session, item) {
   };
 }
 
-function factFromEntry(session, entry) {
-  if (!entry) return null;
+function factsFromEntry(session, entry) {
+  if (!entry) return [];
+  const structured = entry.parsed && Array.isArray(entry.parsed.facts)
+    ? entry.parsed.facts
+    : Array.isArray(entry.facts) ? entry.facts : [];
+  if (structured.length) {
+    return structured.slice(0, 20).filter((fact) => fact && (fact.key || fact.id)).map((fact) => ({
+      fact: truncate(`${fact.key || fact.id}=${fact.value === null || fact.value === undefined ? fact.status || 'unknown' : JSON.stringify(fact.value)}`, 180),
+      key: fact.key || fact.id,
+      status: fact.status || 'unknown',
+      value: fact.value === undefined ? null : fact.value,
+      observedAt: fact.observedAt || '',
+      applicability: fact.applicability || {},
+      sourceRef: refForEntry(session, entry),
+      subject: entry.subject || '',
+      freshness: 'historical',
+      confidence: 'low',
+      warnings: fact.warnings || [],
+    }));
+  }
   if (entry.type === 'bashExecution') {
-    return {
+    return [{
       fact: truncate(`${entry.command || 'bash'} exitCode=${entry.exitCode}`, 180),
       sourceRef: refForEntry(session, entry),
       command: entry.command || '',
       confidence: 'low',
-    };
+    }];
   }
   if (entry.type === 'toolResult') {
-    return {
+    return [{
       fact: truncate(entry.resultSummary || entry.toolName || 'tool result', 180),
       sourceRef: refForEntry(session, entry),
       toolName: entry.toolName || '',
       confidence: 'low',
-    };
+    }];
   }
   if (entry.type === 'observation') {
-    return {
+    return [{
       fact: truncate(entry.summary || entry.raw || entry.subject || 'observation', 180),
       sourceRef: refForEntry(session, entry),
       subject: entry.subject || '',
       confidence: 'low',
-    };
+    }];
   }
-  return null;
+  return [];
 }
 
 function createSessionMemorySnapshot(input) {
@@ -185,8 +203,8 @@ function createSessionMemorySnapshot(input) {
     6
   );
   const relevantFacts = uniqueBy(
-    (resumeContext.selectedEntries || []).map((entry) => factFromEntry(session, entry)).filter(Boolean),
-    (item) => `${item.fact}|${item.sourceRef}`,
+    (resumeContext.selectedEntries || []).reduce((items, entry) => items.concat(factsFromEntry(session, entry)), []),
+    (item) => `${item.key || item.fact}|${JSON.stringify(item.value)}|${item.sourceRef}`,
     6
   );
   const sourceRefs = uniqueBy(

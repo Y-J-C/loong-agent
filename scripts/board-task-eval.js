@@ -14,6 +14,7 @@ const DEFAULT_OUTPUTS = {
   outJson: path.join('runs', 'board-task-eval-report.json'),
   outMd: path.join('runs', 'board-task-eval-report.md'),
 };
+const MODEL_CASE_IDS = ['MODEL-BENV-001', 'MODEL-BENV-004', 'MODEL-BKB-002', 'MODEL-BKB-003'];
 
 function usage() {
   return [
@@ -108,7 +109,7 @@ async function executeCase(definition, context) {
     result.required = false;
     result.evaluationStatus = 'skipped';
     result.taskOutcome = 'blocked';
-    result.warnings.push(`Case ${definition.caseId} is fixture-only in Phase 0 and was skipped for ${context.profile}.`);
+    result.warnings.push(`Case ${definition.caseId} is fixture-only and was skipped for ${context.profile}.`);
     return result;
   }
   const started = Date.now();
@@ -151,6 +152,16 @@ function skippedModelCases(reason) {
       warnings: [reason],
     }),
     modelCase('MODEL-BENV-004', 'Model current camera/device evidence', {
+      evaluationStatus: 'skipped',
+      taskOutcome: 'blocked',
+      warnings: [reason],
+    }),
+    modelCase('MODEL-BKB-002', 'Model current-over-historical evidence handling', {
+      evaluationStatus: 'skipped',
+      taskOutcome: 'blocked',
+      warnings: [reason],
+    }),
+    modelCase('MODEL-BKB-003', 'Model unknown knowledge handling', {
       evaluationStatus: 'skipped',
       taskOutcome: 'blocked',
       warnings: [reason],
@@ -200,16 +211,23 @@ async function runOneModelCase(context, spec) {
     if (!hasCurrentEvidence && /历史|historical|session/i.test(summary)) {
       unsupportedClaims.push('Historical/session context was used without a matching current-state check.');
     }
+    const outcomeMatched = !spec.requiredOutcomePattern || spec.requiredOutcomePattern.test(summary);
+    const resolutionEvents = session ? (session.events || []).filter((event) => {
+      return event.type === 'context_update' && Array.isArray(event.evidenceResolutions) && event.evidenceResolutions.length;
+    }) : [];
     const checks = [
       { id: 'current_tool_evidence', status: hasCurrentEvidence ? 'passed' : 'failed', message: hasCurrentEvidence ? 'Successful current tool evidence found.' : 'No successful matching current tool evidence.' },
       { id: 'sensitive_text', status: sensitiveText(summary) ? 'failed' : 'passed', message: 'Answer summary contains no obvious credential material.' },
       { id: 'session_audit', status: audit && audit.status !== 'corrupt' ? 'passed' : 'failed', message: audit ? `Session audit=${audit.status}` : 'Session was not available.' },
       { id: 'unsupported_claims', status: unsupportedClaims.length ? 'failed' : 'passed', message: unsupportedClaims.length ? unsupportedClaims.join(' ') : 'No unsupported current-state claim detected.' },
+      { id: 'required_outcome', status: outcomeMatched ? 'passed' : 'failed', message: outcomeMatched ? 'Answer expresses the required evidence outcome.' : 'Answer did not express the required evidence outcome.' },
+      { id: 'evidence_resolution', status: !spec.requiresResolution || resolutionEvents.length ? 'passed' : 'failed', message: resolutionEvents.length ? 'Session contains governed evidence resolutions.' : 'No governed evidence resolution was required or found.' },
     ];
     base.evaluationStatus = checks.every((item) => item.status === 'passed') ? 'passed' : 'failed';
     base.taskOutcome = base.evaluationStatus === 'passed' ? 'success' : 'inconclusive';
     base.checks = checks;
     base.evidence = evidence.concat(audit ? [{ source: 'session_audit', status: audit.status }] : []);
+    resolutionEvents.slice(0, 2).forEach((event) => base.evidence.push({ source: 'context_update', evidenceResolutionCount: event.evidenceResolutions.length }));
     base.unsupportedClaims = unsupportedClaims;
     base.warnings = base.evaluationStatus === 'passed' ? [] : ['Model observation did not meet all evidence checks; deterministic gates are unaffected.'];
     base.error = '';
@@ -243,6 +261,24 @@ async function runModelCases(context) {
       toolNames: ['loong_camera_check'],
       definitivePattern: /存在|不存在|检测到|没有|可用|不可用/i,
     },
+    {
+      caseId: 'MODEL-BKB-002',
+      title: 'Model current-over-historical evidence handling',
+      prompt: '历史记录说 Node.js 是 v20，但请确认当前板端 Node.js 版本。必须以当前只读检查为准，并保留历史差异。',
+      toolNames: ['loong_env_check', 'runtime_health'],
+      definitivePattern: /当前|Node\.js|版本|v\d+/i,
+      requiredOutcomePattern: /当前|current/i,
+      requiresResolution: true,
+    },
+    {
+      caseId: 'MODEL-BKB-003',
+      title: 'Model unknown knowledge handling',
+      prompt: '请查询知识库中 __phase2_unknown_board_feature_7f3e9c__ 的支持状态。没有证据时必须回答未知或待确认。',
+      toolNames: ['kb_search'],
+      definitivePattern: /支持|存在|available|supported/i,
+      requiredOutcomePattern: /未知|待确认|无法确认|unknown|cannot confirm/i,
+      requiresResolution: false,
+    },
   ];
   const results = [];
   for (const spec of specs) results.push(await runOneModelCase(context, spec));
@@ -258,7 +294,7 @@ function dryRunPlan(options, definitions) {
       required: options.profile === 'mock' || !item.fixtureOnly,
       action: item.fixtureOnly && options.profile !== 'mock' ? 'skip' : 'run',
     })),
-    modelCases: options.withModel ? ['MODEL-BENV-001', 'MODEL-BENV-004'] : [],
+    modelCases: options.withModel ? MODEL_CASE_IDS.slice() : [],
     outJson: options.outJson,
     outMd: options.outMd,
   };

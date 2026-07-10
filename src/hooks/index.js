@@ -12,6 +12,7 @@ function emptyContextResult() {
   return {
     contextAdditions: [],
     knowledgeEvidence: [],
+    evidenceResolutions: [],
     warnings: [],
   };
 }
@@ -25,6 +26,7 @@ function mergeContextResult(target, result) {
   if (!result) return target;
   appendItems(target, 'contextAdditions', result.contextAdditions);
   appendItems(target, 'knowledgeEvidence', result.knowledgeEvidence);
+  appendItems(target, 'evidenceResolutions', result.evidenceResolutions);
   appendItems(target, 'warnings', result.warnings);
   return target;
 }

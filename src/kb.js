@@ -404,6 +404,48 @@ function metadataForTopic(config, topic) {
   return entry ? extractIndexMetadata(entry) : {};
 }
 
+function readStructuredKnowledgeFacts(config, query, options) {
+  const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
+  const limit = Math.max(1, Math.min(Number(options && options.limit) || 20, 50));
+  const matches = [];
+  for (const entry of readKnowledgeIndex(config)) {
+    if (entry.kind !== 'fact' || path.extname(entry.filePath).toLowerCase() !== '.json' || !fs.existsSync(entry.filePath)) continue;
+    let facts;
+    try {
+      facts = JSON.parse(readText(config, entry.filePath));
+    } catch (error) {
+      continue;
+    }
+    if (!Array.isArray(facts)) continue;
+    const metadata = extractIndexMetadata(entry);
+    for (const fact of facts) {
+      if (!fact || typeof fact !== 'object') continue;
+      const searchable = [
+        fact.id,
+        fact.key,
+        fact.value,
+        JSON.stringify(fact.sourceTopics || []),
+        entry.id,
+        entry.title,
+        entry.path,
+        JSON.stringify(entry._tags || []),
+        JSON.stringify(entry._triggers || []),
+      ].filter(Boolean).join('\n');
+      const score = matchScore(searchable, terms);
+      if (!score) continue;
+      matches.push(Object.assign({}, fact, metadata, {
+        score,
+        sourceRef: entry.path,
+        sourceType: entry.sourceType,
+      }));
+    }
+  }
+  return matches
+    .sort((left, right) => right.score - left.score || String(left.id || left.key).localeCompare(String(right.id || right.key)))
+    .slice(0, limit);
+}
+
 function searchIndexedDocuments(config, query, terms, options) {
   const includeRaw = shouldIncludeRaw(query, options);
   const matches = [];
@@ -502,7 +544,8 @@ function buildTopicEnvelope(config, topic) {
     };
   }
   const record = loaded.record;
-  const warnings = loaded.warnings || (loaded.warning ? [loaded.warning] : []);
+  const metadata = metadataForTopic(config, topic);
+  const warnings = (loaded.warnings || (loaded.warning ? [loaded.warning] : [])).concat(verificationWarnings(metadata));
   return {
     ok: true,
     data: {
@@ -515,9 +558,10 @@ function buildTopicEnvelope(config, topic) {
       content: record.content,
       unknowns: record.unknowns,
       facts: factsForTopic(config, topic) || undefined,
+      ...metadata,
     },
     summary: `${topic}: status=${record.status}, confidence=${record.confidence}. ${summarize(record.content, 240)}`,
-    evidence: [evidenceFor(config, topic, record)],
+    evidence: [Object.assign(evidenceFor(config, topic, Object.assign({}, record, metadata)), metadata)],
     warnings,
     error: '',
     topic,
@@ -535,6 +579,7 @@ module.exports = {
   knowledgeWarnings,
   readKnowledgeIndex,
   readHistoricalEnvironmentFacts,
+  readStructuredKnowledgeFacts,
   listTopics,
   readTopic,
   searchKnowledge,

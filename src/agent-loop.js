@@ -17,7 +17,7 @@ const {
   startTurn,
 } = require('./agent-state');
 const { classifyRequestContext } = require('./context-selector');
-const { validateFinalAnswerBinding } = require('./evidence-binding');
+const { validateEvidenceResolutionClaims, validateFinalAnswerBinding } = require('./evidence-binding');
 const { executeToolCall } = require('./tool-execution-runtime');
 const { createModelRequestEvent } = require('./model-request-audit');
 
@@ -993,6 +993,8 @@ function finalAnswerConsistencyGuard(state, currentUserPrompt, answerSummary) {
     }
     return bindingGuard;
   }
+  const resolutionGuard = validateEvidenceResolutionClaims(state, prompt, answerSummary);
+  if (resolutionGuard) return resolutionGuard;
   if (isCurrentMemoryQuestion(prompt)) {
     const memoryObservation = latestObservationBySubject(state, 'system.memory');
     if (memoryObservation) {
@@ -1631,17 +1633,21 @@ async function prepareForNextTurn(context, action, result, isError) {
   const normalized = {
     contextAdditions: update && Array.isArray(update.contextAdditions) ? update.contextAdditions : [],
     knowledgeEvidence: update && Array.isArray(update.knowledgeEvidence) ? update.knowledgeEvidence : [],
+    evidenceResolutions: update && Array.isArray(update.evidenceResolutions) ? update.evidenceResolutions : [],
     warnings: update && Array.isArray(update.warnings) ? update.warnings : [],
   };
   if (!context.state.contextAdditions) context.state.contextAdditions = [];
   if (!context.state.knowledgeEvidence) context.state.knowledgeEvidence = [];
+  if (!context.state.evidenceResolutions) context.state.evidenceResolutions = [];
   if (!context.state.contextWarnings) context.state.contextWarnings = [];
   context.state.contextAdditions = context.state.contextAdditions.concat(normalized.contextAdditions);
   context.state.knowledgeEvidence = context.state.knowledgeEvidence.concat(normalized.knowledgeEvidence);
+  context.state.evidenceResolutions = normalized.evidenceResolutions;
   context.state.contextWarnings = context.state.contextWarnings.concat(normalized.warnings);
   if (
     normalized.contextAdditions.length ||
     normalized.knowledgeEvidence.length ||
+    normalized.evidenceResolutions.length ||
     normalized.warnings.length
   ) {
     await context.emit({
@@ -1650,6 +1656,7 @@ async function prepareForNextTurn(context, action, result, isError) {
       toolName: action && action.tool ? action.tool : '',
       contextAdditions: normalized.contextAdditions,
       knowledgeEvidence: normalized.knowledgeEvidence,
+      evidenceResolutions: normalized.evidenceResolutions,
       warnings: normalized.warnings,
       budget: {
         contextBudgetChars: context.config.contextBudgetChars || 1800,

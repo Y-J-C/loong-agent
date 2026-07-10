@@ -34,6 +34,7 @@ function commandSubjects(command) {
     subjects.push('hardware.i2c');
   }
   if (/bmp280|bme280|sensor|iio|hwmon/i.test(text)) subjects.push('hardware.sensor');
+  if (/camera|uvc|v4l2|video4linux|\/dev\/video/i.test(text)) subjects.push('hardware.camera');
   if (/\bss\s+-(?:t|u)lnp\b|\bnetstat\s+-(?:t|u)lnp\b/i.test(text)) subjects.push('network.ports');
   return unique(subjects);
 }
@@ -50,6 +51,7 @@ function promptSubjects(prompt) {
   }
   if (/i2c|i²c|iic/i.test(text)) subjects.push('hardware.i2c');
   if (/sensor|sensors|传感器|bmp280|bme280|iio|hwmon/i.test(text)) subjects.push('hardware.sensor');
+  if (/camera|摄像头|uvc|v4l2|video4linux|\/dev\/video/i.test(text)) subjects.push('hardware.camera');
   if (/process|pid|进程|后台|日志|log/i.test(text)) subjects.push('process');
   if (/file|filesystem|csv|文件|目录|脚本|路径/i.test(text)) subjects.push('filesystem');
   return unique(subjects);
