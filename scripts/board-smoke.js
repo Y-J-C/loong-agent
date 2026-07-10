@@ -3,6 +3,7 @@
 
 const childProcess = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
@@ -29,7 +30,7 @@ function nowIso() {
 function runCommand(command, args, options) {
   const startedAt = Date.now();
   const result = childProcess.spawnSync(command, args, {
-    cwd: ROOT,
+    cwd: options && options.cwd ? options.cwd : ROOT,
     encoding: 'utf8',
     shell: false,
     env: Object.assign({}, process.env, (options && options.env) || {}),
@@ -71,7 +72,7 @@ function addCommandStep(report, name, command, args, options) {
   report.steps.push(Object.assign({
     name,
     status: passed ? 'passed' : 'failed',
-  }, result));
+  }, result, options && options.metadata || {}));
   if (!passed) report.failed += 1;
   else report.passed += 1;
   return passed;
@@ -79,6 +80,64 @@ function addCommandStep(report, name, command, args, options) {
 
 function addNodeStep(report, name, args, options) {
   return addCommandStep(report, name, process.execPath, args, options);
+}
+
+function copyTree(source, target) {
+  const stat = fs.statSync(source);
+  if (stat.isDirectory()) {
+    fs.mkdirSync(target, { recursive: true });
+    fs.readdirSync(source).forEach((name) => copyTree(path.join(source, name), path.join(target, name)));
+  } else if (stat.isFile()) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(source, target);
+  }
+}
+
+function createCleanRuntimeWorkspace() {
+  const cleanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-smoke-runtime-'));
+  ['boards', 'examples', 'kb', 'scripts', 'skills', 'src', '.env.example', 'loong', 'package.json', 'README.md'].forEach((entry) => {
+    const source = path.join(ROOT, entry);
+    if (fs.existsSync(source)) copyTree(source, path.join(cleanRoot, entry));
+  });
+  return cleanRoot;
+}
+
+function cleanRuntimeEnv(workspace) {
+  return Object.assign({}, process.env, {
+    DEEPSEEK_API_KEY: '',
+    LOONG_AGENT_API_KEY: '',
+    LOONG_AGENT_BASE_URL: '',
+    LOONG_AGENT_CONTEXT_BUDGET: '',
+    LOONG_AGENT_MODEL: '',
+    LOONG_AGENT_PROVIDER: '',
+    LOONG_AGENT_PROVIDER_PROFILE: 'deepseek',
+    LOONG_AGENT_THINKING_LEVEL: 'off',
+    LOONG_AGENT_JSON_MODE: '',
+    LOONG_AGENT_MAX_LOOPS: '',
+    LOONG_AGENT_ALLOW_WRITE: '',
+    LOONG_AGENT_ALLOW_COMMANDS: '',
+    LOONG_AGENT_NATIVE_TOOLS: '',
+    LOONG_AGENT_NATIVE_TOOL_CHOICE: '',
+    LOONG_AGENT_STREAMING: '',
+    LOONG_AGENT_RECORD_MODEL_REQUEST: 'summary',
+    LOONG_AGENT_ALLOW_UNSAFE_MODEL_REQUEST_LOG: '',
+    LOONG_AGENT_MODEL_REQUEST_MAX_CHARS: 'not-set',
+    LOONG_AGENT_EXTENSIONS: 'loong',
+    LOONG_AGENT_WORKSPACE: workspace,
+  });
+}
+
+function addCleanRuntimeStep(report) {
+  const cleanRoot = createCleanRuntimeWorkspace();
+  try {
+    return addNodeStep(report, 'runtime tests', ['scripts/test-runtime.js'], {
+      cwd: cleanRoot,
+      env: cleanRuntimeEnv(cleanRoot),
+      metadata: { cleanWorkspace: true },
+    });
+  } finally {
+    fs.rmSync(cleanRoot, { recursive: true, force: true });
+  }
 }
 
 function addSkipped(report, name, reason) {
@@ -256,7 +315,7 @@ async function main() {
 
   addNodeStep(report, 'compat', ['src/index.js', 'compat']);
   addNodeStep(report, 'diagnose', ['src/index.js', 'diagnose']);
-  addNodeStep(report, 'runtime tests', ['scripts/test-runtime.js']);
+  addCleanRuntimeStep(report);
   addNodeStep(report, 'session tree tests', ['scripts/test-session-tree.js']);
   await createMockAskSession(report);
 

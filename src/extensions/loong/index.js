@@ -5,6 +5,7 @@ const { createBoardProfileToolDefinition } = require('../../tools/board-profile'
 const { createCommandReferenceToolDefinition } = require('../../tools/kb-tools');
 const { createLoongEnvCheckToolDefinition } = require('../../tools/loong-env-check');
 const { createLoongStorageCheckToolDefinition } = require('../../tools/loong-storage-check');
+const { createLoongCameraCheckToolDefinition } = require('../../tools/loong-camera-check');
 const { loongBoardContextHook } = require('../../hooks/loong-board-context');
 const { longTaskBeforeToolCallHook, longTaskWorkflowHook } = require('../../hooks/long-task-workflow');
 const { createBoardStatusSnapshot, formatBoardStatus } = require('./board-status');
@@ -305,6 +306,7 @@ function deriveCommandObservations(action, result, context) {
 
 function deriveLoongEnvObservations(action, result, context) {
   const data = resultData(result);
+  const facts = Array.isArray(data.facts) ? data.facts : [];
   const commands = Array.isArray(data.commands) ? data.commands : Array.isArray(result && result.commands) ? result.commands : [];
   const observations = [];
   commands.forEach((item) => {
@@ -314,13 +316,40 @@ function deriveLoongEnvObservations(action, result, context) {
     const observation = commandObservation(action, result, Object.assign({}, context, {
       index: (context.index || 0) + observations.length,
     }), command, raw, item || {}, evidence);
-    if (observation) observations.push(observation);
+    if (observation && (!facts.length || observation.subject !== 'system.runtime')) observations.push(observation);
   });
+  if (facts.length) {
+    observations.push(makeObservation(Object.assign({}, context, { index: (context.index || 0) + observations.length }), {
+      subject: 'system.runtime',
+      kind: 'runtime_fact',
+      freshness: 'current',
+      source: action.tool,
+      tool: action.tool,
+      raw: safeJson(facts),
+      parsed: { facts },
+      confidence: facts.some((item) => item.status === 'measured') ? 'high' : 'low',
+      evidence: Array.isArray(result && result.evidence) ? result.evidence : [],
+    }));
+  }
   return observations;
 }
 
 function deriveLoongStorageObservations(action, result, context) {
   const data = resultData(result);
+  const facts = Array.isArray(data.facts) ? data.facts : [];
+  if (facts.length) {
+    return [makeObservation(context, {
+      subject: 'system.disk',
+      kind: 'measurement',
+      freshness: 'current',
+      source: action.tool,
+      tool: action.tool,
+      raw: safeJson(data),
+      parsed: { facts, filesystems: data.filesystems || [], blockDevices: data.blockDevices || [] },
+      confidence: facts.some((item) => item.status === 'measured') ? 'high' : 'low',
+      evidence: Array.isArray(result && result.evidence) ? result.evidence : [],
+    })];
+  }
   const commands = Array.isArray(data.commands) ? data.commands : Array.isArray(result && result.commands) ? result.commands : [];
   const observations = [];
   commands.forEach((item) => {
@@ -372,6 +401,14 @@ function loongObservationDeriver(action, result, stateContext) {
   };
   if (tool === 'loong_env_check') return deriveLoongEnvObservations(action, result, context);
   if (tool === 'loong_storage_check') return deriveLoongStorageObservations(action, result, context);
+  if (tool === 'loong_camera_check') {
+    const data = resultData(result);
+    return [makeObservation(context, {
+      subject: 'hardware.camera', kind: 'inventory', freshness: 'current', source: tool, tool,
+      raw: safeJson(data), parsed: { facts: Array.isArray(data.facts) ? data.facts : [], deviceNodes: data.deviceNodes || [], sysfsDevices: data.sysfsDevices || [] },
+      confidence: result && result.ok ? 'high' : 'low', evidence: Array.isArray(result && result.evidence) ? result.evidence : [],
+    })];
+  }
   if (tool === 'board_profile') return deriveBoardObservation(action, result, context);
   if (tool === 'bash') return deriveCommandObservations(action, result, context);
   return [];
@@ -518,6 +555,14 @@ function finalAnswerEvidenceGuard(context, promptOverride) {
       message: 'The user asked about a known USB camera/UVC/OpenCV board failure pattern. Search the local KB first, then verify current state with read-only command evidence before proposing fixes.',
     };
   }
+  const cameraContext = classifyRequestContext(prompt);
+  if (isCameraKnowledgeQuestion(prompt) && cameraContext.isCurrent && !hasCurrentObservationSubject(state, 'hardware.camera')) {
+    return {
+      reason: 'missing_current_camera_evidence',
+      action: { tool: 'loong_camera_check', input: {}, reason: 'Required current camera evidence before answering.' },
+      message: 'Use loong_camera_check for current device nodes, permissions, driver, and userland status. Do not infer absence from a failed check.',
+    };
+  }
   if (isCurrentMemoryQuestion(prompt) && !hasCurrentObservationSubject(state, 'system.memory')) {
     return {
       reason: 'missing_current_memory_evidence',
@@ -657,6 +702,7 @@ module.exports = function loongExtension(pi) {
   pi.registerTool(createBoardProfileToolDefinition());
   pi.registerTool(createLoongEnvCheckToolDefinition());
   pi.registerTool(createLoongStorageCheckToolDefinition());
+  pi.registerTool(createLoongCameraCheckToolDefinition());
   pi.registerTool(createCommandReferenceToolDefinition());
   pi.registerObservationDeriver(loongObservationDeriver);
   pi.registerPromptGuidelines(loongPromptGuidelines);

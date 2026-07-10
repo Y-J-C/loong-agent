@@ -3,6 +3,28 @@
 const { createTool } = require('../tool-registry');
 const { listProviderDetails, resolveProviderCapabilities } = require('../llm');
 const { requireObject, summarize } = require('../tool-utils');
+const { createFact, mergeFacts } = require('../environment-facts');
+
+function buildRuntimeFacts(result, observedAt) {
+  const values = [
+    ['runtime.node.version', result.node],
+    ['system.platform', result.platform],
+    ['system.architecture', result.arch],
+    ['runtime.provider.name', result.provider],
+    ['runtime.provider.profile', result.providerProfile],
+    ['runtime.model', result.model],
+    ['project.workspace.path', result.workspace],
+  ];
+  return mergeFacts(values.map(([key, value]) => createFact({
+    key,
+    status: value ? 'measured' : 'unknown',
+    value: value || null,
+    source: 'runtime',
+    observedAt,
+    confidence: value ? 'high' : 'low',
+    warnings: value ? [] : [`${key} is not configured.`],
+  })));
+}
 
 function safeProviderCapabilities(config) {
   config = config || {};
@@ -59,6 +81,7 @@ function createRuntimeHealthToolDefinition() {
         hooks: ['loongBoardContextHook', 'toolErrorRecoveryHook', 'finalTurnSummaryHook'],
         constraints: ['Node 14', 'CommonJS', 'no npm dependency', 'read-only tools'],
       };
+      result.facts = buildRuntimeFacts(result, new Date().toISOString());
       return Object.assign({}, result, {
         ok: true,
         data: result,
@@ -89,6 +112,7 @@ function createRuntimeHealthTool() {
 }
 
 module.exports = {
+  buildRuntimeFacts,
   createRuntimeHealthTool,
   createRuntimeHealthToolDefinition,
 };

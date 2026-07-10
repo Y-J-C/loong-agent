@@ -240,7 +240,7 @@ async function runModelCases(context) {
       caseId: 'MODEL-BENV-004',
       title: 'Model current camera/device evidence',
       prompt: '请确认当前板端是否存在可供用户态使用的 USB 摄像头。必须执行当前只读检查；无权限、命令缺失或证据不足时不要回答不存在。',
-      toolNames: ['bash', 'loong_env_check'],
+      toolNames: ['loong_camera_check'],
       definitivePattern: /存在|不存在|检测到|没有|可用|不可用/i,
     },
   ];

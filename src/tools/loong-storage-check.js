@@ -1,8 +1,11 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { runShell } = require('../runtime/bash-executor');
 const { createTool } = require('../tool-registry');
 const { requireObject, summarize } = require('../tool-utils');
+const { classifyCheckResult, createFact, mergeFacts } = require('../environment-facts');
 
 const STORAGE_COMMANDS = [
   { name: 'df', command: 'df -hT', timeoutMs: 8000 },
@@ -91,6 +94,73 @@ function summarizeStorage(commands) {
   return parts.join(' ');
 }
 
+function factKeyPart(value) {
+  const text = String(value || 'unknown').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return text || 'root';
+}
+
+function inspectWorkspaceAccess(workspace) {
+  const target = path.resolve(workspace || process.cwd());
+  try {
+    if (!fs.existsSync(target)) return { status: 'absent', error: 'workspace does not exist' };
+    fs.accessSync(target, fs.constants.R_OK | fs.constants.W_OK);
+    return { status: 'measured', writable: true, error: '' };
+  } catch (error) {
+    const code = error && error.code;
+    return {
+      status: code === 'EACCES' || code === 'EPERM' ? 'permission_denied' : code === 'ENOENT' ? 'absent' : 'check_failed',
+      writable: false,
+      error: code || (error && error.message) || 'workspace access check failed',
+    };
+  }
+}
+
+function buildStorageFacts(data, config, observedAt, probes) {
+  const facts = [];
+  const workspace = path.resolve(config && config.workspace || process.cwd());
+  facts.push(createFact({ key: 'storage.target.path', status: 'measured', value: workspace, source: 'filesystem', observedAt }));
+  const access = probes && probes.workspaceAccess ? probes.workspaceAccess : inspectWorkspaceAccess(workspace);
+  facts.push(createFact({
+    key: 'storage.target.writable',
+    status: access.status,
+    value: access.status === 'measured' ? Boolean(access.writable) : null,
+    source: 'filesystem',
+    observedAt,
+    confidence: access.status === 'measured' ? 'high' : 'low',
+    warnings: access.error ? [access.error] : [],
+  }));
+  const df = (data.commands || []).find((item) => item.name === 'df' || item.command === 'df -hT');
+  if (!(data.filesystems || []).length) {
+    const status = df ? classifyCheckResult(df, { parsed: false }) : 'unknown';
+    facts.push(createFact({
+      key: 'storage.filesystem.capacity',
+      status,
+      value: null,
+      source: 'command',
+      observedAt,
+      command: df && df.command || 'df -hT',
+      exitCode: df && df.exitCode,
+      confidence: 'low',
+      warnings: [`Filesystem capacity check status: ${status}`],
+    }));
+  }
+  (data.filesystems || []).forEach((item) => {
+    const prefix = `storage.filesystem.${factKeyPart(item.mount)}`;
+    [['size', item.size], ['used', item.used], ['available', item.available], ['use_percent', item.usePercent], ['mount', item.mount]]
+      .forEach(([suffix, value]) => facts.push(createFact({
+        key: `${prefix}.${suffix}`,
+        status: value ? 'measured' : 'parse_failed',
+        value: value || null,
+        source: 'command',
+        observedAt,
+        command: 'df -hT',
+        exitCode: 0,
+        confidence: value ? 'high' : 'low',
+      })));
+  });
+  return mergeFacts(facts);
+}
+
 async function loongStorageCheck(config, input, executionContext) {
   const commands = [];
   const warnings = [];
@@ -117,6 +187,7 @@ async function loongStorageCheck(config, input, executionContext) {
       'Do not perform cleanup, mount, partition, or sudo operations automatically.',
     ],
   };
+  data.facts = buildStorageFacts(data, config || {}, new Date().toISOString());
   return {
     ok: commands.some((item) => item.exitCode === 0),
     data,
@@ -168,6 +239,7 @@ function createLoongStorageCheckTool() {
 }
 
 module.exports = {
+  buildStorageFacts,
   createLoongStorageCheckTool,
   createLoongStorageCheckToolDefinition,
   loongStorageCheck,

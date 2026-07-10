@@ -5,6 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { createJsonlSession, readSessionFromPath } = require('../src/session');
 
 const {
   SCHEMA,
@@ -111,6 +112,29 @@ test('writeReport produces matching JSON and Markdown summaries', () => {
   assert(markdown.includes('Evaluation passed: 1'));
 });
 
+test('report JSON and Markdown preserve UTF-8 Chinese text', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-board-eval-utf8-'));
+  const phrase = '当前板端摄像头状态待确认';
+  const report = buildReport({ profile: 'mock', cases: [sampleCase({ title: phrase, warnings: [phrase] })] });
+  const result = writeReport(root, report, { outJson: 'runs/utf8.json', outMd: 'runs/utf8.md' });
+  const json = fs.readFileSync(result.jsonPath, 'utf8');
+  const markdown = fs.readFileSync(result.mdPath, 'utf8');
+  assert(json.includes(phrase));
+  assert(markdown.includes(phrase));
+  assert(!json.includes('\uFFFD'));
+});
+
+test('session JSONL preserves UTF-8 Chinese text', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-session-utf8-'));
+  const phrase = '当前板端摄像头状态待确认';
+  const session = createJsonlSession({ workspace: root }, { command: 'utf8-test' });
+  session.append({ type: 'message', role: 'assistant', content: phrase });
+  const read = readSessionFromPath(session.filePath);
+  const message = read.events.find((item) => item.type === 'message' && item.role === 'assistant');
+  assert.strictEqual(message.content, phrase);
+  assert(!fs.readFileSync(session.filePath, 'utf8').includes('\uFFFD'));
+});
+
 test('case catalog exposes the ten deterministic Phase 0 cases', () => {
   const catalog = createCaseCatalog();
   assert.strictEqual(catalog.length, 10);
@@ -162,7 +186,7 @@ test('board smoke skipped count remains a warning without becoming passed', () =
 test('fixture-only cases are skipped outside mock profile', async () => {
   const result = await runEvaluation({
     profile: 'local',
-    caseIds: ['BENV-004'],
+    caseIds: ['BKB-002'],
     withModel: false,
     dryRun: false,
     outJson: path.join('runs', 'unused.json'),
@@ -171,6 +195,19 @@ test('fixture-only cases are skipped outside mock profile', async () => {
   assert.strictEqual(result.report.cases[0].evaluationStatus, 'skipped');
   assert.match(result.report.cases[0].warnings[0], /fixture-only/);
   assert.strictEqual(result.exitCode, 0);
+});
+
+test('camera case runs as a real local classification check', async () => {
+  const result = await runEvaluation({
+    profile: 'local',
+    caseIds: ['BENV-004'],
+    withModel: false,
+    dryRun: false,
+    outJson: path.join('runs', 'unused.json'),
+    outMd: path.join('runs', 'unused.md'),
+  }, { write: false });
+  assert.strictEqual(result.report.cases[0].evaluationStatus, 'passed');
+  assert.notStrictEqual(result.report.cases[0].evaluationStatus, 'skipped');
 });
 
 test('mock profile passes all ten deterministic cases', async () => {

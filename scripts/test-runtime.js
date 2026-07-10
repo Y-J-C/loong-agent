@@ -940,6 +940,7 @@ test('Loong extension registers board tools by default and can be disabled', () 
   assert(enabled.tools.board_profile, 'default loong extension missing board_profile');
   assert(enabled.tools.loong_env_check, 'default loong extension missing loong_env_check');
   assert(enabled.tools.loong_storage_check, 'default loong extension missing loong_storage_check');
+  assert(enabled.tools.loong_camera_check, 'default loong extension missing loong_camera_check');
   assert(enabled.tools.command_reference, 'default loong extension missing command_reference');
   assert(enabled.tools.loong_env_check.repeatPolicy === 'answerable_once', 'loong_env_check should guard repeated identical calls');
   assert(enabled.tools.board_profile.repeatPolicy === 'answerable_once', 'board_profile should guard repeated identical calls');
@@ -948,11 +949,13 @@ test('Loong extension registers board tools by default and can be disabled', () 
   assert(!disabled.tools.board_profile, 'disabled extensions should not expose board_profile');
   assert(!disabled.tools.loong_env_check, 'disabled extensions should not expose loong_env_check');
   assert(!disabled.tools.loong_storage_check, 'disabled extensions should not expose loong_storage_check');
+  assert(!disabled.tools.loong_camera_check, 'disabled extensions should not expose loong_camera_check');
   assert(!disabled.tools.command_reference, 'disabled extensions should not expose command_reference');
   const disabledToolNames = createDefaultTools({ config: { extensions: [] } }).map((tool) => tool.name);
   assert(disabledToolNames.indexOf('board_profile') < 0, 'disabled default tools should not include board_profile');
   assert(disabledToolNames.indexOf('loong_env_check') < 0, 'disabled default tools should not include loong_env_check');
   assert(disabledToolNames.indexOf('loong_storage_check') < 0, 'disabled default tools should not include loong_storage_check');
+  assert(disabledToolNames.indexOf('loong_camera_check') < 0, 'disabled default tools should not include loong_camera_check');
   assert(disabledToolNames.indexOf('command_reference') < 0, 'disabled default tools should not include command_reference');
 });
 
@@ -1019,6 +1022,32 @@ test('prompt builder includes full current memory context as separate messages',
   assert(prompt.indexOf('1.4Gi') >= 0, 'prompt missing selected memory value');
   assert(prompt.indexOf('0x76') >= 0, 'full context should include unrelated I2C observation');
   assert(prompt.indexOf('I2C_TOOL_RESULT_SHOULD_NOT_APPEAR') >= 0, 'full context should include toolResult context');
+});
+
+test('Loong environment and storage observations prefer structured facts when available', () => {
+  const state = createAgentState({ tools: [], extensionRuntime: createDefaultExtensionRuntime({}) });
+  recordToolResult(state, { tool: 'loong_env_check', input: {} }, {
+    ok: true,
+    data: {
+      facts: [{ key: 'runtime.node.version', status: 'measured', value: 'v14.16.1', source: 'command', observedAt: '2026-07-10T00:00:00.000Z', warnings: [] }],
+      commands: [{ command: 'node -v', exitCode: 0, stdout: 'v14.16.1' }],
+    },
+    evidence: [],
+  });
+  recordToolResult(state, { tool: 'loong_storage_check', input: {} }, {
+    ok: true,
+    data: {
+      facts: [{ key: 'storage.target.writable', status: 'measured', value: true, source: 'filesystem', observedAt: '2026-07-10T00:00:00.000Z', warnings: [] }],
+      filesystems: [{ mount: '/', size: '5G' }],
+      blockDevices: [],
+    },
+    evidence: [],
+  });
+  const typed = state.observations.reduce((items, item) => items.concat(item.typedObservations || []), []);
+  const runtime = typed.find((item) => item.subject === 'system.runtime');
+  const disk = typed.find((item) => item.subject === 'system.disk' && item.parsed && item.parsed.facts);
+  assert(runtime && runtime.parsed.facts[0].key === 'runtime.node.version', 'environment observation did not preserve structured facts');
+  assert(disk && disk.parsed.facts[0].key === 'storage.target.writable', 'storage observation did not preserve structured facts');
 });
 
 test('prompt builder includes full current I2C context as separate messages', () => {
@@ -1758,7 +1787,7 @@ test('environment version answers require tool evidence before final answer', as
   assert(!/v18\.19\.0/.test(result.summary), 'unsupported version answer was accepted');
 });
 
-test('camera tool attempts run kb_search before bash diagnostics', async () => {
+test('camera questions run kb_search before the dedicated current camera check', async () => {
   let calls = 0;
   registerProvider({
     name: 'test-camera-early-kb-search',
@@ -1787,8 +1816,9 @@ test('camera tool attempts run kb_search before bash diagnostics', async () => {
   agent.subscribe((event) => events.push(event));
   const result = await agent.prompt('当前 USB camera 没有 /dev/video0，能否通过 libusb 或 UVC 其他办法抓图？');
   const toolStarts = events.filter((event) => event.type === 'tool_execution_start').map((event) => event.toolName);
-  assert(toolStarts[0] === 'kb_search', `expected kb_search before bash, got ${toolStarts.join(',')}`);
-  assert(toolStarts.indexOf('bash') < 0, 'bash should not run before required camera kb_search');
+  assert(toolStarts[0] === 'kb_search', `expected kb_search first, got ${toolStarts.join(',')}`);
+  assert(toolStarts.indexOf('loong_camera_check') > 0, 'current camera question should use loong_camera_check after kb_search');
+  assert(toolStarts.indexOf('bash') < 0, 'camera diagnostics should not use generic bash');
   assert(/本地 USB camera\/UVC 知识/.test(result.summary), 'camera early kb_search flow did not reach final answer');
 });
 

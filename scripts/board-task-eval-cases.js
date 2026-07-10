@@ -7,6 +7,7 @@ const path = require('path');
 const { createKbSearchToolDefinition } = require('../src/tools/kb-tools');
 const { createLoongEnvCheckToolDefinition } = require('../src/tools/loong-env-check');
 const { createLoongStorageCheckToolDefinition } = require('../src/tools/loong-storage-check');
+const { createLoongCameraCheckToolDefinition } = require('../src/tools/loong-camera-check');
 const { createProjectMapToolDefinition } = require('../src/tools/project-map');
 
 const CASE_IDS = [
@@ -44,6 +45,18 @@ function commandEvidence(item) {
   };
 }
 
+function factsOf(result) {
+  return result && result.data && Array.isArray(result.data.facts) ? result.data.facts : [];
+}
+
+function factByKey(result, key) {
+  return factsOf(result).find((item) => item.key === key);
+}
+
+function validCurrentFact(value) {
+  return Boolean(value && value.source && value.observedAt && !Number.isNaN(Date.parse(value.observedAt)));
+}
+
 function mockResult(caseId, title, fields) {
   const source = fields || {};
   return Object.assign({
@@ -72,6 +85,9 @@ async function runEnvOverview(context, definition) {
     check('arch_evidence', Boolean(arch && typeof arch.exitCode === 'number'), 'uname -m includes an exit code.'),
     check('os_evidence', Boolean(osRelease && typeof osRelease.exitCode === 'number'), 'os-release check includes an exit code.'),
     check('node_evidence', Boolean(node && typeof node.exitCode === 'number'), 'node -v includes an exit code.'),
+    check('arch_fact', validCurrentFact(factByKey(result, 'system.architecture')), 'Architecture fact includes source and observedAt.'),
+    check('os_fact', validCurrentFact(factByKey(result, 'system.os.id')), 'OS fact includes source and observedAt.'),
+    check('node_fact', validCurrentFact(factByKey(result, 'runtime.node.version')), 'Node fact includes source and observedAt.'),
   ];
   const confirmed = arch && arch.exitCode === 0 && osRelease && osRelease.exitCode === 0 && node && node.exitCode === 0;
   return {
@@ -79,7 +95,7 @@ async function runEnvOverview(context, definition) {
     taskOutcome: confirmed ? 'success' : 'inconclusive',
     checks,
     requiredEvidence: ['uname -m', 'cat /etc/os-release', 'node -v'],
-    evidence: [arch, osRelease, node].filter(Boolean).map(commandEvidence),
+    evidence: [arch, osRelease, node].filter(Boolean).map(commandEvidence).concat(factsOf(result)),
     unsupportedClaims: [],
     warnings: confirmed ? [] : ['One or more current environment checks were unavailable; no complete environment conclusion was produced.'],
     error: '',
@@ -103,12 +119,16 @@ async function runCommandAvailability(context, definition) {
     Boolean(commands[index] && typeof commands[index].exitCode === 'number'),
     `${name} includes an exit code.`
   ));
+  ['runtime.node.version', 'runtime.npm.version', 'runtime.git.version', 'runtime.gcc.version'].forEach((key) => {
+    const fact = factByKey(result, key);
+    checks.push(check(`fact_${key.replace(/\W+/g, '_')}`, validCurrentFact(fact) && fact.status !== 'absent', `${key} retains a non-absence check status.`));
+  });
   return {
     evaluationStatus: evaluationFromChecks(checks),
     taskOutcome: commands.every((item) => item && item.exitCode === 0) ? 'success' : 'inconclusive',
     checks,
     requiredEvidence: names,
-    evidence: commands.filter(Boolean).map(commandEvidence),
+    evidence: commands.filter(Boolean).map(commandEvidence).concat(factsOf(result)),
     unsupportedClaims: [],
     warnings: commands.some((item) => !item || item.exitCode !== 0)
       ? ['Unavailable commands were recorded without treating the corresponding platform capability as absent.']
@@ -125,6 +145,9 @@ async function runStorage(context, definition) {
     check('storage_command_evidence', commands.length >= 4, 'Storage result records all bounded read-only probes.'),
     check('storage_exit_codes', commands.every((item) => typeof item.exitCode === 'number'), 'Every probe records an exit code.'),
     check('storage_durations', commands.every((item) => typeof item.durationMs === 'number'), 'Every probe records durationMs.'),
+    check('storage_facts', factsOf(result).length > 0, 'Storage result includes structured facts.'),
+    check('workspace_access_fact', validCurrentFact(factByKey(result, 'storage.target.writable')), 'Workspace access fact includes source and observedAt.'),
+    check('capacity_requires_df', !factsOf(result).some((item) => /^storage\.filesystem\./.test(item.key) && item.status === 'measured') || Boolean(commands.find((item) => item.name === 'df' && item.exitCode === 0)), 'Measured capacity facts require successful df evidence.'),
   ];
   const succeeded = commands.some((item) => item.exitCode === 0);
   return {
@@ -132,7 +155,38 @@ async function runStorage(context, definition) {
     taskOutcome: succeeded ? 'success' : 'inconclusive',
     checks,
     requiredEvidence: ['df', 'lsblk', 'mounts', 'du'],
-    evidence: commands.map(commandEvidence),
+    evidence: commands.map(commandEvidence).concat(factsOf(result)),
+    unsupportedClaims: [],
+    warnings: result.warnings || [],
+    error: '',
+  };
+}
+
+async function runCamera(context, definition) {
+  if (context.profile === 'mock') {
+    return mockResult(definition.caseId, definition.title, {
+      taskOutcome: 'inconclusive',
+      checks: [check('device_failure_classification', true, 'Camera fixture keeps permission and absence separate.')],
+    });
+  }
+  const result = await createLoongCameraCheckToolDefinition().execute(context.config, {}, {});
+  const nodes = factByKey(result, 'hardware.camera.device_nodes');
+  const permission = factByKey(result, 'hardware.camera.permission');
+  const userland = factByKey(result, 'hardware.camera.userland_check');
+  const allowedStatuses = ['measured', 'absent', 'command_missing', 'permission_denied', 'timed_out', 'parse_failed', 'check_failed', 'unknown'];
+  const checks = [
+    check('camera_node_fact', validCurrentFact(nodes) && allowedStatuses.includes(nodes.status), 'Camera node state is explicitly classified.'),
+    check('camera_permission_fact', validCurrentFact(permission) && allowedStatuses.includes(permission.status), 'Camera permission state is explicitly classified.'),
+    check('camera_userland_fact', validCurrentFact(userland) && allowedStatuses.includes(userland.status), 'Camera userland check is explicitly classified.'),
+    check('permission_not_absent', !(permission && permission.status === 'permission_denied' && nodes && nodes.status === 'absent'), 'Permission denial is not reported as device absence.'),
+  ];
+  const conclusive = nodes && (nodes.status === 'measured' || nodes.status === 'absent');
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: conclusive ? 'success' : 'inconclusive',
+    checks,
+    requiredEvidence: ['/dev/video*', '/sys/class/video4linux', 'camera permission status'],
+    evidence: (result.evidence || []).concat(factsOf(result)),
     unsupportedClaims: [],
     warnings: result.warnings || [],
     error: '',
@@ -152,13 +206,16 @@ async function runProject(context, definition) {
     check('architecture_map', Boolean(result.data && Array.isArray(result.data.architecture)), 'Project map returns architecture layers.'),
     check('project_entry', fileEvidence[0].exists, 'src/index.js exists in the workspace.'),
     check('project_manifest', fileEvidence[1].exists, 'package.json exists in the workspace.'),
+    check('workspace_fact', validCurrentFact(factByKey(result, 'project.workspace.path')), 'Workspace fact includes source and observedAt.'),
+    check('entrypoint_fact', validCurrentFact(factByKey(result, 'project.entrypoint')), 'Entrypoint is explicitly measured, inferred, or unknown.'),
+    check('readiness_fact', validCurrentFact(factByKey(result, 'project.run.readiness')), 'Project readiness is explicitly inferred.'),
   ];
   return {
     evaluationStatus: evaluationFromChecks(checks),
     taskOutcome: checks.every((item) => item.status === 'passed') ? 'success' : 'inconclusive',
     checks,
     requiredEvidence: ['project architecture', 'src/index.js', 'package.json'],
-    evidence: (result.evidence || []).concat(fileEvidence),
+    evidence: (result.evidence || []).concat(fileEvidence, factsOf(result)),
     unsupportedClaims: [],
     warnings: [],
     error: '',
@@ -325,7 +382,7 @@ function createCaseCatalog() {
     { caseId: 'BENV-001', title: 'Current board, OS, architecture, and Node.js evidence', layer: 'deterministic', fixtureOnly: false, execute: runEnvOverview },
     { caseId: 'BENV-002', title: 'Command availability without capability overreach', layer: 'deterministic', fixtureOnly: false, execute: runCommandAvailability },
     { caseId: 'BENV-003', title: 'Read-only storage evidence', layer: 'deterministic', fixtureOnly: false, execute: runStorage },
-    { caseId: 'BENV-004', title: 'Device state failure classification', layer: 'deterministic', fixtureOnly: true, execute: async (ctx, def) => mockResult(def.caseId, def.title, { taskOutcome: 'inconclusive' }) },
+    { caseId: 'BENV-004', title: 'Current camera device state classification', layer: 'deterministic', fixtureOnly: false, execute: runCamera },
     { caseId: 'BENV-005', title: 'Project runtime prerequisites', layer: 'deterministic', fixtureOnly: false, execute: runProject },
     { caseId: 'BKB-001', title: 'Board knowledge retains sources', layer: 'deterministic', fixtureOnly: false, execute: runKnownKnowledge },
     { caseId: 'BKB-002', title: 'Current evidence takes precedence over historical evidence', layer: 'deterministic', fixtureOnly: true, execute: async (ctx, def) => mockResult(def.caseId, def.title, { evidence: [{ source: 'current', value: 'current' }, { source: 'historical', value: 'old' }] }) },

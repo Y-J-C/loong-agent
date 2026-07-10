@@ -2,7 +2,7 @@
 'use strict';
 
 const http = require('http');
-const { chatCompletion, chatCompletionWithTools } = require('../src/llm');
+const { chatCompletion, chatCompletionWithEvents, chatCompletionWithTools } = require('../src/llm');
 const { buildOpenAiPayload } = require('../src/provider-registry');
 const { createDefaultTools } = require('../src/tool-registry');
 
@@ -297,6 +297,38 @@ test('legacy chatCompletion still returns string content', async () => {
   }, async (baseUrl) => {
     const content = await chatCompletion(config(baseUrl), [{ role: 'user', content: 'x' }]);
     assert(content === '{"type":"answer","answer":"legacy ok","status":"ok"}', 'legacy chatCompletion did not return string');
+  });
+});
+
+test('non-streaming provider preserves UTF-8 Chinese content', async () => {
+  const phrase = '当前板端摄像头状态待确认';
+  await withServer((payload, res) => {
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: phrase } }] }));
+  }, async (baseUrl) => {
+    const content = await chatCompletion(config(baseUrl), [{ role: 'user', content: 'check' }]);
+    assert(content === phrase, 'non-streaming Chinese content changed');
+  });
+});
+
+test('streaming provider preserves Chinese split inside a UTF-8 code point', async () => {
+  const phrase = '当前板端摄像头状态待确认';
+  await withServer((payload, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+    const body = Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { content: phrase } }] })}\n\ndata: [DONE]\n\n`, 'utf8');
+    const marker = Buffer.from('摄', 'utf8');
+    const split = body.indexOf(marker) + 1;
+    res.write(body.slice(0, split));
+    setTimeout(() => res.end(body.slice(split)), 5);
+  }, async (baseUrl) => {
+    const cfg = Object.assign(config(baseUrl), { streaming: true });
+    let streamed = '';
+    const content = await chatCompletionWithEvents(cfg, [{ role: 'user', content: 'check' }], {
+      onDelta: (delta) => { streamed += delta; },
+    });
+    assert(content === phrase, 'streaming Chinese content changed');
+    assert(streamed === phrase, 'streaming Chinese delta changed');
+    assert(content.indexOf('\uFFFD') < 0, 'streaming content contains replacement characters');
   });
 });
 
