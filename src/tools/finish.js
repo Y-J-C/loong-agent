@@ -11,6 +11,7 @@ function createFinishToolDefinition() {
     category: 'control',
     safety: { readOnly: true, sensitive: false, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: false, source: 'runtime' },
+    recoveryPolicy: 'never_retry',
     resultSchema: {
       data: 'final summary',
       evidence: 'none',

@@ -48,6 +48,7 @@ function renderUsage() {
     '  node src/index.js sessions --tree        查看会话分支树',
     '  node src/index.js session latest         查看最新会话',
     '  node src/index.js session audit latest   审计最新会话',
+    '  node src/index.js session recover latest 检查长任务恢复状态',
     '  node src/index.js session replay latest  回放最新会话',
     '  node src/index.js session fork latest    创建分支',
     '  node src/index.js session resume latest "继续分析"  继续会话',

@@ -3,9 +3,10 @@
 const SENSITIVE_KEY_PATTERN = /api[_-]?key|token|secret|authorization|credential|password/i;
 const SENSITIVE_TEXT_PATTERN =
   /(api[_-]?key|token|secret|authorization|credential|password)\s*[:=]\s*["']?[^"'\s]+/ig;
+const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/ig;
 
 function redactText(value) {
-  return String(value || '').replace(SENSITIVE_TEXT_PATTERN, (match) => {
+  return String(value || '').replace(BEARER_PATTERN, 'Bearer [redacted]').replace(SENSITIVE_TEXT_PATTERN, (match) => {
     const separatorIndex = Math.max(match.indexOf(':'), match.indexOf('='));
     if (separatorIndex < 0) return '[redacted]';
     return `${match.slice(0, separatorIndex + 1)} [redacted]`;

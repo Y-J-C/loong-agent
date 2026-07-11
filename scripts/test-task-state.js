@@ -19,6 +19,7 @@ const {
   setConclusion,
   startStep,
   summarizeTaskState,
+  upsertCheckpoint,
   updateTaskPhase,
 } = require('../src/agent/task-state');
 const { registerProvider } = require('../src/provider-registry');
@@ -49,7 +50,38 @@ test('createTaskState creates serializable state with task id', () => {
   assert.strictEqual(state.taskType, 'general');
   assert.strictEqual(state.phase, 'understand');
   assert.strictEqual(state.steps.length, 1);
+  assert.deepStrictEqual(state.checkpoints, []);
+  assert.strictEqual(state.checkpointsTruncated, false);
   assert.doesNotThrow(() => JSON.stringify(state));
+});
+
+test('upsertCheckpoint updates in place and bounds checkpoint history', () => {
+  let state = createTaskState({ goal: 'manage background work' });
+  state = upsertCheckpoint(state, {
+    checkpointId: 'process-a',
+    kind: 'managed_process',
+    originToolCallId: 'call-a',
+    status: 'starting',
+  });
+  state = upsertCheckpoint(state, {
+    originToolCallId: 'call-a',
+    status: 'running',
+    process: { pid: 123, pidFile: 'worker.pid' },
+  });
+  assert.strictEqual(state.checkpoints.length, 1);
+  assert.strictEqual(state.checkpoints[0].status, 'running');
+  assert.strictEqual(state.checkpoints[0].process.pid, 123);
+
+  for (let index = 0; index < 40; index += 1) {
+    state = upsertCheckpoint(state, {
+      checkpointId: `process-${index}`,
+      kind: 'managed_process',
+      originToolCallId: `call-${index}`,
+      status: 'completed',
+    });
+  }
+  assert.strictEqual(state.checkpoints.length, 32);
+  assert.strictEqual(state.checkpointsTruncated, true);
 });
 
 test('updateTaskPhase returns a new state with updated phase', () => {

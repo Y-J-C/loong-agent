@@ -115,6 +115,63 @@ test('agent_run tool start keeps act running without duplicating completed state
   assert.strictEqual(step(next, 'understand').status, 'done');
 });
 
+test('agent_run folds managed process lifecycle into one redacted checkpoint', () => {
+  let state = ingestTaskRuntimeEvent(agentRunState(), {
+    type: 'tool_execution_start',
+    toolCallId: 'background-start',
+    toolName: 'bash',
+    args: {
+      command: 'API_KEY=secret-value node worker.js',
+      background: true,
+    },
+  });
+  assert.strictEqual(state.checkpoints.length, 1);
+  assert.strictEqual(state.checkpoints[0].status, 'starting');
+  assert(state.checkpoints[0].commandHash, 'checkpoint missing command hash');
+  assert(state.checkpoints[0].commandSummary.indexOf('secret-value') < 0, 'checkpoint leaked command secret');
+
+  state = ingestTaskRuntimeEvent(state, {
+    type: 'tool_execution_end',
+    toolCallId: 'background-start',
+    toolName: 'bash',
+    result: {
+      ok: true,
+      background: true,
+      pid: 123,
+      pidFile: 'worker.pid',
+      logFile: 'worker.log',
+      statusFile: 'worker.status.json',
+      processIdentity: { pid: 123, startTicks: '10', commandHash: 'hash' },
+      commandHash: 'command-hash',
+      evidence: [],
+      warnings: [],
+    },
+  });
+  assert.strictEqual(state.checkpoints.length, 1);
+  assert.strictEqual(state.checkpoints[0].status, 'running');
+  assert.strictEqual(state.checkpoints[0].process.pid, 123);
+  assert.deepStrictEqual(state.checkpoints[0].pendingVerifications, ['process_status', 'process_logs']);
+
+  state = ingestTaskRuntimeEvent(state, {
+    type: 'tool_execution_end',
+    toolCallId: 'status-check',
+    toolName: 'process_status',
+    result: {
+      ok: true,
+      pid: 123,
+      pidFile: 'worker.pid',
+      processState: 'completed',
+      identityStatus: 'match',
+      checkedAt: '2026-07-11T00:00:00.000Z',
+      evidence: [],
+      warnings: [],
+    },
+  });
+  assert.strictEqual(state.checkpoints.length, 1);
+  assert.strictEqual(state.checkpoints[0].status, 'completed');
+  assert.strictEqual(state.checkpoints[0].lastToolCallId, 'status-check');
+});
+
 test('agent_run successful tool result appends structured non-manual evidence', () => {
   let state = ingestTaskRuntimeEvent(agentRunState(), {
     type: 'message_end',

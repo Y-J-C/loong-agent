@@ -154,6 +154,15 @@ function normalizeTaskStateUpdate(event) {
   });
 }
 
+function normalizeRecoveryCheck(event) {
+  return baseEvent('recovery_check', 'session', event, {
+    sourceSessionId: event.sourceSessionId || '',
+    status: event.status || event.recovery && event.recovery.status || 'unknown',
+    recovery: event.recovery || null,
+    warnings: event.warnings || [],
+  });
+}
+
 function normalizeModelUsage(event) {
   return baseEvent('model_usage', 'usage', event, {
     provider: event.provider || '',
@@ -208,6 +217,7 @@ function normalizeAgentEvent(event) {
   if (event.type === 'tool_execution_update') return normalizeToolUpdate(event);
   if (event.type === 'tool_execution_end') return normalizeToolEnd(event);
   if (event.type === 'task_state_update') return normalizeTaskStateUpdate(event);
+  if (event.type === 'recovery_check') return normalizeRecoveryCheck(event);
   if (event.type === 'model_request') return normalizeModelRequest(event);
   if (event.type === 'model_usage') return normalizeModelUsage(event);
   if (event.type === 'fork_start' || event.type === 'log_start' || event.type === 'log_end') {

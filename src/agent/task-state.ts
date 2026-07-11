@@ -92,6 +92,23 @@ export type FinishCriteria = {
   description: string;
 };
 
+export type TaskCheckpoint = {
+  checkpointId: string;
+  kind: "managed_process";
+  stepId?: string;
+  originToolCallId?: string;
+  lastToolCallId?: string;
+  status: string;
+  commandSummary?: string;
+  commandHash?: string;
+  process: Record<string, unknown>;
+  latestEvidence: Record<string, unknown>;
+  pendingVerifications: string[];
+  recoveryPolicy: "auto_verify" | "confirm_retry" | "never_retry";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TaskState = {
   taskId: string;
   goal: string;
@@ -102,6 +119,8 @@ export type TaskState = {
   observations: Observation[];
   evidence: Evidence[];
   blockers: Blocker[];
+  checkpoints: TaskCheckpoint[];
+  checkpointsTruncated: boolean;
   finishCriteria?: FinishCriteria;
   conclusion?: string;
   createdAt: string;
@@ -123,4 +142,5 @@ export function addObservation(state: TaskState, observation: Observation): Task
 export function addEvidence(state: TaskState, evidence: Evidence): TaskState;
 export function addBlocker(state: TaskState, blocker: Blocker): TaskState;
 export function setConclusion(state: TaskState, conclusion: string): TaskState;
+export function upsertCheckpoint(state: TaskState, checkpoint: Partial<TaskCheckpoint>): TaskState;
 export function summarizeTaskState(state: TaskState): string;

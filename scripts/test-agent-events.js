@@ -154,6 +154,20 @@ test('task_state_update is normalized and does not break TUI handling', () => {
   assert.strictEqual(state.messages.length, 0);
 });
 
+test('recovery_check keeps stable recovery status and warnings', () => {
+  const normalized = normalizeAgentEvent({
+    type: 'recovery_check',
+    sourceSessionId: 'parent-session',
+    status: 'needs_confirmation',
+    warnings: ['identity mismatch'],
+    recovery: { status: 'needs_confirmation' },
+  });
+  assert.strictEqual(normalized.type, 'recovery_check');
+  assert.strictEqual(normalized.category, 'session');
+  assert.strictEqual(normalized.status, 'needs_confirmation');
+  assert.deepStrictEqual(normalized.warnings, ['identity mismatch']);
+});
+
 test('unknown events normalize to ignored and stay ignored by TUI', () => {
   const state = createTuiState({});
   const event = {

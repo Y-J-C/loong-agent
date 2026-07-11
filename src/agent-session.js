@@ -21,6 +21,7 @@ const {
   createTaskState,
   setConclusion,
   summarizeTaskState,
+  upsertCheckpoint,
   updateTaskPhase,
 } = require('./agent/task-state');
 const { createDefaultExtensionRuntime } = require('./extensions');
@@ -59,6 +60,7 @@ function createAgentSession(config, options) {
     finalAnswerEvidenceGuard: extensionRuntime.finalAnswerEvidenceGuard,
     prepareNextTurn,
   });
+  if (options.resumeRecovery) agent.getState().resumeRecovery = options.resumeRecovery;
 
   function createSessionAppender(targetSession) {
     let pendingUpdate = null;
@@ -329,6 +331,9 @@ function createAgentSession(config, options) {
   async function prompt(text) {
     const state = agent.getState();
     state.taskState = applyProjectInspection(createPromptTaskState(text));
+    if (options.resumeRecovery && options.resumeRecovery.checkpoint) {
+      state.taskState = upsertCheckpoint(state.taskState, options.resumeRecovery.checkpoint);
+    }
     applySessionMemory(state, text);
     await emitTaskStateUpdate(state.taskState);
     try {

@@ -20,6 +20,7 @@ function createTool(definition) {
   if (typeof definition.execute !== 'function') {
     throw new Error(`Tool ${definition.name} requires an execute function`);
   }
+  const safety = Object.assign({}, DEFAULT_SAFETY, definition.safety || {});
   return {
     name: definition.name,
     label: definition.label || definition.name,
@@ -28,11 +29,12 @@ function createTool(definition) {
     promptSnippet: definition.promptSnippet || '',
     promptGuidelines: definition.promptGuidelines || '',
     category: definition.category || 'diagnostics',
-    safety: Object.assign({}, DEFAULT_SAFETY, definition.safety || {}),
+    safety,
     evidencePolicy: Object.assign({}, DEFAULT_EVIDENCE_POLICY, definition.evidencePolicy || {}),
     resultSchema: definition.resultSchema || {},
     executionMode: definition.executionMode || 'sequential',
     repeatPolicy: definition.repeatPolicy || '',
+    recoveryPolicy: definition.recoveryPolicy || (safety.readOnly ? 'auto_verify' : 'confirm_retry'),
     answerHint: definition.answerHint || '',
     validate: definition.validate || ((input) => requireObject(input || {})),
     renderCall:
@@ -127,6 +129,7 @@ function formatToolForPrompt(tool) {
   if (tool.promptSnippet) lines.push(`  Use: ${tool.promptSnippet}`);
   if (tool.promptGuidelines) lines.push(`  Guidance: ${tool.promptGuidelines}`);
   if (tool.repeatPolicy) lines.push(`  Repeat policy: ${tool.repeatPolicy}`);
+  if (tool.recoveryPolicy) lines.push(`  Recovery policy: ${tool.recoveryPolicy}`);
   if (tool.answerHint) lines.push(`  Answer hint: ${tool.answerHint}`);
   return lines.join('\n');
 }

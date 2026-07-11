@@ -1322,14 +1322,18 @@ async function runSlashCommandLegacy(context, text) {
       selectedSessionRequired(state);
       return;
     }
+    const recovery = await manager.inspectRecovery(parent);
     const child = manager.createChildSession(parent, { command: 'resume' });
+    manager.appendRecoveryCheck(child, recovery);
     const session = createContextAgentSession(context, config, {
       command: 'resume',
       session: child,
       parentSession: parent.path,
+      resumeRecovery: recovery,
     });
     context.replaceAgentSession(session);
-    const contextPrompt = manager.buildResumeContextPrompt(parent, prompt);
+    addMessage(state, { type: 'system', text: manager.renderRecovery(recovery) });
+    const contextPrompt = manager.buildResumeContextPrompt(parent, prompt, recovery);
     await context.startPrompt(contextPrompt);
     return;
   }

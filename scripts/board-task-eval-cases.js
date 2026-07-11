@@ -9,6 +9,15 @@ const { createLoongEnvCheckToolDefinition } = require('../src/tools/loong-env-ch
 const { createLoongStorageCheckToolDefinition } = require('../src/tools/loong-storage-check');
 const { createLoongCameraCheckToolDefinition } = require('../src/tools/loong-camera-check');
 const { createProjectMapToolDefinition } = require('../src/tools/project-map');
+const { runBashCommand } = require('../src/runtime/bash-executor');
+const {
+  processLogs,
+  processStatus,
+  processStop,
+  processWait,
+} = require('../src/runtime/process-manager');
+const { captureProcessIdentity } = require('../src/runtime/process-identity');
+const { inspectSessionRecovery } = require('../src/session-recovery');
 const {
   candidateFromCurrentFact,
   candidateFromKnowledgeFact,
@@ -27,6 +36,10 @@ const CASE_IDS = [
   'BKB-003',
   'BKB-004',
   'BFAIL-001',
+  'BLONG-001',
+  'BLONG-002',
+  'BREC-001',
+  'BREC-002',
   'BACC-001',
 ];
 
@@ -449,6 +462,203 @@ async function runQuickSmoke(context, definition) {
   return evaluated;
 }
 
+function removeFixture(root) {
+  try {
+    fs.rmSync(root, { recursive: true, force: true });
+  } catch (error) {
+    // Fixture cleanup is best-effort; process cleanup is handled separately.
+  }
+}
+
+async function runManagedBackground(context, definition) {
+  if (context.profile === 'mock') {
+    return mockResult(definition.caseId, definition.title, {
+      checks: [
+        check('managed_identity', true, 'Fixture includes PID, identity, pidFile, logFile, and statusFile.'),
+        check('managed_stop', true, 'Fixture stops only a matching managed identity.'),
+      ],
+    });
+  }
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-long-'));
+  const script = path.join(workspace, 'worker.js');
+  fs.writeFileSync(script, [
+    "'use strict';",
+    "console.log('phase4-ready');",
+    'setInterval(function () {}, 1000);',
+    '',
+  ].join('\n'), 'utf8');
+  const config = { workspace };
+  let started = null;
+  let status = null;
+  let logs = null;
+  let stopped = null;
+  try {
+    started = await runBashCommand({ command: `node ${JSON.stringify(script)}`, background: true }, config);
+    await processWait(config, {
+      logFile: started.logFile,
+      contains: 'phase4-ready',
+      timeoutMs: 3000,
+      pollIntervalMs: 50,
+    });
+    status = await processStatus(config, {
+      pid: started.pid,
+      pidFile: started.pidFile,
+      logFile: started.logFile,
+      statusFile: started.statusFile,
+      expectedIdentity: started.processIdentity,
+    });
+    logs = await processLogs(config, { logFile: started.logFile, lines: 20 });
+    stopped = await processStop(config, {
+      pid: started.pid,
+      pidFile: started.pidFile,
+      statusFile: started.statusFile,
+      expectedIdentity: started.processIdentity,
+    });
+  } finally {
+    if (started && started.pid && (!stopped || stopped.running)) {
+      await processStop(config, { pid: started.pid }).catch(() => {});
+    }
+    removeFixture(workspace);
+  }
+  const identityAccepted = context.profile === 'board'
+    ? status && status.identityStatus === 'match' && started.processIdentity.strength === 'strong'
+    : status && ['match', 'partial'].indexOf(status.identityStatus) >= 0;
+  const checks = [
+    check('managed_sidecars', Boolean(started && started.pid && started.pidFile && started.logFile && started.statusFile), 'Managed start returns all sidecar paths.'),
+    check('managed_identity', Boolean(identityAccepted), 'Managed identity is strong on board and safely degraded elsewhere.'),
+    check('managed_running', Boolean(status && status.processState === 'running'), 'Managed process is queryable while running.'),
+    check('managed_logs', Boolean(logs && logs.logStatus === 'available' && logs.content.indexOf('phase4-ready') >= 0), 'Managed log contains current output evidence.'),
+    check('managed_stop', Boolean(stopped && stopped.stopped && !stopped.running), 'Managed process stops within the bounded observation window.'),
+  ];
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: checks.every((item) => item.status === 'passed') ? 'success' : 'failed',
+    checks,
+    requiredEvidence: ['pid', 'pidFile', 'logFile', 'statusFile', 'processIdentity'],
+    evidence: [
+      { source: 'managed-process', pid: started && started.pid, identity: started && started.processIdentity },
+      { source: 'process-status', state: status && status.processState, identityStatus: status && status.identityStatus },
+      { source: 'process-log', status: logs && logs.logStatus, bytes: logs && logs.bytes },
+      { source: 'process-stop', stopped: stopped && stopped.stopped },
+    ],
+    unsupportedClaims: [],
+    warnings: [].concat(status && status.warnings || [], logs && logs.warnings || [], stopped && stopped.warnings || []),
+    error: '',
+  };
+}
+
+async function runConditionalWait(context, definition) {
+  if (context.profile === 'mock') {
+    return mockResult(definition.caseId, definition.title, {
+      checks: [
+        check('condition_met', true, 'Fixture reaches the log condition.'),
+        check('timed_out', true, 'Fixture records a bounded timeout.'),
+        check('cancelled', true, 'Fixture records cancellation.'),
+      ],
+    });
+  }
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-wait-'));
+  const logFile = path.join(workspace, 'condition.log');
+  let matched;
+  let timedOut;
+  let cancelled;
+  try {
+    setTimeout(() => fs.writeFileSync(logFile, 'condition-ready\n', 'utf8'), 30);
+    matched = await processWait({ workspace }, { logFile, contains: 'condition-ready', timeoutMs: 1000, pollIntervalMs: 20 });
+    timedOut = await processWait({ workspace }, { logFile, contains: 'not-present', timeoutMs: 60, pollIntervalMs: 20 });
+    cancelled = await processWait({ workspace }, { logFile, contains: 'not-present', timeoutMs: 1000 }, { signal: { aborted: true } });
+  } finally {
+    removeFixture(workspace);
+  }
+  const checks = [
+    check('condition_met', matched && matched.waitStatus === 'condition_met', 'Log condition is observed.'),
+    check('timed_out', timedOut && timedOut.waitStatus === 'timed_out', 'Absent condition reaches bounded timeout.'),
+    check('cancelled', cancelled && cancelled.waitStatus === 'cancelled', 'Cancellation is explicit.'),
+  ];
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: checks.every((item) => item.status === 'passed') ? 'success' : 'failed',
+    checks,
+    requiredEvidence: ['condition', 'timeoutMs', 'waitStatus'],
+    evidence: [matched, timedOut, cancelled].map((item) => ({ source: 'process-wait', waitStatus: item && item.waitStatus, durationMs: item && item.durationMs })),
+    unsupportedClaims: [],
+    warnings: [],
+    error: '',
+  };
+}
+
+async function runInterruptedRecovery(context, definition) {
+  if (context.profile === 'mock') return mockResult(definition.caseId, definition.title, { taskOutcome: 'blocked' });
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-recovery-'));
+  const marker = path.join(workspace, 'must-not-exist.txt');
+  const identity = captureProcessIdentity(process.pid);
+  const session = {
+    id: 'eval-interrupted',
+    path: path.join(workspace, 'eval-interrupted.jsonl'),
+    events: [
+      { type: 'session', version: 2, sessionId: 'eval-interrupted', rootSessionId: 'eval-interrupted', cwd: workspace, entryId: '1', parentEntryId: null },
+      { type: 'agent_start', entryId: '2', parentEntryId: '1' },
+      { type: 'tool_execution_start', toolCallId: 'side-effect-call', toolName: 'bash', args: { command: `node -e ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(marker)}, 'replayed')`)}` }, entryId: '3', parentEntryId: '2' },
+      { type: 'task_state_update', state: { taskId: 'eval-task', phase: 'act', checkpoints: [{ checkpointId: 'eval-process', originToolCallId: 'side-effect-call', status: 'running', process: { pid: process.pid, processIdentity: identity }, recoveryPolicy: 'confirm_retry' }] }, entryId: '4', parentEntryId: '3' },
+    ],
+  };
+  let recovery;
+  let sideEffectAbsent = false;
+  try {
+    recovery = await inspectSessionRecovery({ workspace }, session);
+    sideEffectAbsent = !fs.existsSync(marker);
+  } finally {
+    removeFixture(workspace);
+  }
+  const protectedAction = recovery.protectedActions.find((item) => item.toolCallId === 'side-effect-call');
+  const checks = [
+    check('running_process_recovered', recovery.status === 'running', 'Current managed process identity is rechecked.'),
+    check('unknown_call_never_retried', protectedAction && protectedAction.policy === 'never_retry', 'Unclosed side-effectful call is never auto-retried.'),
+    check('side_effect_not_replayed', sideEffectAbsent, 'Recovery inspection did not execute the original command.'),
+  ];
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: 'blocked',
+    checks,
+    requiredEvidence: ['session audit', 'process identity', 'protected action fingerprint'],
+    evidence: [{ source: 'session-recovery', status: recovery.status, auditStatus: recovery.audit.status, protectedPolicy: protectedAction && protectedAction.policy }],
+    unsupportedClaims: [],
+    warnings: recovery.warnings || [],
+    error: '',
+  };
+}
+
+async function runCorruptTailRecovery(context, definition) {
+  if (context.profile === 'mock') return mockResult(definition.caseId, definition.title);
+  const session = {
+    id: 'eval-corrupt-tail',
+    path: 'runs/eval-corrupt-tail.jsonl',
+    events: [
+      { type: 'session', version: 2, sessionId: 'eval-corrupt-tail', rootSessionId: 'eval-corrupt-tail', cwd: context.root, entryId: '1', parentEntryId: null },
+      { type: 'agent_start', entryId: '2', parentEntryId: '1' },
+      { type: 'task_state_update', state: { taskId: 'eval-complete', phase: 'finish', checkpoints: [{ checkpointId: 'complete-checkpoint', status: 'completed', process: {}, latestEvidence: { source: 'fixture', status: 'completed' } }] }, entryId: '3', parentEntryId: '2' },
+      { type: 'invalid_json', line: 4, content: '{broken', entryId: '4', parentEntryId: '3' },
+    ],
+  };
+  const recovery = await inspectSessionRecovery(context.config, session);
+  const checks = [
+    check('audit_corrupt', recovery.audit.status === 'corrupt', 'Corrupt tail remains visible in audit.'),
+    check('last_checkpoint_recovered', recovery.checkpoint && recovery.checkpoint.checkpointId === 'complete-checkpoint', 'Last complete checkpoint is recovered.'),
+    check('terminal_status_preserved', recovery.status === 'completed', 'Trusted completed checkpoint remains completed without a fabricated event.'),
+    check('warning_preserved', recovery.warnings.some((item) => /audit status is corrupt/i.test(item)), 'Recovery keeps the audit warning.'),
+  ];
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: 'success',
+    checks,
+    requiredEvidence: ['invalid_json audit issue', 'last complete task checkpoint'],
+    evidence: [{ source: 'session-recovery', status: recovery.status, auditStatus: recovery.audit.status, checkpointId: recovery.checkpoint && recovery.checkpoint.checkpointId }],
+    unsupportedClaims: [],
+    warnings: recovery.warnings || [],
+    error: '',
+  };
+}
+
 function createCaseCatalog() {
   return [
     { caseId: 'BENV-001', title: 'Current board, OS, architecture, and Node.js evidence', layer: 'deterministic', fixtureOnly: false, execute: runEnvOverview },
@@ -461,6 +671,10 @@ function createCaseCatalog() {
     { caseId: 'BKB-003', title: 'Missing knowledge remains unknown', layer: 'deterministic', fixtureOnly: false, execute: runMissingKnowledge },
     { caseId: 'BKB-004', title: 'Knowledge applicability mismatch remains non-definitive', layer: 'deterministic', fixtureOnly: false, execute: runApplicabilityBoundary },
     { caseId: 'BFAIL-001', title: 'Permission denied is not absence', layer: 'deterministic', fixtureOnly: true, execute: async (ctx, def) => mockResult(def.caseId, def.title, { taskOutcome: 'blocked', checks: [check('permission_denied_not_absent', true, 'permission_denied remains blocked.')] }) },
+    { caseId: 'BLONG-001', title: 'Managed background task identity and lifecycle', layer: 'deterministic', fixtureOnly: false, execute: runManagedBackground },
+    { caseId: 'BLONG-002', title: 'Bounded wait condition states', layer: 'deterministic', fixtureOnly: false, execute: runConditionalWait },
+    { caseId: 'BREC-001', title: 'Interrupted managed task recovery without replay', layer: 'deterministic', fixtureOnly: false, execute: runInterruptedRecovery },
+    { caseId: 'BREC-002', title: 'Corrupt session tail recovery', layer: 'deterministic', fixtureOnly: false, execute: runCorruptTailRecovery },
     { caseId: 'BACC-001', title: 'Quick board smoke JSON is machine-readable', layer: 'deterministic', fixtureOnly: false, execute: runQuickSmoke },
   ];
 }

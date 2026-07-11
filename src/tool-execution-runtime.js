@@ -109,6 +109,9 @@ function bashExecutionFromToolResult(action, result, options) {
       pid: data.pid,
       logFile: data.logFile || '',
       pidFile: data.pidFile || '',
+      statusFile: data.statusFile || '',
+      processIdentity: data.processIdentity || null,
+      commandHash: data.commandHash || '',
     },
   };
 }

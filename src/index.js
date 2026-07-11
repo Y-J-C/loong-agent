@@ -174,20 +174,30 @@ async function main() {
       else printLineage(chain);
       return;
     }
+    if (args[0] === 'recover') {
+      const target = args[1] || 'latest';
+      const parent = target === 'latest' ? manager.latest() : manager.read(target);
+      const recovery = await manager.inspectRecovery(parent);
+      if (args.includes('--json')) printJson(recovery);
+      else console.log(manager.renderRecovery(recovery));
+      return;
+    }
     if (args[0] === 'resume') {
       const target = args[1];
       const prompt = args.slice(2).join(' ').trim();
       if (!target) throw new Error('Missing session id or path after resume');
       if (!prompt) throw new Error('Missing follow-up text after session resume <id>');
       const parent = target === 'latest' ? manager.latest() : manager.read(target);
-      const resumeContext = manager.extractResumeContext(parent);
+      const recovery = await manager.inspectRecovery(parent);
       const child = manager.createChildSession(parent, { command: 'resume' });
+      manager.appendRecoveryCheck(child, recovery);
       const agentSession = createAgentSession(config, {
         command: 'resume',
         session: child,
         parentSession: parent.path,
+        resumeRecovery: recovery,
       });
-      const contextPrompt = manager.buildResumeContextPrompt(parent, prompt);
+      const contextPrompt = manager.buildResumeContextPrompt(parent, prompt, recovery);
       const result = await agentSession.prompt(contextPrompt);
       console.log(result.summary || JSON.stringify(result, null, 2));
       if (result.session && result.session.path) {

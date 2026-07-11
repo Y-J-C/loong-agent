@@ -5,6 +5,11 @@ const {
   buildResumePromptContext,
   buildSessionLedger,
 } = require('./session-ledger');
+const {
+  buildRecoveryPromptBlock,
+  inspectSessionRecovery,
+  renderSessionRecovery,
+} = require('./session-recovery');
 
 function truncate(value, maxLength) {
   const text = typeof value === 'string' ? value : JSON.stringify(value || {});
@@ -114,8 +119,28 @@ function createSessionManager(config) {
     };
   }
 
-  function buildResumeContextPrompt(session, followUpPrompt) {
-    return buildResumePromptContext(session, followUpPrompt || '').prompt;
+  function buildResumeContextPrompt(session, followUpPrompt, recovery) {
+    const prompt = buildResumePromptContext(session, followUpPrompt || '').prompt;
+    return recovery ? `${buildRecoveryPromptBlock(recovery)}\n\n${prompt}` : prompt;
+  }
+
+  async function inspectRecovery(sessionOrId) {
+    const session = typeof sessionOrId === 'string'
+      ? (sessionOrId === 'latest' ? latest() : read(sessionOrId))
+      : sessionOrId;
+    return inspectSessionRecovery(config, session);
+  }
+
+  function appendRecoveryCheck(targetSession, recovery) {
+    if (!targetSession || typeof targetSession.append !== 'function') throw new Error('Writable child session is required');
+    targetSession.append({
+      type: 'recovery_check',
+      version: 1,
+      sourceSessionId: recovery && recovery.sourceSessionId || '',
+      status: recovery && recovery.status || 'unknown',
+      recovery: recovery || null,
+      warnings: recovery && recovery.warnings || [],
+    });
   }
 
   function fork(idOrPath, options) {
@@ -145,14 +170,17 @@ function createSessionManager(config) {
   }
 
   return {
+    appendRecoveryCheck,
     createChildSession,
     buildResumeContextPrompt,
     extractResumeContext,
+    inspectRecovery,
     fork,
     latest,
     lineage,
     list,
     read,
+    renderRecovery: renderSessionRecovery,
     tree,
   };
 }

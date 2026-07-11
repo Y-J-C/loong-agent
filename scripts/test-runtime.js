@@ -2998,6 +2998,7 @@ test('default tools expose metadata contract', async () => {
     assert(tool.category, `missing category for ${tool.name}`);
     assert(tool.safety && typeof tool.safety.readOnly === 'boolean', `missing safety profile for ${tool.name}`);
     assert(tool.evidencePolicy && typeof tool.evidencePolicy.emitsEvidence === 'boolean', `missing evidence policy for ${tool.name}`);
+    assert(['auto_verify', 'confirm_retry', 'never_retry'].indexOf(tool.recoveryPolicy) >= 0, `missing recovery policy for ${tool.name}`);
   });
   assert(names.finish && names.board_profile && names.bash, 'missing expected default tools');
   ['process_status', 'process_logs', 'process_stop'].forEach((name) => {
@@ -3219,7 +3220,17 @@ test('bash background process can be checked logged and stopped', async () => {
   assert(started.ok === true && started.background === true, 'background bash did not start');
   assert(started.pid && fs.existsSync(pidFile), 'background pid file missing');
 
-  await sleep(1800);
+  const ready = await registry.execute(cfg, 'process_wait', {
+    pid: started.pid,
+    pidFile,
+    statusFile: started.statusFile,
+    expectedIdentity: started.processIdentity,
+    logFile,
+    contains: 'tick',
+    timeoutMs: 8000,
+    pollIntervalMs: 100,
+  });
+  assert(ready.waitStatus === 'condition_met', `background process did not produce a tick: ${ready.waitStatus}`);
   const status = await registry.execute(cfg, 'process_status', { pidFile, logFile });
   assert(status.running === true, 'background process is not running');
 

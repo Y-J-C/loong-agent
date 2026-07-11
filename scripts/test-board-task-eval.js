@@ -135,9 +135,9 @@ test('session JSONL preserves UTF-8 Chinese text', () => {
   assert(!fs.readFileSync(session.filePath, 'utf8').includes('\uFFFD'));
 });
 
-test('case catalog exposes the eleven deterministic evidence cases', () => {
+test('case catalog exposes the fifteen deterministic evidence and recovery cases', () => {
   const catalog = createCaseCatalog();
-  assert.strictEqual(catalog.length, 11);
+  assert.strictEqual(catalog.length, 15);
   assert.deepStrictEqual(catalog.map((item) => item.caseId), CASE_IDS);
   assert(catalog.every((item) => item.layer === 'deterministic'));
 });
@@ -223,7 +223,7 @@ test('camera case runs as a real local classification check', async () => {
   assert.notStrictEqual(result.report.cases[0].evaluationStatus, 'skipped');
 });
 
-test('mock profile passes all eleven deterministic cases', async () => {
+test('mock profile passes all fifteen deterministic cases', async () => {
   const result = await runEvaluation({
     profile: 'mock',
     caseIds: [],
@@ -232,7 +232,7 @@ test('mock profile passes all eleven deterministic cases', async () => {
     outJson: path.join('runs', 'unused.json'),
     outMd: path.join('runs', 'unused.md'),
   }, { write: false });
-  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, 11);
+  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, 15);
   assert.strictEqual(result.report.summary.deterministic.requiredFailed, 0);
   assert.strictEqual(result.exitCode, 0);
 });

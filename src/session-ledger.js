@@ -123,6 +123,9 @@ function deriveBashFromToolResult(event) {
       pid: data.pid,
       logFile: data.logFile || '',
       pidFile: data.pidFile || '',
+      statusFile: data.statusFile || '',
+      processIdentity: data.processIdentity || null,
+      commandHash: data.commandHash || '',
     },
     derivedFromToolResult: true,
   });

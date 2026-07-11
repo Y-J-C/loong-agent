@@ -7,6 +7,7 @@ const { longTaskBeforeToolCallHook, longTaskWorkflowHook } = require('./long-tas
 const { toolResultRedactionHook } = require('./tool-result-redaction');
 const { toolErrorRecoveryHook } = require('./tool-error-recovery');
 const { toolSafetyPolicyHook } = require('./tool-safety-policy');
+const { recoveryReplayGuardHook } = require('../session-recovery');
 
 function emptyContextResult() {
   return {
@@ -77,7 +78,7 @@ function createDefaultPrepareNextTurn(extraHook, extensionRuntime) {
 }
 
 function createBeforeToolCallChain(extraHook, extensionRuntime) {
-  const hooks = [longTaskBeforeToolCallHook, toolSafetyPolicyHook, extensionBeforeToolCallHook(extensionRuntime)].filter(Boolean);
+  const hooks = [longTaskBeforeToolCallHook, recoveryReplayGuardHook, toolSafetyPolicyHook, extensionBeforeToolCallHook(extensionRuntime)].filter(Boolean);
   if (extraHook) hooks.push(extraHook);
   return async (context) => {
     for (const hook of hooks) {
@@ -125,5 +126,6 @@ module.exports = {
   longTaskWorkflowHook,
   toolResultRedactionHook,
   toolErrorRecoveryHook,
+  recoveryReplayGuardHook,
   toolSafetyPolicyHook,
 };

@@ -75,6 +75,7 @@ async function toolSafetyPolicyHook(context) {
     return block(action, decision.policy || 'tool_policy_denied', decision.reason || 'Tool call denied.', decision.approval);
   }
   if (decision.status === 'ask') {
+    if (context.recoveryApprovalGranted) return null;
     const approval = decision.approval || {};
     if (typeof context.requestToolApproval !== 'function') {
       return block(action, 'tool_approval_required', decision.reason || 'Tool call requires approval.', approval);
@@ -109,7 +110,10 @@ async function toolSafetyPolicyHook(context) {
         timestamp: new Date().toISOString(),
       });
     }
-    if (approved) return null;
+    if (approved) {
+      context.recoveryApprovalGranted = true;
+      return null;
+    }
     return block(action, 'tool_approval_denied', decision.reason || 'Tool call was denied by user.', approval);
   }
   return null;

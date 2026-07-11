@@ -7,6 +7,7 @@ const {
   completeStep,
   failStep,
   startStep,
+  upsertCheckpoint,
 } = require('./task-state');
 const {
   advanceProjectRunCheckSteps,
@@ -14,6 +15,8 @@ const {
 } = require('./project-run-check-runtime');
 const { normalizeAgentEvents } = require('../agent-events');
 const { classifyFailureType, normalizeEvidenceRef } = require('./task-memory');
+const { redactValue } = require('../hooks/tool-result-redaction');
+const { hashCommand } = require('../runtime/process-identity');
 
 function textOf(value) {
   if (value === undefined || value === null) return '';
@@ -85,6 +88,133 @@ function resultSummary(event) {
     ) || '',
     240
   );
+}
+
+function processFields(data) {
+  const value = data || {};
+  return {
+    pid: value.pid,
+    pidFile: value.pidFile || '',
+    logFile: value.logFile || '',
+    statusFile: value.statusFile || '',
+    processIdentity: value.processIdentity || null,
+    identityStatus: value.identityStatus || '',
+    processState: value.processState || '',
+    checkedAt: value.checkedAt || '',
+    recordedStatus: value.recordedStatus || null,
+  };
+}
+
+function findProcessCheckpoint(state, event, data) {
+  const checkpoints = state && state.checkpoints || [];
+  const value = data || {};
+  return checkpoints.find((item) => (
+    event && event.toolCallId && item.originToolCallId === event.toolCallId
+  )) || checkpoints.find((item) => {
+    const processInfo = item.process || {};
+    return Boolean(
+      value.pidFile && processInfo.pidFile === value.pidFile ||
+      value.statusFile && processInfo.statusFile === value.statusFile ||
+      value.logFile && processInfo.logFile === value.logFile ||
+      value.pid && Number(processInfo.pid) === Number(value.pid)
+    );
+  });
+}
+
+function checkpointStatus(toolName, event, data, previous) {
+  if (toolName === 'bash') {
+    if (data.background) return 'running';
+    if (data.timedOut) return 'timed_out';
+    if (data.cancelled) return 'cancelled';
+    return event.isError || Number(data.exitCode || 0) !== 0 ? 'failed' : previous || 'completed';
+  }
+  if (toolName === 'process_status') return data.processState || previous || 'unknown';
+  if (toolName === 'process_stop') return data.stopped ? 'stopped' : data.processState || previous || 'unknown';
+  if (toolName === 'process_wait') {
+    if (data.waitStatus === 'cancelled') return 'cancelled';
+    if (data.waitStatus === 'timed_out') return 'timed_out';
+    const waitedProcess = data.process || {};
+    return waitedProcess.processState || previous || 'running';
+  }
+  return previous || 'unknown';
+}
+
+function pendingAfterTool(previous, toolName, status) {
+  const pending = Array.isArray(previous) ? previous.slice() : [];
+  const remove = (name) => {
+    const index = pending.indexOf(name);
+    if (index >= 0) pending.splice(index, 1);
+  };
+  if (toolName === 'process_status') remove('process_status');
+  if (toolName === 'process_logs') remove('process_logs');
+  if (['completed', 'failed', 'stopped', 'timed_out', 'cancelled', 'zombie', 'lost'].indexOf(status) >= 0) {
+    remove('process_status');
+  }
+  return pending;
+}
+
+function ingestManagedProcessStart(state, event) {
+  const args = event && event.args && typeof event.args === 'object' ? event.args : {};
+  if (!event || event.toolName !== 'bash' || args.background !== true) return state;
+  const command = String(args.command || '');
+  const redacted = String(redactValue(command) || '');
+  return upsertCheckpoint(state, {
+    checkpointId: `process-${event.toolCallId || hashCommand(command).slice(0, 12)}`,
+    kind: 'managed_process',
+    stepId: state.currentStepId || 'act',
+    originToolCallId: event.toolCallId || '',
+    lastToolCallId: event.toolCallId || '',
+    status: 'starting',
+    commandSummary: truncate(redacted, 160),
+    commandHash: hashCommand(command),
+    process: {
+      pidFile: args.pidFile || '',
+      logFile: args.logFile || '',
+      statusFile: args.statusFile || '',
+    },
+    latestEvidence: {
+      source: 'tool_execution_start',
+      toolCallId: event.toolCallId || '',
+      observedAt: event.startedAt || '',
+    },
+    pendingVerifications: ['process_status', 'process_logs'],
+    recoveryPolicy: 'confirm_retry',
+  });
+}
+
+function ingestManagedProcessEnd(state, event) {
+  const toolName = event && event.toolName || '';
+  if (['bash', 'process_status', 'process_wait', 'process_logs', 'process_stop'].indexOf(toolName) < 0) return state;
+  const data = resultData(resultObject(event));
+  let checkpoint = findProcessCheckpoint(state, event, data);
+  if (!checkpoint && toolName === 'bash' && data.background) {
+    state = ingestManagedProcessStart(state, {
+      type: 'tool_execution_start',
+      toolName: 'bash',
+      toolCallId: event.toolCallId,
+      args: { command: data.command || '', background: true },
+    });
+    checkpoint = findProcessCheckpoint(state, event, data);
+  }
+  if (!checkpoint) return state;
+  const status = checkpointStatus(toolName, event, data, checkpoint.status);
+  const latestEvidence = {
+    source: toolName,
+    toolCallId: event.toolCallId || '',
+    status: data.processState || data.waitStatus || data.logStatus || status,
+    observedAt: data.checkedAt || '',
+    summary: resultSummary(event),
+  };
+  return upsertCheckpoint(state, {
+    checkpointId: checkpoint.checkpointId,
+    originToolCallId: checkpoint.originToolCallId,
+    lastToolCallId: event.toolCallId || checkpoint.lastToolCallId || '',
+    status,
+    commandHash: checkpoint.commandHash || data.commandHash || '',
+    process: processFields(Object.assign({}, data.process || {}, data)),
+    latestEvidence,
+    pendingVerifications: pendingAfterTool(checkpoint.pendingVerifications, toolName, status),
+  });
 }
 
 function evidenceKey(item) {
@@ -286,6 +416,7 @@ function isFailedToolEvent(event) {
 function ingestGenericToolEnd(taskState, event) {
   let state = taskState;
   state = startIfPendingOrIdle(state, 'act');
+  state = ingestManagedProcessEnd(state, event);
   state = ingestToolObservation(state, event);
   state = ingestToolEvidence(state, event);
   if (isFailedToolEvent(event)) {
@@ -328,7 +459,8 @@ function ingestGenericAgentRunEvent(taskState, event) {
   }
 
   if (event.type === 'tool_execution_start') {
-    return startIfPendingOrIdle(state, 'act');
+    state = startIfPendingOrIdle(state, 'act');
+    return ingestManagedProcessStart(state, event);
   }
 
   if (event.type === 'tool_execution_end') {

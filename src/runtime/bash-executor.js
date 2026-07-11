@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnProcess, waitForChildProcess } = require('./child-process');
 const { OutputAccumulator } = require('./output-accumulator');
+const { captureProcessIdentity, hashCommand } = require('./process-identity');
 const {
   getShellConfig,
   getShellEnv,
@@ -36,11 +37,7 @@ function ensureRuntimeDir(config, kind) {
 }
 
 function safeNameFromCommand(command) {
-  return String(command || 'command')
-    .replace(/["']/g, '')
-    .replace(/[^a-zA-Z0-9_.-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'command';
+  return `command-${hashCommand(command).slice(0, 12)}`;
 }
 
 function resolveRuntimePath(config, value, kind, command, extension) {
@@ -48,6 +45,13 @@ function resolveRuntimePath(config, value, kind, command, extension) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const name = `${stamp}-${safeNameFromCommand(command)}${extension}`;
   return path.join(ensureRuntimeDir(config, kind), name);
+}
+
+function writeJsonAtomic(filePath, value) {
+  const tempPath = `${filePath}.${process.pid}.tmp`;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(tempPath, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tempPath, filePath);
 }
 
 function resultFromAccumulators(command, stdout, stderr, combined, started, options) {
@@ -207,22 +211,41 @@ function runBackgroundShell(config, command, input) {
   const shell = getShellConfig(input && input.shellPath);
   const logFile = resolveRuntimePath(config, input && input.logFile, 'logs', command, '.log');
   const pidFile = resolveRuntimePath(config, input && input.pidFile, 'pids', command, '.pid');
+  const statusFile = resolveRuntimePath(config, input && input.statusFile, 'status', command, '.json');
+  const descriptorFile = resolveRuntimePath(config, '', 'jobs', command, '.json');
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+  fs.mkdirSync(path.dirname(statusFile), { recursive: true });
   let fd = null;
   try {
+    writeJsonAtomic(descriptorFile, {
+      command,
+      cwd: (config && config.workspace) || process.cwd(),
+      env: {},
+      shell: shell.shell,
+      shellArgs: shell.args,
+      statusFile,
+    });
+    writeJsonAtomic(statusFile, {
+      schema: 'loong-agent.managed-process-status.v1',
+      status: 'starting',
+      pid: 0,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     fd = fs.openSync(logFile, 'a');
     fs.writeSync(fd, `\n[loong-agent] start ${new Date().toISOString()} pid=pending command=${command}\n`);
-    const child = spawnProcess(shell.shell, shell.args.concat([command]), {
+    const child = spawnProcess(process.execPath, [path.join(__dirname, 'background-runner.js'), descriptorFile], {
       cwd: (config && config.workspace) || process.cwd(),
-      detached: shell.detached,
+      detached: process.platform !== 'win32',
       env: getShellEnv(),
       stdio: ['ignore', fd, fd],
       windowsHide: true,
     });
     fs.writeFileSync(pidFile, `${child.pid}\n`, 'utf8');
     fs.writeSync(fd, `[loong-agent] pid=${child.pid}\n`);
-    if (child.pid && shell.detached) trackDetachedChildPid(child.pid);
+    if (child.pid && process.platform !== 'win32') trackDetachedChildPid(child.pid);
+    const processIdentity = captureProcessIdentity(child.pid);
     child.unref();
     fs.closeSync(fd);
     fd = null;
@@ -239,6 +262,9 @@ function runBackgroundShell(config, command, input) {
       pid: child.pid,
       logFile,
       pidFile,
+      statusFile,
+      processIdentity,
+      commandHash: hashCommand(command),
       warnings: [],
     });
   } catch (error) {
@@ -249,6 +275,20 @@ function runBackgroundShell(config, command, input) {
         // Ignore close errors from failed spawn setup.
       }
     }
+    try {
+      if (fs.existsSync(descriptorFile)) fs.unlinkSync(descriptorFile);
+    } catch (ignored) {
+      // Ignore cleanup failure after a failed spawn.
+    }
+    writeJsonAtomic(statusFile, {
+      schema: 'loong-agent.managed-process-status.v1',
+      status: 'failed',
+      pid: 0,
+      startedAt: new Date(started).toISOString(),
+      endedAt: new Date().toISOString(),
+      exitCode: 1,
+      error: error && error.message ? error.message : String(error),
+    });
     return Promise.resolve({
       command,
       exitCode: 1,
@@ -261,6 +301,9 @@ function runBackgroundShell(config, command, input) {
       background: false,
       logFile,
       pidFile,
+      statusFile,
+      processIdentity: null,
+      commandHash: hashCommand(command),
       warnings: [],
     });
   }

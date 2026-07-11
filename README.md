@@ -287,6 +287,8 @@ node src/index.js session latest --markdown
 node src/index.js session latest --html --out runs/latest.html
 node src/index.js session audit latest
 node src/index.js session audit latest --json
+node src/index.js session recover latest
+node src/index.js session recover latest --json
 node src/index.js session replay latest
 node src/index.js session replay latest --trace
 node src/index.js session replay latest --markdown
@@ -425,9 +427,12 @@ close()
   command: "python3 /home/loongson/test/read_bmp280.py --samples 10 --interval 2 --output /home/loongson/test/out.csv",
   background: true,
   logFile: "/home/loongson/test/bmp280.log",
-  pidFile: "/home/loongson/test/bmp280.pid"
+  pidFile: "/home/loongson/test/bmp280.pid",
+  statusFile: "/home/loongson/test/bmp280.status.json"
 }
 ```
+
+后台启动结果同时返回 `processIdentity`。Linux 板端使用 PID、boot ID、`/proc` 启动 tick 和命令指纹识别进程；身份不匹配时不会停止当前 PID。`statusFile` 独立保存完成、失败或停止终态，进程退出后仍可恢复退出码。
 
 随后用：
 
@@ -439,6 +444,8 @@ process_stop
 ```
 
 不要用 `bash sleep` 代替 `process_wait`，也不要用 `bash cat` / `tail` 读取受管后台日志，优先用 `process_logs`。
+
+`process_wait` 既支持固定时长，也支持 `logFile + contains + timeoutMs` 的有界条件等待。`session recover` 只做 Session、进程和日志核验，不重放原命令；`session resume` 与 TUI `/resume` 会先记录 `recovery_check`，重复副作用操作仍需用户批准。
 
 文件工具说明：
 

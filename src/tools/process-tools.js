@@ -16,6 +16,13 @@ function optionalString(input, name) {
   return typeof input[name] === 'string' ? '' : `Field must be a string: ${name}`;
 }
 
+function optionalObject(input, name) {
+  const objectError = requireObject(input || {});
+  if (objectError) return objectError;
+  if (input[name] === undefined || input[name] === null) return '';
+  return typeof input[name] === 'object' && !Array.isArray(input[name]) ? '' : `Field must be an object: ${name}`;
+}
+
 function requirePidOrPidFile(input) {
   const objectError = requireObject(input || {});
   if (objectError) return objectError;
@@ -26,10 +33,11 @@ function requirePidOrPidFile(input) {
 
 function processEnvelope(result, action) {
   const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const state = result.processState || result.waitStatus || result.logStatus || '';
   return {
     ok: true,
     data: result,
-    summary: `${action} pid=${result.pid || ''}${result.running === undefined ? '' : ` running=${result.running}`}`.trim(),
+    summary: `${action} pid=${result.pid || ''}${result.running === undefined ? '' : ` running=${result.running}`}${state ? ` state=${state}` : ''}`.trim(),
     evidence: [{
       source: 'process',
       action,
@@ -38,6 +46,11 @@ function processEnvelope(result, action) {
       stopped: result.stopped,
       logFile: result.logFile || '',
       pidFile: result.pidFile || '',
+      statusFile: result.statusFile || '',
+      processState: result.processState || '',
+      identityStatus: result.identityStatus || '',
+      logStatus: result.logStatus || '',
+      waitStatus: result.waitStatus || '',
     }],
     warnings,
     error: '',
@@ -46,6 +59,17 @@ function processEnvelope(result, action) {
     stopped: result.stopped,
     logFile: result.logFile || '',
     pidFile: result.pidFile || '',
+    statusFile: result.statusFile || '',
+    checkedAt: result.checkedAt || '',
+    processState: result.processState || '',
+    identityStatus: result.identityStatus || '',
+    processIdentity: result.processIdentity || null,
+    recordedStatus: result.recordedStatus || null,
+    logStatus: result.logStatus || '',
+    waitStatus: result.waitStatus || '',
+    exists: result.exists,
+    readable: result.readable,
+    bytes: result.bytes,
     content: result.content,
   };
 }
@@ -58,14 +82,20 @@ function createProcessStatusToolDefinition() {
     category: 'process-readonly',
     safety: { readOnly: true, sensitive: false, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'process' },
+    recoveryPolicy: 'auto_verify',
     parameters: {
       pid: 'number optional',
       pidFile: 'string optional',
       logFile: 'string optional',
+      statusFile: 'string optional',
+      expectedIdentity: 'object optional',
     },
     promptSnippet: 'Use after bash background=true to verify the process is running.',
     promptGuidelines: 'Use pidFile returned by bash when available. Do not scan all system processes.',
-    validate: (input) => requirePidOrPidFile(input || {}) || optionalString(input || {}, 'logFile'),
+    validate: (input) => requirePidOrPidFile(input || {}) ||
+      optionalString(input || {}, 'logFile') ||
+      optionalString(input || {}, 'statusFile') ||
+      optionalObject(input || {}, 'expectedIdentity'),
     renderCall: (input) => `pid=${input.pid || ''}, pidFile=${input.pidFile || ''}`,
     renderResult: (result) => summarize(result, 400),
     execute: async (config, input) => processEnvelope(await processStatus(config, input || {}), 'status'),
@@ -80,13 +110,18 @@ function createProcessStopToolDefinition() {
     category: 'process-control',
     safety: { readOnly: false, sensitive: false, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'process' },
+    recoveryPolicy: 'confirm_retry',
     parameters: {
       pid: 'number optional',
       pidFile: 'string optional',
+      statusFile: 'string optional',
+      expectedIdentity: 'object optional',
     },
     promptSnippet: 'Use to stop a background command that was started for the user.',
     promptGuidelines: 'Only stop the pid or pidFile the user requested or that bash returned in this session.',
-    validate: (input) => requirePidOrPidFile(input || {}),
+    validate: (input) => requirePidOrPidFile(input || {}) ||
+      optionalString(input || {}, 'statusFile') ||
+      optionalObject(input || {}, 'expectedIdentity'),
     renderCall: (input) => `pid=${input.pid || ''}, pidFile=${input.pidFile || ''}`,
     renderResult: (result) => summarize(result, 400),
     execute: async (config, input) => processEnvelope(await processStop(config, input || {}), 'stop'),
@@ -101,6 +136,7 @@ function createProcessLogsToolDefinition() {
     category: 'process-readonly',
     safety: { readOnly: true, sensitive: true, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'process' },
+    recoveryPolicy: 'auto_verify',
     parameters: {
       logFile: 'string',
       lines: 'number optional; default 80, max 500',
@@ -127,15 +163,32 @@ function createProcessWaitToolDefinition() {
     category: 'process-readonly',
     safety: { readOnly: true, sensitive: false, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'process' },
+    recoveryPolicy: 'auto_verify',
     parameters: {
       durationMs: 'number; wait duration, max 60000',
+      pid: 'number optional',
+      pidFile: 'string optional',
+      statusFile: 'string optional',
+      expectedIdentity: 'object optional',
+      logFile: 'string optional',
+      contains: 'string optional',
+      timeoutMs: 'number optional; max 60000',
+      pollIntervalMs: 'number optional',
     },
     promptSnippet: 'Use instead of bash sleep when waiting for a background logger, monitor, or CSV writer.',
     promptGuidelines: 'Use process_wait after bash background=true, then inspect process_status/process_logs/read output files.',
-    validate: (input) => optionalNumber(input || {}, 'durationMs'),
+    validate: (input) => optionalNumber(input || {}, 'durationMs') ||
+      optionalNumber(input || {}, 'pid') ||
+      optionalNumber(input || {}, 'timeoutMs') ||
+      optionalNumber(input || {}, 'pollIntervalMs') ||
+      optionalString(input || {}, 'pidFile') ||
+      optionalString(input || {}, 'statusFile') ||
+      optionalString(input || {}, 'logFile') ||
+      optionalString(input || {}, 'contains') ||
+      optionalObject(input || {}, 'expectedIdentity'),
     renderCall: (input) => `durationMs=${input.durationMs || 1000}`,
     renderResult: (result) => summarize(result, 300),
-    execute: async (config, input) => processEnvelope(await processWait(config, input || {}), 'wait'),
+    execute: async (config, input, executionContext) => processEnvelope(await processWait(config, input || {}, executionContext || {}), 'wait'),
   };
 }
 

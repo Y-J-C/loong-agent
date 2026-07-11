@@ -55,7 +55,8 @@ function validateBash(input) {
     optionalNumber(input || {}, 'timeoutMs') ||
     optionalBoolean(input || {}, 'background') ||
     optionalString(input || {}, 'logFile') ||
-    optionalString(input || {}, 'pidFile');
+    optionalString(input || {}, 'pidFile') ||
+    optionalString(input || {}, 'statusFile');
 }
 
 function classifyBashResult(result) {
@@ -138,6 +139,9 @@ function commandEnvelope(result) {
       pid: result.pid,
       logFile: result.logFile || '',
       pidFile: result.pidFile || '',
+      statusFile: result.statusFile || '',
+      processIdentity: result.processIdentity || null,
+      commandHash: result.commandHash || '',
       truncated: result.truncated === true,
       fullOutputPath: result.fullOutputPath || '',
       likelyLongRunning: result.likelyLongRunning === true,
@@ -155,6 +159,8 @@ function commandEnvelope(result) {
       pid: result.pid,
       logFile: result.logFile || '',
       pidFile: result.pidFile || '',
+      statusFile: result.statusFile || '',
+      processIdentity: result.processIdentity || null,
       timedOut: result.timedOut === true,
       cancelled: result.cancelled === true,
       truncated: result.truncated === true,
@@ -175,6 +181,9 @@ function commandEnvelope(result) {
     pid: result.pid,
     logFile: result.logFile || '',
     pidFile: result.pidFile || '',
+    statusFile: result.statusFile || '',
+    processIdentity: result.processIdentity || null,
+    commandHash: result.commandHash || '',
     truncated: result.truncated === true,
     fullOutputPath: result.fullOutputPath || '',
     likelyLongRunning: result.likelyLongRunning === true,
@@ -197,6 +206,7 @@ function createBashToolDefinition() {
     safety: { readOnly: false, sensitive: true, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'command' },
     repeatPolicy: 'answerable_once',
+    recoveryPolicy: 'confirm_retry',
     resultSchema: {
       data: 'command execution result',
       evidence: 'command, exitCode, durationMs',
@@ -208,6 +218,7 @@ function createBashToolDefinition() {
       background: 'boolean optional; true starts the command and returns pid/logFile/pidFile without waiting',
       logFile: 'string optional; path for background stdout/stderr log',
       pidFile: 'string optional; path for background pid file',
+      statusFile: 'string optional; path for managed background terminal status',
     },
     promptSnippet: 'Execute shell commands when needed. Use background=true for long-running loggers, monitors, servers, or loops.',
     promptGuidelines: [

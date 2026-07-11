@@ -3,6 +3,8 @@
 const { classifyTaskType } = require('./task-classifier');
 const { createProjectRunCheckSteps } = require('./planners/project-run-check');
 
+const MAX_CHECKPOINTS = 32;
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -59,11 +61,57 @@ function createTaskState(input) {
     observations: [],
     evidence: [],
     blockers: [],
+    checkpoints: [],
+    checkpointsTruncated: false,
     finishCriteria: value.finishCriteria,
     conclusion: undefined,
     createdAt,
     updatedAt: createdAt,
   };
+}
+
+function checkpointKey(item) {
+  const value = item || {};
+  return value.checkpointId || value.originToolCallId || value.process && value.process.pidFile || '';
+}
+
+function upsertCheckpoint(state, checkpoint) {
+  const value = checkpoint || {};
+  const key = checkpointKey(value);
+  if (!key) throw new Error('Checkpoint requires checkpointId, originToolCallId, or process.pidFile');
+  const updatedAt = nowIso();
+  const checkpoints = (state.checkpoints || []).slice();
+  const index = checkpoints.findIndex((item) => checkpointKey(item) === key || (
+    value.originToolCallId && item.originToolCallId === value.originToolCallId
+  ));
+  if (index >= 0) {
+    const previous = checkpoints[index];
+    checkpoints[index] = Object.assign({}, previous, value, {
+      checkpointId: previous.checkpointId || value.checkpointId || key,
+      process: Object.assign({}, previous.process || {}, value.process || {}),
+      latestEvidence: Object.assign({}, previous.latestEvidence || {}, value.latestEvidence || {}),
+      createdAt: previous.createdAt || value.createdAt || updatedAt,
+      updatedAt,
+    });
+  } else {
+    checkpoints.push(Object.assign({
+      checkpointId: value.checkpointId || key,
+      kind: 'managed_process',
+      stepId: state.currentStepId || 'act',
+      status: 'unknown',
+      process: {},
+      latestEvidence: {},
+      pendingVerifications: [],
+      recoveryPolicy: 'confirm_retry',
+      createdAt: updatedAt,
+    }, value, { updatedAt }));
+  }
+  let checkpointsTruncated = Boolean(state.checkpointsTruncated);
+  if (checkpoints.length > MAX_CHECKPOINTS) {
+    checkpoints.splice(0, checkpoints.length - MAX_CHECKPOINTS);
+    checkpointsTruncated = true;
+  }
+  return touch(state, { checkpoints, checkpointsTruncated });
 }
 
 function updateTaskPhase(state, phase) {
@@ -186,6 +234,14 @@ function summarizeTaskState(state) {
       lines.push(`- ${item.category || 'unknown'}: ${item.summary || ''}`);
     });
   }
+  const checkpoints = value.checkpoints || [];
+  if (checkpoints.length) {
+    lines.push('Managed process checkpoints:');
+    checkpoints.slice(-5).forEach((item) => {
+      const processInfo = item.process || {};
+      lines.push(`- ${item.status || 'unknown'} ${item.checkpointId || ''} pid=${processInfo.pid || ''} log=${processInfo.logFile || ''}`.trim());
+    });
+  }
   if (value.conclusion) {
     lines.push(`Conclusion: ${value.conclusion}`);
   }
@@ -202,5 +258,6 @@ module.exports = {
   setConclusion,
   startStep,
   summarizeTaskState,
+  upsertCheckpoint,
   updateTaskPhase,
 };

@@ -380,6 +380,18 @@ function collectTimeline(session) {
           blockers: event.state && event.state.blockers || [],
         },
       });
+    } else if (event.type === 'recovery_check') {
+      timeline.push({
+        type: 'recovery_check',
+        title: `Recovery check: ${event.status || event.recovery && event.recovery.status || 'unknown'}`,
+        timestamp: event.timestamp,
+        detail: {
+          sourceSessionId: event.sourceSessionId || '',
+          status: event.status || event.recovery && event.recovery.status || 'unknown',
+          recovery: event.recovery || null,
+          warnings: event.warnings || [],
+        },
+      });
     } else if (event.type === 'finish_check') {
       timeline.push({
         type: 'finish_check',
@@ -1303,6 +1315,8 @@ function renderSessionTrace(session) {
     } else if (event.type === 'task_state_update') {
       const state = event.state || {};
       lines.push(`task_state_update ${state.taskId || event.taskId || ''} phase=${state.phase || 'unknown'} goal=${state.goal || ''}`);
+    } else if (event.type === 'recovery_check') {
+      lines.push(`recovery_check ${event.sourceSessionId || ''} status=${event.status || event.recovery && event.recovery.status || 'unknown'}`);
     } else if (event.type === 'finish_check') {
       const check = event.result || {};
       const missing = Array.isArray(check.missingCriteria) && check.missingCriteria.length
