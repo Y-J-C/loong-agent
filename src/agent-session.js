@@ -67,10 +67,22 @@ function createAgentSession(config, options) {
     let lastWrittenAt = 0;
     let lastWrittenLength = 0;
     const minIntervalMs = 250;
-    const minChars = 256;
+    const minChars = 4096;
+    const maxSnapshotChars = 4096;
+
+    function persistedEvent(event) {
+      if (!event || event.type !== 'message_update' || !event.streaming || event.isFinal) return event;
+      const content = String(event.content || '');
+      if (content.length <= maxSnapshotChars) return Object.assign({}, event, { contentLength: content.length });
+      return Object.assign({}, event, {
+        content: content.slice(-maxSnapshotChars),
+        contentLength: content.length,
+        snapshotTruncated: true,
+      });
+    }
 
     function appendNow(event) {
-      if (targetSession) targetSession.append(event);
+      if (targetSession) targetSession.append(persistedEvent(event));
       if (event && event.type === 'message_update' && event.streaming) {
         lastWrittenAt = Date.now();
         lastWrittenLength = String(event.content || '').length;
@@ -136,13 +148,38 @@ function createAgentSession(config, options) {
 
   const appendSessionEvent = createSessionAppender(session);
 
+  function boundedTaskState(value, depth, tracker) {
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'string') {
+      if (value.length <= 4096) return value;
+      tracker.truncated = true;
+      return `${value.slice(0, 4096)}... [truncated]`;
+    }
+    if (typeof value !== 'object') return value;
+    if ((depth || 0) >= 8) {
+      tracker.truncated = true;
+      return '[max-depth]';
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 100) tracker.truncated = true;
+      return value.slice(0, 100).map((item) => boundedTaskState(item, (depth || 0) + 1, tracker));
+    }
+    const output = {};
+    Object.keys(value).forEach((key) => { output[key] = boundedTaskState(value[key], (depth || 0) + 1, tracker); });
+    return output;
+  }
+
   async function emitTaskStateUpdate(taskState) {
     if (!taskState) return;
+    const summary = summarizeTaskState(taskState);
+    const tracker = { truncated: false };
+    const persistedState = boundedTaskState(taskState, 0, tracker);
     const event = {
       type: 'task_state_update',
       taskId: taskState.taskId,
-      state: taskState,
-      summary: summarizeTaskState(taskState),
+      state: persistedState,
+      summary: summary.length > 4096 ? `${summary.slice(0, 4096)}... [truncated]` : summary,
+      stateTruncated: tracker.truncated || summary.length > 4096,
     };
     await appendSessionEvent(event);
     await bus.emit(event);
