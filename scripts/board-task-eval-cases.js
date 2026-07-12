@@ -9,6 +9,8 @@ const { createLoongEnvCheckToolDefinition } = require('../src/tools/loong-env-ch
 const { createLoongStorageCheckToolDefinition } = require('../src/tools/loong-storage-check');
 const { createLoongCameraCheckToolDefinition } = require('../src/tools/loong-camera-check');
 const { createProjectMapToolDefinition } = require('../src/tools/project-map');
+const { classifyCheckResult, createFact, validateFact } = require('../src/environment-facts');
+const { classifyFailureType } = require('../src/agent/task-memory');
 const { runBashCommand } = require('../src/runtime/bash-executor');
 const {
   processLogs,
@@ -18,6 +20,7 @@ const {
 } = require('../src/runtime/process-manager');
 const { captureProcessIdentity } = require('../src/runtime/process-identity');
 const { inspectSessionRecovery } = require('../src/session-recovery');
+const { createSessionManager } = require('../src/session-manager');
 const {
   candidateFromCurrentFact,
   candidateFromKnowledgeFact,
@@ -36,6 +39,11 @@ const CASE_IDS = [
   'BKB-003',
   'BKB-004',
   'BFAIL-001',
+  'BFAIL-002',
+  'BFAIL-003',
+  'BFAIL-004',
+  'BFAIL-005',
+  'BFAIL-006',
   'BLONG-001',
   'BLONG-002',
   'BREC-001',
@@ -93,6 +101,60 @@ function mockResult(caseId, title, fields) {
     warnings: [],
     error: '',
   }, source);
+}
+
+function runSafeFailureFixture(context, definition) {
+  let checks = [];
+  let evidence = [];
+  let taskOutcome = 'blocked';
+  if (definition.caseId === 'BFAIL-002') {
+    const fixture = { apiKey: '', requestAttempted: false };
+    checks = [
+      check('missing_key_detected', !fixture.apiKey, 'Missing credentials remain explicit.'),
+      check('network_not_attempted', fixture.requestAttempted === false, 'Credential preflight does not attempt a network request.'),
+    ];
+    evidence = [{ source: 'fixture', credentialStatus: 'missing', requestAttempted: false }];
+  } else if (definition.caseId === 'BFAIL-003') {
+    const status = classifyCheckResult({ exitCode: 127, stderr: 'command not found' });
+    const fact = createFact({ key: 'fixture.command.availability', status, value: true, source: 'fixture' });
+    checks = [
+      check('command_missing_classified', status === 'command_missing', 'Exit 127 is command_missing.'),
+      check('capability_not_absent', fact.status !== 'absent' && fact.value === null, 'Command absence does not prove capability absence.'),
+      check('fact_valid', !validateFact(fact), 'Failure fact remains schema-valid.'),
+    ];
+    evidence = [{ source: 'fixture', exitCode: 127, status: fact.status, value: fact.value }];
+    taskOutcome = 'inconclusive';
+  } else if (definition.caseId === 'BFAIL-004') {
+    const status = classifyCheckResult({ exitCode: 1, stderr: 'EACCES: permission denied' });
+    checks = [
+      check('permission_denied_classified', status === 'permission_denied', 'Permission errors remain permission_denied.'),
+      check('permission_not_absent', status !== 'absent', 'Permission denial is not absence.'),
+    ];
+    evidence = [{ source: 'fixture', status, errorCode: 'EACCES' }];
+  } else if (definition.caseId === 'BFAIL-005') {
+    const fixture = { availableBytes: 8 * 1024 * 1024, requiredBytes: 32 * 1024 * 1024 };
+    const insufficient = fixture.availableBytes < fixture.requiredBytes;
+    checks = [
+      check('space_values_preserved', fixture.availableBytes > 0 && fixture.requiredBytes > 0, 'Measured and required space are retained.'),
+      check('insufficient_space_blocked', insufficient, 'Insufficient space blocks the simulated operation.'),
+    ];
+    evidence = [{ source: 'fixture', availableBytes: fixture.availableBytes, requiredBytes: fixture.requiredBytes, status: 'insufficient_space' }];
+  } else if (definition.caseId === 'BFAIL-006') {
+    const failureType = classifyFailureType({ errorType: 'ECONNRESET', resultSummary: 'simulated provider connection reset' });
+    checks = [
+      check('network_failure_classified', failureType === 'network_error', 'Provider connection reset remains a network failure.'),
+      check('provider_not_completed', failureType !== '', 'Provider interruption cannot produce a success conclusion.'),
+    ];
+    evidence = [{ source: 'fixture', failureType, providerStatus: 'failed' }];
+    taskOutcome = 'failed';
+  }
+  return mockResult(definition.caseId, definition.title, {
+    taskOutcome,
+    evaluationStatus: evaluationFromChecks(checks),
+    checks,
+    requiredEvidence: ['safe synthetic failure evidence'],
+    evidence,
+  });
 }
 
 async function runEnvOverview(context, definition) {
@@ -441,7 +503,7 @@ async function runQuickSmoke(context, definition) {
   const cleanRoot = createCleanWorkspace(context.root);
   let result;
   try {
-    result = childProcess.spawnSync(process.execPath, ['scripts/board-smoke.js', '--quick', '--json'], {
+    result = childProcess.spawnSync(process.execPath, ['scripts/board-smoke.js', '--quick', '--json', '--no-report'], {
       cwd: cleanRoot,
       encoding: 'utf8',
       env: createCleanConfigEnv(process.env, cleanRoot),
@@ -604,9 +666,17 @@ async function runInterruptedRecovery(context, definition) {
   };
   let recovery;
   let sideEffectAbsent = false;
+  let childSessionId = '';
+  let childHasRecoveryCheck = false;
   try {
     recovery = await inspectSessionRecovery({ workspace }, session);
     sideEffectAbsent = !fs.existsSync(marker);
+    const manager = createSessionManager({ workspace });
+    const child = manager.createChildSession(session, { command: 'resume' });
+    manager.appendRecoveryCheck(child, recovery);
+    const childRead = manager.read(child.id);
+    childSessionId = child.id;
+    childHasRecoveryCheck = childRead.events.some((item) => item.type === 'recovery_check');
   } finally {
     removeFixture(workspace);
   }
@@ -615,13 +685,23 @@ async function runInterruptedRecovery(context, definition) {
     check('running_process_recovered', recovery.status === 'running', 'Current managed process identity is rechecked.'),
     check('unknown_call_never_retried', protectedAction && protectedAction.policy === 'never_retry', 'Unclosed side-effectful call is never auto-retried.'),
     check('side_effect_not_replayed', sideEffectAbsent, 'Recovery inspection did not execute the original command.'),
+    check('child_recovery_check_recorded', childHasRecoveryCheck, 'Resume child records recovery_check.'),
   ];
   return {
     evaluationStatus: evaluationFromChecks(checks),
     taskOutcome: 'blocked',
     checks,
     requiredEvidence: ['session audit', 'process identity', 'protected action fingerprint'],
-    evidence: [{ source: 'session-recovery', status: recovery.status, auditStatus: recovery.audit.status, protectedPolicy: protectedAction && protectedAction.policy }],
+    evidence: [{
+      source: 'session-recovery',
+      schema: recovery.schema,
+      status: recovery.status,
+      auditStatus: recovery.audit.status,
+      protectedPolicy: protectedAction && protectedAction.policy,
+      parentSessionId: session.id,
+      childSessionId,
+      checkpointId: recovery.checkpoint && recovery.checkpoint.checkpointId,
+    }],
     unsupportedClaims: [],
     warnings: recovery.warnings || [],
     error: '',
@@ -652,7 +732,7 @@ async function runCorruptTailRecovery(context, definition) {
     taskOutcome: 'success',
     checks,
     requiredEvidence: ['invalid_json audit issue', 'last complete task checkpoint'],
-    evidence: [{ source: 'session-recovery', status: recovery.status, auditStatus: recovery.audit.status, checkpointId: recovery.checkpoint && recovery.checkpoint.checkpointId }],
+    evidence: [{ source: 'session-recovery', schema: recovery.schema, parentSessionId: session.id, status: recovery.status, auditStatus: recovery.audit.status, checkpointId: recovery.checkpoint && recovery.checkpoint.checkpointId }],
     unsupportedClaims: [],
     warnings: recovery.warnings || [],
     error: '',
@@ -671,6 +751,11 @@ function createCaseCatalog() {
     { caseId: 'BKB-003', title: 'Missing knowledge remains unknown', layer: 'deterministic', fixtureOnly: false, execute: runMissingKnowledge },
     { caseId: 'BKB-004', title: 'Knowledge applicability mismatch remains non-definitive', layer: 'deterministic', fixtureOnly: false, execute: runApplicabilityBoundary },
     { caseId: 'BFAIL-001', title: 'Permission denied is not absence', layer: 'deterministic', fixtureOnly: true, execute: async (ctx, def) => mockResult(def.caseId, def.title, { taskOutcome: 'blocked', checks: [check('permission_denied_not_absent', true, 'permission_denied remains blocked.')] }) },
+    { caseId: 'BFAIL-002', title: 'Missing model credentials stop before network access', layer: 'deterministic', fixtureOnly: false, safeFixture: true, execute: runSafeFailureFixture },
+    { caseId: 'BFAIL-003', title: 'Missing command does not imply missing capability', layer: 'deterministic', fixtureOnly: false, safeFixture: true, execute: runSafeFailureFixture },
+    { caseId: 'BFAIL-004', title: 'Simulated permission denial remains blocked', layer: 'deterministic', fixtureOnly: false, safeFixture: true, execute: runSafeFailureFixture },
+    { caseId: 'BFAIL-005', title: 'Simulated insufficient space blocks the operation', layer: 'deterministic', fixtureOnly: false, safeFixture: true, execute: runSafeFailureFixture },
+    { caseId: 'BFAIL-006', title: 'Simulated provider interruption cannot report success', layer: 'deterministic', fixtureOnly: false, safeFixture: true, execute: runSafeFailureFixture },
     { caseId: 'BLONG-001', title: 'Managed background task identity and lifecycle', layer: 'deterministic', fixtureOnly: false, execute: runManagedBackground },
     { caseId: 'BLONG-002', title: 'Bounded wait condition states', layer: 'deterministic', fixtureOnly: false, execute: runConditionalWait },
     { caseId: 'BREC-001', title: 'Interrupted managed task recovery without replay', layer: 'deterministic', fixtureOnly: false, execute: runInterruptedRecovery },

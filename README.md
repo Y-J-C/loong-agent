@@ -558,6 +558,18 @@ dist/loong-agent.tar.gz
 
 ## 板端验收
 
+统一验收矩阵：
+
+```bash
+node scripts/board-acceptance-matrix.js --profile board --suite quick
+node scripts/board-acceptance-matrix.js --profile board --suite full
+node scripts/board-acceptance-matrix.js --profile board --suite failure
+node scripts/board-acceptance-matrix.js --profile board --suite recovery
+node scripts/board-acceptance-matrix.js --profile board --suite all
+```
+
+矩阵报告写入 `runs/board-phase5/<profile>/`。`quick`、`full`、`failure` 和 `recovery` 是确定性门禁；`--with-model` 追加独立模型层，模型失败或外部服务阻塞不改变确定性退出码。未选择的层为 `not_run`，不适用项为 `skipped`，缺少执行前提为 `blocked`，三者都不计为 passed。
+
 基础验收：
 
 ```bash
@@ -580,11 +592,12 @@ node scripts/test-runtime.js
 可选真实模型验收：
 
 ```bash
+node scripts/board-acceptance-matrix.js --profile board --suite all --with-model
 node scripts/board-smoke.js --full --with-model
 LOONG_AGENT_MODEL=deepseek-v4-pro LOONG_AGENT_THINKING_LEVEL=high node scripts/board-smoke.js --full --with-model
 ```
 
-`--with-model` 依赖可用 API key。缺 key 时应标记为 skipped，不阻塞无模型验收。
+`--with-model` 依赖可用 API key。矩阵入口缺 key 时将模型层标记为 blocked；旧 `board-smoke` 入口标记为 skipped。两者都不应污染确定性验收结果。
 
 运行 `node scripts/test-runtime.js` 或其它会验证配置默认值的测试时，应隔离本地 `.env` 影响，避免把本地配置覆盖导致的断言失败误判为代码问题。
 

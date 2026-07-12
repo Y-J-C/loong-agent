@@ -103,6 +103,31 @@ test('corrupt JSONL line is preserved and export still works', () => {
   assert(html.indexOf('Invalid JSONL line') >= 0, 'html missing invalid json marker');
 });
 
+test('recovery check is preserved in markdown html and replay exports', () => {
+  const workspace = tempWorkspace();
+  const session = createJsonlSession({ workspace }, { command: 'resume', parentSessionId: 'parent-recovery' });
+  session.append({
+    type: 'recovery_check',
+    version: 1,
+    sourceSessionId: 'parent-recovery',
+    status: 'needs_confirmation',
+    recovery: {
+      schema: 'loong-agent.session-recovery.v1',
+      status: 'needs_confirmation',
+      checkpoint: { checkpointId: 'checkpoint-recovery' },
+    },
+    warnings: ['identity mismatch requires confirmation'],
+  });
+  const read = readSessionFromPath(session.filePath);
+  const markdown = renderSessionMarkdown(read);
+  const html = renderSessionHtml(read);
+  const replay = renderSessionReplay(read);
+  assert(markdown.indexOf('Recovery check: needs_confirmation') >= 0, 'markdown export missing recovery check');
+  assert(html.indexOf('Recovery check: needs_confirmation') >= 0, 'html export missing recovery check');
+  assert(replay.indexOf('recovery_check parent-recovery status=needs_confirmation') >= 0, 'replay export missing recovery check');
+  assert(auditSession(read).stats.recoveryChecks === 1, 'audit did not count recovery check');
+});
+
 test('missing agent_end is incomplete', () => {
   const workspace = tempWorkspace();
   const file = writeSession(workspace, 'incomplete', [

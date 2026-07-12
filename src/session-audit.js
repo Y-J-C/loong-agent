@@ -248,6 +248,8 @@ function replayLines(session) {
       const estimate = event.tokenEstimate || {};
       const chars = event.charStats || {};
       lines.push(`model_request ${event.provider || ''}/${event.model || ''} ${event.mode || 'summary'} chars=${chars.totalChars || 0} approxPrompt=${estimate.approxPromptTokens || 0}`);
+    } else if (event.type === 'recovery_check') {
+      lines.push(`recovery_check ${event.sourceSessionId || ''} status=${event.status || event.recovery && event.recovery.status || 'unknown'}`);
     } else if (event.type === 'agent_end') {
       lines.push(`agent_end ${event.status || (event.error ? 'error' : 'ok')}: ${event.summary || event.error || ''}`);
     }

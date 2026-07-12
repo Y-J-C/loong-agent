@@ -10,17 +10,39 @@ const { registerProvider } = require('../src/llm');
 const { loadConfig } = require('../src/config');
 const { createSessionManager } = require('../src/session-manager');
 const { writeSessionExport } = require('../src/session');
+const { ensureRunsPath, sanitize } = require('./board-task-eval-runtime');
 
 const ROOT = path.resolve(__dirname, '..');
 
-function hasArg(name) {
-  return process.argv.slice(2).indexOf(name) >= 0;
+function valueAfter(argv, index, name) {
+  const value = argv[index + 1];
+  if (!value || value.indexOf('--') === 0) throw new Error(`${name} requires a value`);
+  return value;
 }
 
-function ensureRuns() {
-  const dir = path.join(ROOT, 'runs');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+function parseArgs(argv) {
+  const options = {
+    quick: false, full: false, withModel: false, jsonOnly: false, noReport: false,
+    outJson: path.join('runs', 'board-smoke-report.json'),
+    outMd: path.join('runs', 'board-smoke-report.md'),
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--quick') options.quick = true;
+    else if (arg === '--full') options.full = true;
+    else if (arg === '--with-model') options.withModel = true;
+    else if (arg === '--json') options.jsonOnly = true;
+    else if (arg === '--no-report') options.noReport = true;
+    else if (arg === '--out-json') { options.outJson = valueAfter(argv, index, arg); index += 1; }
+    else if (arg === '--out-md') { options.outMd = valueAfter(argv, index, arg); index += 1; }
+    else throw new Error(`Unknown argument: ${arg}`);
+  }
+  if (options.quick && options.full) throw new Error('--quick and --full cannot be used together');
+  if (options.noReport && !options.jsonOnly) throw new Error('--no-report requires --json');
+  options.full = options.full || !options.quick;
+  ensureRunsPath(ROOT, options.outJson);
+  ensureRunsPath(ROOT, options.outMd);
+  return options;
 }
 
 function nowIso() {
@@ -232,13 +254,19 @@ function hasApiKey() {
   }
 }
 
-function writeReports(report, jsonOnly) {
-  const runs = ensureRuns();
+function writeReports(report, options) {
   report.status = report.failed ? 'failed' : 'passed';
   report.finishedAt = nowIso();
-  const jsonPath = path.join(runs, 'board-smoke-report.json');
-  const mdPath = path.join(runs, 'board-smoke-report.md');
-  fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), 'utf8');
+  const output = sanitize(report);
+  if (options.noReport) {
+    console.log(JSON.stringify(output, null, 2));
+    return null;
+  }
+  const jsonPath = ensureRunsPath(ROOT, options.outJson);
+  const mdPath = ensureRunsPath(ROOT, options.outMd);
+  fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
+  fs.mkdirSync(path.dirname(mdPath), { recursive: true });
+  fs.writeFileSync(jsonPath, JSON.stringify(output, null, 2), 'utf8');
   const lines = [
     '# Board Smoke Report',
     '',
@@ -252,7 +280,7 @@ function writeReports(report, jsonOnly) {
     '',
     '## Steps',
   ];
-  report.steps.forEach((step) => {
+  output.steps.forEach((step) => {
     lines.push('');
     lines.push(`### ${step.name}`);
     lines.push(`- Status: ${step.status}`);
@@ -266,22 +294,23 @@ function writeReports(report, jsonOnly) {
     if (step.stderr) lines.push('```');
   });
   fs.writeFileSync(mdPath, `${lines.join('\n')}\n`, 'utf8');
-  if (jsonOnly) {
-    console.log(JSON.stringify(report, null, 2));
+  if (options.jsonOnly) {
+    console.log(JSON.stringify(output, null, 2));
   } else {
     console.log(`Board smoke ${report.status}: passed=${report.passed} failed=${report.failed} skipped=${report.skipped}`);
     console.log(`Report: ${jsonPath}`);
     console.log(`Report: ${mdPath}`);
   }
+  return { jsonPath, mdPath, report: output };
 }
 
-async function main() {
-  ensureRuns();
-  const quick = hasArg('--quick');
-  const full = hasArg('--full') || !quick;
-  const withModel = hasArg('--with-model');
-  const jsonOnly = hasArg('--json');
+async function main(argv) {
+  const options = parseArgs(argv || process.argv.slice(2));
+  const quick = options.quick;
+  const full = options.full;
+  const withModel = options.withModel;
   const report = {
+    schema: 'loong-agent.board-smoke.v1',
     name: 'loong-agent board smoke',
     startedAt: nowIso(),
     cwd: ROOT,
@@ -334,7 +363,10 @@ async function main() {
       'test-tui-stats.js',
       'test-tui-theme.js',
     ].forEach((script) => {
-      addNodeStep(report, script, [path.join('scripts', script)]);
+      addNodeStep(report, script, [path.join('scripts', script)], {
+        env: cleanRuntimeEnv(ROOT),
+        metadata: { cleanEnvironment: true },
+      });
     });
   }
 
@@ -347,11 +379,14 @@ async function main() {
   }
 
   exportLatest(report, 'board-smoke-latest.html');
-  writeReports(report, jsonOnly);
+  writeReports(report, options);
   if (report.failed) process.exitCode = 1;
+  return report.failed ? 1 : 0;
 }
 
-main().catch((error) => {
+if (require.main === module) main().then((code) => { process.exitCode = code; }).catch((error) => {
   console.error(error && error.stack ? error.stack : String(error));
   process.exitCode = 1;
 });
+
+module.exports = { main, nodeVersionOk, parseArgs, writeReports };

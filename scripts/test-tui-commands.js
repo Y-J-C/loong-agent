@@ -794,6 +794,13 @@ test('resume command replaces session and starts prompt', async () => {
   await handleCommand(context, '/resume selected 继续分析');
   assert(context.replaced, 'resume did not replace session');
   assert(context.prompted.indexOf('继续分析') >= 0, 'resume did not start prompt');
+  const messages = context.state.messages.map((message) => message.text).join('\n');
+  assert(messages.indexOf('Recovery') >= 0, 'resume did not render recovery summary before prompting');
+  const manager = require('../src/session-manager').createSessionManager(config(workspace));
+  const child = manager.latest();
+  const header = child.events.find((event) => event.type === 'session') || {};
+  assert(header.parentSessionId === latest.id, 'resume child does not reference the parent session');
+  assert(child.events.some((event) => event.type === 'recovery_check'), 'resume child is missing recovery_check');
 });
 
 test('selected target reports clear error when no session is selected', async () => {

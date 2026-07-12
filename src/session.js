@@ -29,7 +29,7 @@ function timestampForFile(date) {
 }
 
 function createSessionId(date) {
-  return `${timestampForFile(date)}-${Math.random().toString(16).slice(2, 8)}`;
+  return `${timestampForFile(date)}-${Math.random().toString(16).slice(2, 14)}`;
 }
 
 function safeJson(value) {

@@ -315,8 +315,10 @@ function createTranscriptPanel(state, options) {
   if (!data) data = liveTranscriptData(source, options);
   if (replayWarning) data.lines = [replayWarning, '---'].concat(data.lines);
   const clamped = clampTranscriptLines(data.lines, options.lineLimit || source.tuiTranscriptLineLimit || 5000);
-  const lines = transcriptMetaLines(data, clamped, options).concat(clamped.lines);
-  const scrollOffset = findFocusScrollOffset(lines, options.focus);
+  const metaLines = transcriptMetaLines(data, clamped, options);
+  const lines = metaLines.concat(clamped.lines);
+  const focusOffset = findFocusScrollOffset(lines, options.focus);
+  const scrollOffset = options.focus ? focusOffset : Math.min(metaLines.length, Math.max(0, lines.length - 1));
   return {
     type: 'transcript',
     title: 'Transcript Viewer',
