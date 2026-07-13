@@ -33,6 +33,12 @@ function validateEdit(input) {
   const pathError = requirePath(input || {});
   if (pathError) return pathError;
   const value = input || {};
+  if (value.expectedContentHash !== undefined) {
+    if (typeof value.expectedContentHash !== 'string'
+        || !/^(?:sha256:)?[a-fA-F0-9]{64}$/.test(value.expectedContentHash.trim())) {
+      return 'expectedContentHash must be a SHA-256 value';
+    }
+  }
   if (Array.isArray(value.edits)) {
     for (const edit of value.edits) {
       if (!edit || typeof edit.oldText !== 'string' || !edit.oldText) return 'Each edit requires non-empty oldText';
@@ -46,10 +52,13 @@ function validateEdit(input) {
 
 function fileEnvelope(result, action) {
   const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const failed = result && result.ok === false;
   return {
-    ok: true,
+    ok: !failed,
     data: result,
-    summary: `${action} ${result.path || result.resolvedPath || ''}`.trim(),
+    summary: failed
+      ? `${action} failed: ${result.error || result.errorType || 'unknown error'}`
+      : `${action} ${result.path || result.resolvedPath || ''}`.trim(),
     evidence: [{
       source: 'file',
       action,
@@ -60,9 +69,13 @@ function fileEnvelope(result, action) {
       matches: result.matches ? result.matches.length : undefined,
       results: result.results ? result.results.length : undefined,
       truncated: Boolean(result.truncated),
+      contentHash: result.contentHash,
+      beforeContentHash: result.beforeContentHash,
+      afterContentHash: result.afterContentHash,
     }],
     warnings,
-    error: '',
+    error: failed ? String(result.error || 'File operation failed.') : '',
+    errorType: failed ? String(result.errorType || 'file_operation_error') : '',
   };
 }
 
@@ -74,7 +87,7 @@ function createReadToolDefinition() {
     category: 'filesystem-readonly',
     safety: { readOnly: true, sensitive: true, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'file' },
-    resultSchema: { data: 'file content', evidence: 'path, bytes, truncation' },
+    resultSchema: { data: 'file content', evidence: 'path, bytes, truncation, full-file content hash' },
     parameters: { path: 'string', maxBytes: 'number optional; default 12000, max 200000' },
     promptSnippet: 'Use read to inspect files. Prefer this over shell cat.',
     promptGuidelines: 'For generated files, read the exact output path after running bash.',
@@ -116,10 +129,14 @@ function createEditToolDefinition() {
     category: 'filesystem-write',
     safety: { readOnly: false, sensitive: true, requiresWorkspace: false },
     evidencePolicy: { emitsEvidence: true, source: 'file' },
-    resultSchema: { data: 'edit result', evidence: 'path and edit count' },
-    parameters: { path: 'string', edits: 'array of { oldText: string, newText: string }' },
+    resultSchema: { data: 'edit result', evidence: 'path, edit count, before and after hashes' },
+    parameters: {
+      path: 'string',
+      edits: 'array of { oldText: string, newText: string }',
+      expectedContentHash: 'optional SHA-256 from a prior read',
+    },
     promptSnippet: 'Use edit for targeted changes to existing files.',
-    promptGuidelines: 'Read the file first, then replace exact text. If exact text is uncertain, read again before editing.',
+    promptGuidelines: 'Read the file first and pass its contentHash as expectedContentHash. If exact text is uncertain, read again before editing.',
     validate: validateEdit,
     renderCall: (input) => `path=${input.path}, edits=${Array.isArray(input.edits) ? input.edits.length : 1}`,
     renderResult: (result) => summarize(result, 500),

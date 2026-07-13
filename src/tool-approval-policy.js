@@ -4,7 +4,7 @@ const path = require('path');
 const { evaluateCommand } = require('./command-policy');
 
 const SENSITIVE_PATH_PATTERN =
-  /(^|[\\/])\.env($|[\\/])|api[_-]?key|token|secret|authorization|credential|(^|[\\/])id_rsa$|(^|[\\/])id_ed25519$|\.pem$|\.key$/i;
+  /(^|[\\/])\.env[^\\/]*($|[\\/])|api[_-]?key|token|secret|authorization|credential|(^|[\\/])id_rsa$|(^|[\\/])id_ed25519$|\.pem$|\.key$/i;
 
 const ASK_TOOLS = {
   csv_html_report: true,
@@ -16,8 +16,12 @@ const ASK_TOOLS = {
 const PATH_FIELDS = {
   csv_html_report: 'outputPath',
   edit: 'path',
+  diff_file: ['beforePath', 'afterPath'],
   find: 'path',
   grep: 'path',
+  git_diff: ['path', 'paths'],
+  git_log: ['path', 'paths'],
+  git_status: 'path',
   list_directory: 'relative_path',
   ls: 'path',
   process_logs: 'logFile',
@@ -32,12 +36,21 @@ function normalizeToolName(action) {
   return String(action && action.tool ? action.tool : '').trim();
 }
 
-function getPathValue(action) {
+function getPathValues(action) {
   const toolName = normalizeToolName(action);
-  const field = PATH_FIELDS[toolName];
-  if (!field) return '';
+  const fields = PATH_FIELDS[toolName];
+  if (!fields) return [];
   const input = action && action.input && typeof action.input === 'object' ? action.input : {};
-  return input[field] === undefined || input[field] === null ? '' : String(input[field]);
+  return (Array.isArray(fields) ? fields : [fields]).reduce((items, field) => {
+    const raw = input[field];
+    const values = Array.isArray(raw) ? raw : [raw];
+    values.forEach((value) => {
+      if (value !== undefined && value !== null && String(value)) {
+        items.push({ field, value: String(value) });
+      }
+    });
+    return items;
+  }, []);
 }
 
 function workspacePathInfo(config, value) {
@@ -57,8 +70,8 @@ function operationSummary(action) {
   const toolName = normalizeToolName(action);
   const input = action && action.input && typeof action.input === 'object' ? action.input : {};
   if (toolName === 'bash') return `command=${String(input.command || '')}`;
-  const pathValue = getPathValue(action);
-  if (pathValue) return `path=${pathValue}`;
+  const pathValues = getPathValues(action);
+  if (pathValues.length) return pathValues.map((item) => `${item.field}=${item.value}`).join(', ');
   if (toolName === 'process_stop') {
     return input.pidFile ? `pidFile=${input.pidFile}` : `pid=${input.pid || ''}`;
   }
@@ -129,11 +142,13 @@ function createApprovalRequest(action, fields) {
 
 function classifyToolApproval(config, action, tool) {
   const toolName = normalizeToolName(action);
-  const pathValue = getPathValue(action);
+  const pathValues = getPathValues(action);
+  const pathValue = pathValues.length ? pathValues[0].value : '';
   const pathInfo = workspacePathInfo(config, pathValue);
 
-  if (pathValue && SENSITIVE_PATH_PATTERN.test(pathValue)) {
-    return deny(action, 'sensitive_path', `Sensitive path is blocked: ${pathValue}`, 'sensitive_path');
+  const sensitivePath = pathValues.find((item) => SENSITIVE_PATH_PATTERN.test(item.value));
+  if (sensitivePath) {
+    return deny(action, 'sensitive_path', `Sensitive path is blocked: ${sensitivePath.value}`, 'sensitive_path');
   }
 
   if (!tool) {
@@ -148,6 +163,18 @@ function classifyToolApproval(config, action, tool) {
       'unclassified_tool',
       { warnings: ['Unclassified tools require explicit approval and are blocked in non-interactive mode.'] }
     );
+  }
+
+  if (tool.safety && tool.safety.requiresWorkspace === true) {
+    const externalPath = pathValues.find((item) => !workspacePathInfo(config, item.value).insideWorkspace);
+    if (externalPath) {
+      return deny(
+        action,
+        'workspace_boundary',
+        `Tool path is outside the workspace: ${externalPath.value}`,
+        'workspace_boundary'
+      );
+    }
   }
 
   if (toolName === 'bash') {

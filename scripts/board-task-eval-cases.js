@@ -9,6 +9,19 @@ const { createLoongEnvCheckToolDefinition } = require('../src/tools/loong-env-ch
 const { createLoongStorageCheckToolDefinition } = require('../src/tools/loong-storage-check');
 const { createLoongCameraCheckToolDefinition } = require('../src/tools/loong-camera-check');
 const { createProjectMapToolDefinition } = require('../src/tools/project-map');
+const {
+  createGitDiffToolDefinition,
+  createGitLogToolDefinition,
+  createGitStatusToolDefinition,
+} = require('../src/tools/git-tools');
+const {
+  createDiffFileToolDefinition,
+  createDiffTextToolDefinition,
+} = require('../src/tools/diff-tools');
+const {
+  createEditToolDefinition,
+  createReadToolDefinition,
+} = require('../src/tools/file-tools');
 const { classifyCheckResult, createFact, validateFact } = require('../src/environment-facts');
 const { classifyFailureType } = require('../src/agent/task-memory');
 const { runBashCommand } = require('../src/runtime/bash-executor');
@@ -19,6 +32,7 @@ const {
   processWait,
 } = require('../src/runtime/process-manager');
 const { captureProcessIdentity } = require('../src/runtime/process-identity');
+const { runGit } = require('../src/runtime/git-runner');
 const { inspectSessionRecovery } = require('../src/session-recovery');
 const { createSessionManager } = require('../src/session-manager');
 const {
@@ -49,6 +63,12 @@ const CASE_IDS = [
   'BREC-001',
   'BREC-002',
   'BACC-001',
+  'BGIT-001',
+  'BGIT-002',
+  'BGIT-003',
+  'BDIFF-001',
+  'BEDIT-001',
+  'BEDIT-002',
 ];
 
 function check(id, passed, message) {
@@ -739,6 +759,239 @@ async function runCorruptTailRecovery(context, definition) {
   };
 }
 
+function runFixtureGit(cwd, args) {
+  const result = childProcess.spawnSync('git', ['-C', cwd].concat(args), {
+    encoding: 'utf8',
+    windowsHide: true,
+    env: Object.assign({}, process.env, {
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_TERMINAL_PROMPT: '0',
+    }),
+  });
+  if (result.status !== 0) {
+    throw new Error(String(result.stderr || result.stdout || 'Git fixture command failed.').trim());
+  }
+}
+
+function createCodingFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-coding-'));
+  runFixtureGit(root, ['init']);
+  runFixtureGit(root, ['config', 'user.name', 'Loong Eval']);
+  runFixtureGit(root, ['config', 'user.email', 'eval@example.invalid']);
+  fs.writeFileSync(path.join(root, 'alpha.txt'), 'alpha\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'beta.txt'), 'beta\n', 'utf8');
+  runFixtureGit(root, ['add', '--', 'alpha.txt', 'beta.txt']);
+  runFixtureGit(root, ['commit', '-m', 'fixture baseline']);
+  return root;
+}
+
+async function executeCodingTool(definition, root, input) {
+  return definition.execute({ workspace: root }, input || {}, {});
+}
+
+function phase8MockResult(definition) {
+  const checksByCase = {
+    'BGIT-001': [check('structured_status_fixture', true, 'Fixture preserves branch, dirty counts, and entries.')],
+    'BGIT-002': [check('readonly_history_fixture', true, 'Fixture separates working, staged, head, and log results.')],
+    'BGIT-003': [check('git_failure_fixture', true, 'Fixture keeps command, repository, boundary, and sensitive failures distinct.')],
+    'BDIFF-001': [check('bounded_diff_fixture', true, 'Fixture preserves hashes, binary classification, and truncation.')],
+    'BEDIT-001': [check('edit_conflict_fixture', true, 'Fixture rejects a stale hash without modifying bytes.')],
+    'BEDIT-002': [check('legacy_atomic_fixture', true, 'Fixture preserves legacy exact replacement and atomic batch failure.')],
+  };
+  return mockResult(definition.caseId, definition.title, {
+    checks: checksByCase[definition.caseId] || [check('phase8_fixture', true)],
+    requiredEvidence: ['safe Phase 8 synthetic fixture'],
+    evidence: [{ source: 'fixture', caseId: definition.caseId, isolated: true }],
+  });
+}
+
+function phase8Result(checks, evidence, warnings) {
+  return {
+    evaluationStatus: evaluationFromChecks(checks),
+    taskOutcome: evaluationFromChecks(checks) === 'passed' ? 'success' : 'failed',
+    checks,
+    requiredEvidence: ['isolated temporary repository or file fixture', 'structured tool result summary'],
+    evidence,
+    unsupportedClaims: [],
+    warnings: warnings || [],
+    error: '',
+  };
+}
+
+async function runGitStatusCase(context, definition) {
+  if (context.profile === 'mock') return phase8MockResult(definition);
+  const root = createCodingFixture();
+  try {
+    fs.writeFileSync(path.join(root, 'alpha.txt'), 'alpha working\n', 'utf8');
+    fs.writeFileSync(path.join(root, 'beta.txt'), 'beta staged\n', 'utf8');
+    runFixtureGit(root, ['add', '--', 'beta.txt']);
+    fs.writeFileSync(path.join(root, 'untracked file.txt'), 'new\n', 'utf8');
+    const result = await executeCodingTool(createGitStatusToolDefinition(), root, { path: '.', includeUntracked: true });
+    const data = result.data || {};
+    const counts = data.counts || {};
+    const checks = [
+      check('status_envelope', result.ok === true, 'Status returns a successful structured envelope.'),
+      check('branch_present', Boolean(data.branch && data.branch.head), 'Branch metadata is present.'),
+      check('dirty_counts', counts.staged === 1 && counts.unstaged === 1 && counts.untracked === 1, 'Staged, unstaged, and untracked counts are distinct.'),
+      check('entry_paths', Array.isArray(data.entries) && data.entries.some((item) => item.path === 'untracked file.txt'), 'Paths containing spaces remain intact.'),
+    ];
+    return phase8Result(checks, [{ source: 'git', action: 'status', branch: data.branch && data.branch.head, counts, clean: data.clean }], result.warnings);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function runGitDiffLogCase(context, definition) {
+  if (context.profile === 'mock') return phase8MockResult(definition);
+  const root = createCodingFixture();
+  try {
+    fs.writeFileSync(path.join(root, 'alpha.txt'), 'alpha working\n', 'utf8');
+    fs.writeFileSync(path.join(root, 'beta.txt'), 'beta staged\n', 'utf8');
+    runFixtureGit(root, ['add', '--', 'beta.txt']);
+    const diff = createGitDiffToolDefinition();
+    const working = await executeCodingTool(diff, root, { mode: 'working' });
+    const staged = await executeCodingTool(diff, root, { mode: 'staged' });
+    const head = await executeCodingTool(diff, root, { mode: 'head' });
+    const log = await executeCodingTool(createGitLogToolDefinition(), root, { limit: 5 });
+    const filesOf = (result) => result && result.data && Array.isArray(result.data.files) ? result.data.files : [];
+    const checks = [
+      check('structured_results', [working, staged, head, log].every((item) => item.ok === true), 'All Git reads return structured results.'),
+      check('working_scope', filesOf(working).some((item) => item.path === 'alpha.txt') && !filesOf(working).some((item) => item.path === 'beta.txt'), 'Working diff contains only unstaged changes.'),
+      check('staged_scope', filesOf(staged).some((item) => item.path === 'beta.txt') && !filesOf(staged).some((item) => item.path === 'alpha.txt'), 'Staged diff contains only staged changes.'),
+      check('head_scope', filesOf(head).some((item) => item.path === 'alpha.txt') && filesOf(head).some((item) => item.path === 'beta.txt'), 'Head diff includes staged and unstaged changes.'),
+      check('log_metadata', Boolean(log.data && log.data.commits && log.data.commits[0] && log.data.commits[0].hash), 'Log contains bounded commit metadata.'),
+    ];
+    return phase8Result(checks, [{
+      source: 'git',
+      workingFiles: filesOf(working).length,
+      stagedFiles: filesOf(staged).length,
+      headFiles: filesOf(head).length,
+      commits: log.data && log.data.commits ? log.data.commits.length : 0,
+      patchesStored: false,
+    }], [].concat(working.warnings || [], staged.warnings || [], head.warnings || [], log.warnings || []));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function runGitFailureCase(context, definition) {
+  if (context.profile === 'mock') return phase8MockResult(definition);
+  const root = createCodingFixture();
+  const nonRepository = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-not-git-'));
+  try {
+    const missing = await runGit({ cwd: root, args: ['status'], gitCommand: 'loong-agent-git-command-missing' });
+    const notRepository = await executeCodingTool(createGitStatusToolDefinition(), nonRepository, { path: '.' });
+    const childWorkspace = path.join(root, 'child-workspace');
+    fs.mkdirSync(childWorkspace);
+    const boundary = await executeCodingTool(createGitStatusToolDefinition(), childWorkspace, { path: '..' });
+    const sensitive = await executeCodingTool(createGitDiffToolDefinition(), root, { mode: 'working', paths: ['.env.local'] });
+    const checks = [
+      check('command_missing', missing.ok === false && missing.errorType === 'command_missing', 'Missing Git executable is command_missing.'),
+      check('not_repository', notRepository.ok === false && notRepository.errorType === 'not_git_repository', 'Non-repository is classified explicitly.'),
+      check('workspace_boundary', boundary.ok === false && boundary.errorType === 'workspace_boundary', 'Repository roots outside workspace are rejected.'),
+      check('sensitive_path', sensitive.ok === false && sensitive.errorType === 'sensitive_path', 'Sensitive pathspecs are rejected before diff content is read.'),
+    ];
+    return phase8Result(checks, [{
+      source: 'fixture',
+      commandMissing: missing.errorType,
+      nonRepository: notRepository.errorType,
+      boundary: boundary.errorType,
+      sensitive: sensitive.errorType,
+    }]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(nonRepository, { recursive: true, force: true });
+  }
+}
+
+async function runBoundedDiffCase(context, definition) {
+  if (context.profile === 'mock') return phase8MockResult(definition);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-diff-'));
+  try {
+    const text = await executeCodingTool(createDiffTextToolDefinition(), root, { before: 'one\ntwo\n', after: 'one\nthree\n' });
+    const truncated = await executeCodingTool(createDiffTextToolDefinition(), root, {
+      before: 'start\n',
+      after: Array.from({ length: 100 }, (_, index) => `line-${index}`).join('\n'),
+      maxBytes: 200,
+    });
+    fs.writeFileSync(path.join(root, 'before.bin'), Buffer.from([0, 1, 2]));
+    fs.writeFileSync(path.join(root, 'after.bin'), Buffer.from([0, 1, 3]));
+    const binary = await executeCodingTool(createDiffFileToolDefinition(), root, { beforePath: 'before.bin', afterPath: 'after.bin' });
+    const checks = [
+      check('text_hashes', text.ok === true && /^sha256:/.test(text.data.beforeHash) && /^sha256:/.test(text.data.afterHash), 'Text diff includes both hashes.'),
+      check('text_hunks', text.ok === true && text.data.hunks.length > 0 && text.data.stats.additions > 0, 'Text diff includes structured hunks and stats.'),
+      check('bounded_output', truncated.ok === true && truncated.data.truncated === true, 'Display patch truncation is explicit.'),
+      check('binary_summary', binary.ok === true && binary.data.binary === true && binary.data.unifiedDiff === '', 'Binary diff returns hashes without text patch.'),
+    ];
+    return phase8Result(checks, [{
+      source: 'diff',
+      beforeHash: text.data && text.data.beforeHash,
+      afterHash: text.data && text.data.afterHash,
+      stats: text.data && text.data.stats,
+      truncated: truncated.data && truncated.data.truncated,
+      binary: binary.data && binary.data.binary,
+      patchesStored: false,
+    }], [].concat(text.warnings || [], truncated.warnings || [], binary.warnings || []));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function runEditConflictCase(context, definition) {
+  if (context.profile === 'mock') return phase8MockResult(definition);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-edit-'));
+  const file = path.join(root, 'target.txt');
+  try {
+    fs.writeFileSync(file, 'old value\n', 'utf8');
+    const read = await executeCodingTool(createReadToolDefinition(), root, { path: 'target.txt' });
+    const success = await executeCodingTool(createEditToolDefinition(), root, {
+      path: 'target.txt', oldText: 'old value', newText: 'new value', expectedContentHash: read.data.contentHash,
+    });
+    fs.writeFileSync(file, 'external change\n', 'utf8');
+    const beforeConflict = fs.readFileSync(file);
+    const conflict = await executeCodingTool(createEditToolDefinition(), root, {
+      path: 'target.txt', oldText: 'external change', newText: 'overwritten', expectedContentHash: success.data.afterContentHash,
+    });
+    const checks = [
+      check('read_full_hash', read.ok === true && /^sha256:[a-f0-9]{64}$/.test(read.data.contentHash), 'Read exposes a full-file SHA-256.'),
+      check('guarded_edit', success.ok === true && success.data.beforeContentHash === read.data.contentHash, 'Matching hash permits one edit and records before/after hashes.'),
+      check('stale_conflict', conflict.ok === false && conflict.errorType === 'edit_conflict', 'Stale hash returns edit_conflict.'),
+      check('conflict_no_write', fs.readFileSync(file).equals(beforeConflict), 'Conflict leaves file bytes unchanged.'),
+    ];
+    return phase8Result(checks, [{ source: 'file', contentHash: read.data.contentHash, afterContentHash: success.data.afterContentHash, conflict: conflict.errorType, modifiedOnConflict: false }], conflict.warnings);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function runLegacyEditCase(context, definition) {
+  if (context.profile === 'mock') return phase8MockResult(definition);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-agent-eval-legacy-edit-'));
+  const file = path.join(root, 'target.txt');
+  try {
+    fs.writeFileSync(file, 'one\ntwo\nsame same\n', 'utf8');
+    const legacy = await executeCodingTool(createEditToolDefinition(), root, { path: 'target.txt', oldText: 'one', newText: 'ONE' });
+    const beforeBatch = fs.readFileSync(file, 'utf8');
+    let batchError = '';
+    try {
+      await executeCodingTool(createEditToolDefinition(), root, {
+        path: 'target.txt',
+        edits: [{ oldText: 'two', newText: 'TWO' }, { oldText: 'same', newText: 'SAME' }],
+      });
+    } catch (error) {
+      batchError = error.message;
+    }
+    const checks = [
+      check('legacy_edit_success', legacy.ok === true && fs.readFileSync(file, 'utf8').indexOf('ONE') === 0, 'Legacy exact replacement remains supported.'),
+      check('ambiguous_rejected', /Expected exactly one match/.test(batchError), 'Ambiguous batch replacement is rejected.'),
+      check('batch_atomic', fs.readFileSync(file, 'utf8') === beforeBatch, 'Failed batch edit does not partially write earlier replacements.'),
+    ];
+    return phase8Result(checks, [{ source: 'file', legacyEdits: legacy.data && legacy.data.edits, batchRejected: Boolean(batchError), partialWrite: false }]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 function createCaseCatalog() {
   return [
     { caseId: 'BENV-001', title: 'Current board, OS, architecture, and Node.js evidence', layer: 'deterministic', fixtureOnly: false, execute: runEnvOverview },
@@ -761,6 +1014,12 @@ function createCaseCatalog() {
     { caseId: 'BREC-001', title: 'Interrupted managed task recovery without replay', layer: 'deterministic', fixtureOnly: false, execute: runInterruptedRecovery },
     { caseId: 'BREC-002', title: 'Corrupt session tail recovery', layer: 'deterministic', fixtureOnly: false, execute: runCorruptTailRecovery },
     { caseId: 'BACC-001', title: 'Quick board smoke JSON is machine-readable', layer: 'deterministic', fixtureOnly: false, execute: runQuickSmoke },
+    { caseId: 'BGIT-001', title: 'Structured Git status is trustworthy', layer: 'deterministic', fixtureOnly: false, execute: runGitStatusCase },
+    { caseId: 'BGIT-002', title: 'Git diff modes and log remain read-only and traceable', layer: 'deterministic', fixtureOnly: false, execute: runGitDiffLogCase },
+    { caseId: 'BGIT-003', title: 'Git failures, boundaries, and sensitive paths are classified', layer: 'deterministic', fixtureOnly: false, execute: runGitFailureCase },
+    { caseId: 'BDIFF-001', title: 'Bounded text and file diff semantics', layer: 'deterministic', fixtureOnly: false, execute: runBoundedDiffCase },
+    { caseId: 'BEDIT-001', title: 'Read hash and stale edit conflict', layer: 'deterministic', fixtureOnly: false, execute: runEditConflictCase },
+    { caseId: 'BEDIT-002', title: 'Legacy edit and batch atomicity compatibility', layer: 'deterministic', fixtureOnly: false, execute: runLegacyEditCase },
   ];
 }
 

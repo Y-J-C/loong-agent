@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { boardProfile } = require('./board');
+const { contentHash } = require('./runtime/text-diff');
 const { runBashCommand, runShell } = require('./runtime/bash-executor');
 const { killProcessTree } = require('./runtime/shell');
 const {
@@ -130,6 +131,7 @@ async function readPath(config, input) {
     path: displayFilePath(config, file),
     resolvedPath: file,
     bytes: buffer.length,
+    contentHash: contentHash(buffer),
     truncated: buffer.length > maxBytes,
     content: buffer.slice(0, maxBytes).toString('utf8'),
     warnings: warnForFilePath(file),
@@ -183,7 +185,28 @@ async function editPath(config, input) {
   const file = resolveFilePath(config, input.path);
   const edits = normalizeEdits(input || {});
   if (!edits.length) throw new Error('Missing edits.');
-  let text = fs.readFileSync(file, 'utf8');
+  const original = fs.readFileSync(file);
+  const beforeContentHash = contentHash(original);
+  if (input.expectedContentHash !== undefined && input.expectedContentHash !== null) {
+    const expected = String(input.expectedContentHash).trim().toLowerCase();
+    const expectedContentHash = expected.indexOf('sha256:') === 0 ? expected : `sha256:${expected}`;
+    if (!/^sha256:[a-f0-9]{64}$/.test(expectedContentHash)) {
+      throw new Error('expectedContentHash must be a SHA-256 value.');
+    }
+    if (expectedContentHash !== beforeContentHash) {
+      return {
+        ok: false,
+        errorType: 'edit_conflict',
+        error: 'Edit conflict: file content changed after it was read.',
+        path: displayFilePath(config, file),
+        resolvedPath: file,
+        expectedContentHash,
+        actualContentHash: beforeContentHash,
+        warnings: ['File was not modified.'],
+      };
+    }
+  }
+  let text = original.toString('utf8');
   const seen = {};
   for (const edit of edits) {
     if (!edit.oldText) throw new Error('Edit oldText must be non-empty.');
@@ -196,11 +219,14 @@ async function editPath(config, input) {
     text = text.replace(edit.oldText, edit.newText);
   }
   fs.writeFileSync(file, text, 'utf8');
+  const afterContentHash = contentHash(Buffer.from(text, 'utf8'));
   return {
     path: displayFilePath(config, file),
     resolvedPath: file,
     edits: edits.length,
     bytes: Buffer.byteLength(text, 'utf8'),
+    beforeContentHash,
+    afterContentHash,
     warnings: warnForFilePath(file),
   };
 }

@@ -135,9 +135,9 @@ test('session JSONL preserves UTF-8 Chinese text', () => {
   assert(!fs.readFileSync(session.filePath, 'utf8').includes('\uFFFD'));
 });
 
-test('case catalog exposes the twenty deterministic evidence, failure, and recovery cases', () => {
+test('case catalog exposes the twenty-six deterministic evidence, recovery, and coding cases', () => {
   const catalog = createCaseCatalog();
-  assert.strictEqual(catalog.length, 20);
+  assert.strictEqual(catalog.length, 26);
   assert.deepStrictEqual(catalog.map((item) => item.caseId), CASE_IDS);
   assert(catalog.every((item) => item.layer === 'deterministic'));
 });
@@ -237,7 +237,7 @@ test('camera case runs as a real local classification check', async () => {
   assert.notStrictEqual(result.report.cases[0].evaluationStatus, 'skipped');
 });
 
-test('mock profile passes all twenty deterministic cases', async () => {
+test('mock profile passes all twenty-six deterministic cases', async () => {
   const result = await runEvaluation({
     profile: 'mock',
     caseIds: [],
@@ -246,9 +246,25 @@ test('mock profile passes all twenty deterministic cases', async () => {
     outJson: path.join('runs', 'unused.json'),
     outMd: path.join('runs', 'unused.md'),
   }, { write: false });
-  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, 20);
+  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, 26);
   assert.strictEqual(result.report.summary.deterministic.requiredFailed, 0);
   assert.strictEqual(result.exitCode, 0);
+});
+
+test('Phase 8 coding cases run in isolated local fixtures', async () => {
+  const caseIds = ['BGIT-001', 'BGIT-002', 'BGIT-003', 'BDIFF-001', 'BEDIT-001', 'BEDIT-002'];
+  const result = await runEvaluation({
+    profile: 'local',
+    caseIds,
+    withModel: false,
+    dryRun: false,
+    outJson: path.join('runs', 'unused.json'),
+    outMd: path.join('runs', 'unused.md'),
+  }, { write: false });
+  assert.strictEqual(result.report.summary.deterministic.evaluation.passed, caseIds.length);
+  assert.strictEqual(result.report.summary.deterministic.requiredFailed, 0);
+  assert.strictEqual(result.exitCode, 0);
+  assert(result.report.cases.every((item) => item.evidence.every((entry) => !entry.patch && !entry.unifiedDiff)), 'case evidence retained patch text');
 });
 
 test('model failures remain observational and do not change exit code', async () => {

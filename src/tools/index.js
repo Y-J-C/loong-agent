@@ -36,6 +36,15 @@ const {
   createReadToolDefinition,
   createWriteToolDefinition,
 } = require('./file-tools');
+const {
+  createDiffFileToolDefinition,
+  createDiffTextToolDefinition,
+} = require('./diff-tools');
+const {
+  createGitDiffToolDefinition,
+  createGitLogToolDefinition,
+  createGitStatusToolDefinition,
+} = require('./git-tools');
 const { createReadFileTool, createReadFileToolDefinition } = require('./read-file');
 const {
   createProjectMapToolDefinition,
@@ -72,6 +81,11 @@ function createCoreToolDefinitions() {
     createProcessLogsToolDefinition(),
     createProcessStopToolDefinition(),
     createReadToolDefinition(),
+    createGitStatusToolDefinition(),
+    createGitDiffToolDefinition(),
+    createGitLogToolDefinition(),
+    createDiffTextToolDefinition(),
+    createDiffFileToolDefinition(),
     createWriteToolDefinition(),
     createCsvHtmlReportToolDefinition(),
     createEditToolDefinition(),
@@ -96,6 +110,11 @@ function createDefaultToolDefinitions(options) {
 function createReadOnlyCoreToolDefinitions() {
   return [
     createReadToolDefinition(),
+    createGitStatusToolDefinition(),
+    createGitDiffToolDefinition(),
+    createGitLogToolDefinition(),
+    createDiffTextToolDefinition(),
+    createDiffFileToolDefinition(),
     createLsToolDefinition(),
     createGrepToolDefinition(),
     createFindToolDefinition(),
@@ -132,8 +151,13 @@ module.exports = {
   createBashToolDefinition,
   createCsvHtmlReportToolDefinition,
   createEditToolDefinition,
+  createDiffFileToolDefinition,
+  createDiffTextToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
+  createGitDiffToolDefinition,
+  createGitLogToolDefinition,
+  createGitStatusToolDefinition,
   createLsToolDefinition,
   createProcessLogsToolDefinition,
   createProcessStatusToolDefinition,

@@ -60,6 +60,8 @@ Phase 7 后的内部职责边界：
 - 内置工具覆盖：
   - shell 与后台进程：`bash`、`process_status`、`process_wait`、`process_logs`、`process_stop`
   - 文件工具：`read`、`write`、`edit`、`ls`、`grep`、`find`
+  - Git 只读工具：`git_status`、`git_diff`、`git_log`
+  - 结构化比较：`diff_text`、`diff_file`
   - 兼容文件工具：`read_file`、`list_directory`、`search_files`
   - 龙芯诊断：`board_profile`、`loong_env_check`、`loong_storage_check`
   - 知识库：`kb_topic`、`kb_search`、`risk_lookup`、`command_reference`
@@ -463,7 +465,26 @@ process_stop
 - `read`、`write`、`edit`、`ls`、`grep`、`find` 是 Pi-style 文件工具。
 - `read_file`、`list_directory`、`search_files` 是兼容工具。
 - `write` 适合写多行脚本或生成文件，避免在 `bash` 中拼大型 heredoc。
+- `read` 对完整文件计算 `contentHash`，即使显示内容被截断，哈希仍对应完整文件。
+- `edit` 可传入上一次 `read` 返回的 `expectedContentHash`；哈希过期时返回 `edit_conflict`，且不修改文件。未传哈希时继续使用原有精确 `oldText` 语义。
 - 敏感路径和敏感内容会进入 warnings/evidence 或被策略拦截；不要依赖工具自动清理用户主动写出的秘密。
+
+Git 与 diff 工具说明：
+
+- `git_status` 使用 porcelain v2 结构化状态，返回 branch、upstream、ahead/behind 和 staged/unstaged/untracked/conflicted 条目。
+- `git_diff` 支持 `working`、`staged`、`head` 三种模式，返回文件统计和受限 patch；不包含 untracked 文件。
+- `git_log` 只返回有限数量的提交元数据，不返回 email、commit body 或 patch。
+- `diff_text` 每侧最多 100 KiB/3000 行；`diff_file` 每侧最多 1 MiB，二进制文件只返回哈希和大小摘要。
+- Git 工具只开放读取，不提供 commit、push、pull、reset、rebase、merge、checkout 或 clean。
+- broad diff 自动排除 `.env*`、私钥、证书和凭据类路径；patch 在进入 Session 和报告前会脱敏、限长。
+
+推荐的安全编辑流程：
+
+1. 用 `git_status` 确认当前分支和工作区状态。
+2. 用 `read` 取得目标文件内容与 `contentHash`。
+3. 用 `git_diff`、`diff_file` 或 `diff_text` 核对当前变化或拟议变化。
+4. 调用 `edit` 时传入 `expectedContentHash`。
+5. 编辑后再次执行 `read` 和 `git_status`；出现 `edit_conflict` 时重新读取，不复用旧哈希。
 
 ## 知识库
 
@@ -593,6 +614,17 @@ node scripts/core-contract-eval.js --profile local --case CSAFE-003,CPROVIDER-00
 
 契约报告写入 `runs/board-phase6/<profile>/`。`safety`、`event`、`envelope`、`session`、`provider` 和 `tui` 的必需 case 出现 `failed` 或 `blocked` 时返回非零；`full` matrix 会自动运行并校验这份结构化报告。
 
+Phase 8 编码工具验收：
+
+```bash
+node scripts/test-git-tools.js
+node scripts/test-diff-edit-tools.js
+node scripts/board-task-eval.js --profile mock --case BGIT-001,BGIT-002,BGIT-003,BDIFF-001,BEDIT-001,BEDIT-002
+node scripts/board-task-eval.js --profile local --case BGIT-001,BGIT-002,BGIT-003,BDIFF-001,BEDIT-001,BEDIT-002
+```
+
+六个 case 均使用临时 Git 仓库或临时文件，不操作当前项目仓库；报告只保存结构化摘要、哈希和状态，不保存 patch 正文。Git/diff/read/edit 或审批策略发生变化时，至少运行上述专项测试、`core-contract-eval --group safety,event,envelope` 和对应 profile 的六个 case。
+
 基础验收：
 
 ```bash
@@ -627,6 +659,7 @@ LOONG_AGENT_MODEL=deepseek-v4-pro LOONG_AGENT_THINKING_LEVEL=high node scripts/b
 按修改范围选择最小门禁：
 
 - 工具安全、执行结果或事件修改：运行 `core-contract-eval --group safety,event,envelope`。
+- Git、diff 或 edit 并发检查修改：运行 `test-git-tools.js`、`test-diff-edit-tools.js` 和六个 Phase 8 case。
 - Session 或恢复修改：运行 `core-contract-eval --group session` 和 recovery suite。
 - Provider 或 streaming 修改：运行 `core-contract-eval --group provider`。
 - Agent response parser 修改：运行 `test-native-tool-agent-loop.js`、`test-runtime.js` 和 `core-contract-eval --group event,provider`。
@@ -666,6 +699,9 @@ node scripts/test-tui-export-demo.js
 新增或重点测试：
 
 ```bash
+node scripts/test-git-tools.js
+node scripts/test-diff-edit-tools.js
+node scripts/test-board-task-eval.js
 node scripts/test-native-tool-agent-loop.js
 node scripts/test-native-tool-provider.js
 node scripts/test-native-tool-streaming.js
@@ -693,6 +729,10 @@ node --check src/provider/openai-stream.js
 node --check src/provider/dsml.js
 node --check src/provider/openai-messages.js
 node --check src/agent/response-parser.js
+node --check src/runtime/git-runner.js
+node --check src/runtime/text-diff.js
+node --check src/tools/git-tools.js
+node --check src/tools/diff-tools.js
 node --check src/rpc.js
 node --check src/sdk.js
 node --check src/session.js
