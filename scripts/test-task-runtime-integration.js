@@ -25,6 +25,7 @@ function createNpmMissingRegistry() {
     label: 'Bash',
     description: 'Fake bash',
     parameters: { command: 'string' },
+    safety: { readOnly: false, sensitive: true, requiresWorkspace: false },
     validate: (input) => input && input.command ? '' : 'Missing command',
     execute: async () => ({
       ok: false,

@@ -439,6 +439,7 @@ test('session tool failure updates task memory on next model request', async () 
     label: 'Bash',
     description: 'Fake bash',
     parameters: { command: 'string' },
+    safety: { readOnly: false, sensitive: true, requiresWorkspace: false },
     validate: () => '',
     execute: async () => ({
       ok: false,
