@@ -153,6 +153,34 @@ test('SSE parser extracts OpenAI-compatible deltas and DONE', async () => {
   assert(usage.totalTokens === 5, 'usage parse failed');
 });
 
+test('SSE parser preserves CRLF framing and multiple data lines', async () => {
+  const chunks = [];
+  const remainder = parseSseData('data: first\r\ndata: second\r\n\r\ndata: tail', (data) => chunks.push(data));
+  assert(chunks.length === 1, `unexpected framed event count: ${chunks.length}`);
+  assert(chunks[0] === 'first\nsecond', `unexpected multi-line payload: ${chunks[0]}`);
+  assert(remainder === 'tail', `unexpected SSE remainder: ${remainder}`);
+});
+
+test('streaming policy classifies fallback partial abort and fatal failures', async () => {
+  const {
+    classifyStreamFailure,
+    createPartialCompletionResult,
+    streamingEnabled,
+  } = require('../src/provider/streaming-policy');
+  const connectionReset = new Error('connection reset');
+  connectionReset.code = 'ECONNRESET';
+  assert(classifyStreamFailure({ receivedDelta: false, aborted: false, error: connectionReset }).action === 'fallback', 'pre-delta failure should fallback');
+  assert(classifyStreamFailure({ receivedDelta: true, aborted: false, error: connectionReset }).action === 'accept_partial', 'recoverable post-delta failure should accept partial');
+  assert(classifyStreamFailure({ receivedDelta: true, aborted: false, error: new Error('bad JSON') }).action === 'throw', 'fatal post-delta failure should throw');
+  assert(classifyStreamFailure({ receivedDelta: false, aborted: true, error: connectionReset }).action === 'throw', 'abort should throw');
+  const partial = createPartialCompletionResult('partial', connectionReset);
+  assert(partial.content === 'partial', 'partial content mismatch');
+  assert(partial.streamStatus === 'partial', 'partial status mismatch');
+  assert(partial.partialContentAccepted === true, 'partial acceptance mismatch');
+  assert(streamingEnabled({ streaming: false }) === false, 'streaming disable mismatch');
+  assert(streamingEnabled({}) === true, 'streaming default mismatch');
+});
+
 test('DeepSeek native thinking payload follows official parameters', async () => {
   const payload = buildOpenAiPayload({
     providerProfile: 'deepseek',
@@ -259,23 +287,34 @@ test('agent event bus coalesces single-character streaming deltas', async () => 
 });
 
 test('provider without streaming falls back to chatCompletion', async () => {
+  let completionCalls = 0;
   registerProvider({
     name: 'test-streaming-fallback',
-    chatCompletion: async () => JSON.stringify({ tool: 'finish', input: { summary: 'fallback ok' }, reason: 'done' }),
+    chatCompletion: async () => {
+      completionCalls += 1;
+      return JSON.stringify({ tool: 'finish', input: { summary: 'fallback ok' }, reason: 'done' });
+    },
   });
   const deltas = [];
   const content = await chatCompletionWithEvents(config('test-streaming-fallback'), [], {
     onDelta: (delta) => deltas.push(delta),
   });
   assert(/fallback ok/.test(content), 'fallback content missing');
+  assert(completionCalls === 1, `non-streaming provider called ${completionCalls} times`);
   assert(deltas.length === 0, 'fallback should not emit deltas');
 });
 
 test('streaming failure before first delta falls back to non-streaming completion', async () => {
+  let completionCalls = 0;
+  let streamingCalls = 0;
   registerProvider({
     name: 'test-streaming-error-fallback',
-    chatCompletion: async () => JSON.stringify({ tool: 'finish', input: { summary: 'retry fallback' }, reason: 'done' }),
+    chatCompletion: async () => {
+      completionCalls += 1;
+      return JSON.stringify({ tool: 'finish', input: { summary: 'retry fallback' }, reason: 'done' });
+    },
     streamChatCompletion: async () => {
+      streamingCalls += 1;
       throw new Error('stream unavailable');
     },
   });
@@ -286,14 +325,22 @@ test('streaming failure before first delta falls back to non-streaming completio
     },
   });
   assert(/retry fallback/.test(result), 'pre-delta fallback did not run');
+  assert(streamingCalls === 1, `streaming provider called ${streamingCalls} times`);
+  assert(completionCalls === 1, `fallback provider called ${completionCalls} times`);
   assert(metadata && metadata.fallbackUsed === true, 'fallback metadata missing');
 });
 
 test('streaming failure after delta is surfaced as model error', async () => {
+  let completionCalls = 0;
+  let streamingCalls = 0;
   registerProvider({
     name: 'test-streaming-error-after-delta',
-    chatCompletion: async () => 'should not be used',
+    chatCompletion: async () => {
+      completionCalls += 1;
+      return 'should not be used';
+    },
     streamChatCompletion: async (cfg, messages, options) => {
+      streamingCalls += 1;
       await options.onDelta('{"tool"');
       throw new Error('stream broke');
     },
@@ -305,6 +352,67 @@ test('streaming failure after delta is surfaced as model error', async () => {
     message = error.message;
   }
   assert(message === 'stream broke', `unexpected error: ${message}`);
+  assert(streamingCalls === 1, `streaming provider called ${streamingCalls} times`);
+  assert(completionCalls === 0, 'post-delta error must not trigger fallback');
+});
+
+test('recoverable streaming failure after delta accepts bounded partial content without retry', async () => {
+  let completionCalls = 0;
+  let streamingCalls = 0;
+  registerProvider({
+    name: 'test-streaming-recoverable-after-delta',
+    chatCompletion: async () => {
+      completionCalls += 1;
+      return 'should not be used';
+    },
+    streamChatCompletion: async (cfg, messages, options) => {
+      streamingCalls += 1;
+      await options.onDelta('partial answer');
+      const error = new Error('socket reset after delta');
+      error.code = 'ECONNRESET';
+      throw error;
+    },
+  });
+  let metadata = null;
+  const content = await chatCompletionWithEvents(config('test-streaming-recoverable-after-delta'), [], {
+    onDelta: () => {},
+    onMetadata: (item) => {
+      metadata = item;
+    },
+  });
+  assert(content === 'partial answer', `unexpected partial content: ${content}`);
+  assert(streamingCalls === 1, `streaming provider called ${streamingCalls} times`);
+  assert(completionCalls === 0, 'recoverable post-delta failure must not retry');
+  assert(metadata && metadata.fallbackUsed === false, 'partial result must not be marked as fallback');
+  assert(metadata.streamStatus === 'partial', `unexpected stream status: ${metadata.streamStatus}`);
+  assert(metadata.streamError === 'socket reset after delta', 'partial stream error summary missing');
+  assert(metadata.partialContentAccepted === true, 'partial content acceptance marker missing');
+});
+
+test('abort before first delta does not fall back', async () => {
+  let completionCalls = 0;
+  registerProvider({
+    name: 'test-streaming-abort-before-delta',
+    chatCompletion: async () => {
+      completionCalls += 1;
+      return 'should not be used';
+    },
+    streamChatCompletion: async () => {
+      const error = new Error('Agent run aborted');
+      error.code = 'aborted';
+      throw error;
+    },
+  });
+  let caught = null;
+  try {
+    await chatCompletionWithEvents(config('test-streaming-abort-before-delta'), [], {
+      isAborted: () => true,
+    });
+  } catch (error) {
+    caught = error;
+  }
+  assert(caught && caught.code === 'aborted', 'abort error should be preserved');
+  assert(completionCalls === 0, 'aborted stream must not fall back');
 });
 
 test('abort interrupts streaming run and records aborted agent end', async () => {

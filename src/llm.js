@@ -3,16 +3,16 @@
 const {
   getProvider,
   getProviderCapabilities,
-  isRecoverableStreamError,
   listProviderDetails,
   listProviders,
   registerProvider,
   resolveProviderCapabilities,
 } = require('./provider-registry');
-
-function streamingEnabled(config) {
-  return !config || config.streaming !== false;
-}
+const {
+  classifyStreamFailure,
+  createPartialCompletionResult,
+  streamingEnabled,
+} = require('./provider/streaming-policy');
 
 function normalizeUsage(usage, capabilities) {
   if (!capabilities || !capabilities.usage) {
@@ -144,7 +144,9 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
     emitMetadata(callbacks, metadata);
     return metadata.content;
   } catch (error) {
-    if (!receivedDelta && (!callbacks || !callbacks.isAborted || !callbacks.isAborted())) {
+    const aborted = Boolean(callbacks && callbacks.isAborted && callbacks.isAborted());
+    const decision = classifyStreamFailure({ receivedDelta, aborted, error });
+    if (decision.action === 'fallback') {
       const result = await provider.chatCompletion(config, messages, options);
       const metadata = normalizeCompletionResult(result, config || {}, {
         streaming: false,
@@ -154,18 +156,8 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
       emitMetadata(callbacks, metadata);
       return metadata.content;
     }
-    if (
-      receivedDelta &&
-      isRecoverableStreamError(error) &&
-      (!callbacks || !callbacks.isAborted || !callbacks.isAborted())
-    ) {
-      const metadata = normalizeCompletionResult({
-        content: streamedContent,
-        usage: null,
-        streamStatus: 'partial',
-        streamError: error && error.message ? error.message : String(error),
-        partialContentAccepted: true,
-      }, config || {}, {
+    if (decision.action === 'accept_partial') {
+      const metadata = normalizeCompletionResult(createPartialCompletionResult(streamedContent, error), config || {}, {
         streaming: true,
         fallbackUsed: false,
       });

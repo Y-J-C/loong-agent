@@ -34,6 +34,14 @@ Loong-Agent 是一个面向龙芯 LoongArch 开发板的轻量级 Pi-style Agent
 - 支持长上下文前的轻量 compaction，避免长 session 超过上下文窗口。
 - 支持 final answer evidence guard，避免在缺少当前证据时直接回答板端状态、磁盘、端口、I2C、USB 摄像头等问题。
 
+Phase 7 后的内部职责边界：
+
+- `src/provider/streaming-policy.js` 只判断 pre-delta fallback、post-delta partial、fatal error 和 abort。
+- `src/provider/openai-stream.js` 只负责 OpenAI-compatible HTTP/SSE、UTF-8 chunk、delta 顺序和流终态。
+- `src/provider/dsml.js` 与 `src/provider/openai-messages.js` 分别负责 DSML 和 native tool message 解析/聚合。
+- `src/agent/response-parser.js` 负责 legacy/native response 分类；`agent-loop.js` 继续负责 loop 状态、guards、工具执行和事件。
+- `provider-registry.js`、`llm.js` 和 `agent-loop.js` 的既有公共导出及调用签名保持兼容；内部模块不作为新的公共 API 承诺。
+
 ### Tool System
 
 - 工具采用 definition-first 结构，统一返回 envelope：
@@ -110,7 +118,8 @@ loong-agent/
   src/tui/              legacy TUI 与 runtime-backed TUI
   src/tools/            内置工具实现
   src/extensions/       Loong 扩展、prompt guideline、observation deriver
-  src/agent/            task state、session memory、project-run-check
+  src/provider/         streaming policy、OpenAI SSE、DSML、native message 内部模块
+  src/agent/            response parser、task state、session memory、project-run-check
   scripts/              本地测试、board smoke、知识层检查、demo 脚本
   docs/                 本地文档和归档材料；默认不提交、不同步到板端
   kb/                   龙芯板端知识库、facts、playbooks
@@ -620,6 +629,7 @@ LOONG_AGENT_MODEL=deepseek-v4-pro LOONG_AGENT_THINKING_LEVEL=high node scripts/b
 - 工具安全、执行结果或事件修改：运行 `core-contract-eval --group safety,event,envelope`。
 - Session 或恢复修改：运行 `core-contract-eval --group session` 和 recovery suite。
 - Provider 或 streaming 修改：运行 `core-contract-eval --group provider`。
+- Agent response parser 修改：运行 `test-native-tool-agent-loop.js`、`test-runtime.js` 和 `core-contract-eval --group event,provider`。
 - TUI 修改：运行 `core-contract-eval --group tui`，Linux 板端同时运行真实 PTY smoke。
 - 修改 `Agent Loop`、Provider 公共行为或跨模块契约：必须运行 `board-acceptance-matrix --suite full`。
 
@@ -659,6 +669,7 @@ node scripts/test-tui-export-demo.js
 node scripts/test-native-tool-agent-loop.js
 node scripts/test-native-tool-provider.js
 node scripts/test-native-tool-streaming.js
+node scripts/test-streaming.js
 node scripts/test-project-run-check.js
 node scripts/test-project-run-check-demo.js
 node scripts/test-session-memory.js
@@ -677,6 +688,11 @@ node --check src/index.js
 node --check src/agent-loop.js
 node --check src/llm.js
 node --check src/provider-registry.js
+node --check src/provider/streaming-policy.js
+node --check src/provider/openai-stream.js
+node --check src/provider/dsml.js
+node --check src/provider/openai-messages.js
+node --check src/agent/response-parser.js
 node --check src/rpc.js
 node --check src/sdk.js
 node --check src/session.js

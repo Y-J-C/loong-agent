@@ -2,7 +2,9 @@
 'use strict';
 
 const { createAgentState } = require('../src/agent-state');
-const { runAgentLoop, parseNativeAgentMessage } = require('../src/agent-loop');
+const agentLoop = require('../src/agent-loop');
+const responseParser = require('../src/agent/response-parser');
+const { runAgentLoop, parseNativeAgentMessage } = agentLoop;
 
 const tests = [];
 
@@ -66,6 +68,16 @@ function tools() {
     },
   ];
 }
+
+test('agent-loop keeps parser compatibility exports backed by the pure parser module', async () => {
+  assert(agentLoop.parseToolCall === responseParser.parseToolCall, 'parseToolCall is not a compatibility re-export');
+  assert(agentLoop.parseAgentResponse === responseParser.parseAgentResponse, 'parseAgentResponse is not a compatibility re-export');
+  assert(agentLoop.parseNativeAgentMessage === responseParser.parseNativeAgentMessage, 'parseNativeAgentMessage is not a compatibility re-export');
+  assert(agentLoop.balanceTrailingObjectBraces === responseParser.balanceTrailingObjectBraces, 'brace balancer is not a compatibility re-export');
+  const parsed = responseParser.parseAgentResponse('{"tool":"inspect","input":{"target":"board"}}');
+  assert(parsed.kind === 'tool_action', 'pure parser did not classify tool action');
+  assert(parsed.action.input.target === 'board', 'pure parser changed tool input');
+});
 
 function registryFor(toolDefs) {
   const map = {};
