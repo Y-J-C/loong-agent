@@ -189,6 +189,7 @@ function createFakeBashRegistry(stdoutByCommand) {
     name: 'bash',
     label: 'Bash',
     description: 'Fake bash for tests',
+    safety: { readOnly: false, sensitive: true, requiresWorkspace: false },
     repeatPolicy: 'answerable_once',
     parameters: { command: 'string' },
     validate: (input) => input && input.command ? '' : 'Missing command',
@@ -238,6 +239,7 @@ function createFakeStorageRegistry(report) {
     name: 'loong_storage_check',
     label: 'Fake storage check',
     description: 'Fake storage check for tests',
+    safety: { readOnly: true, sensitive: false, requiresWorkspace: false },
     repeatPolicy: 'answerable_once',
     parameters: {},
     validate: () => '',
@@ -2705,7 +2707,7 @@ test('tool events include stable metadata and turn status', async () => {
   assert(end && end.toolCallId === start.toolCallId, 'tool end did not preserve toolCallId');
   assert(typeof end.durationMs === 'number', 'tool end missing durationMs');
   assert(end.status === 'error', 'tool end missing error status');
-  assert(turnEnd && turnEnd.status === 'tool_error', 'turn_end missing tool_error status');
+  assert(turnEnd && turnEnd.status === 'policy_blocked', 'turn_end missing policy_blocked status');
   assert(turnEnd && turnEnd.toolName === 'missing_tool', 'turn_end missing tool name');
 });
 
@@ -3407,16 +3409,19 @@ test('long task workflow blocks finite flags on unsupported legacy sensor script
 test('tool approval policy allows read-only tools asks for mutating tools and denies sensitive paths', () => {
   const workspace = tempWorkspace();
   const cfg = config('test-tool-approval-policy', workspace);
-  const readDecision = classifyToolApproval(cfg, { tool: 'read', input: { path: 'README.md' } }, { safety: { readOnly: true } });
-  const writeDecision = classifyToolApproval(cfg, { tool: 'write', input: { path: 'generated.txt', content: 'x' } }, { safety: { readOnly: false } });
-  const externalWriteDecision = classifyToolApproval(cfg, { tool: 'write', input: { path: path.join(os.tmpdir(), 'outside.txt'), content: 'x' } }, { safety: { readOnly: false } });
-  const envDecision = classifyToolApproval(cfg, { tool: 'read', input: { path: '.env' } }, { safety: { readOnly: true } });
-  const bashReadOnlyDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'free -h' } }, { safety: { readOnly: false } });
-  const bashTcpPortsDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "Neither ss nor netstat available"' } }, { safety: { readOnly: false } });
-  const bashUdpPortsDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'ss -ulnp 2>/dev/null || netstat -ulnp 2>/dev/null || echo "No UDP info"' } }, { safety: { readOnly: false } });
-  const bashGeneralDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'node -e "console.log(1)"' } }, { safety: { readOnly: false } });
-  const bashNpmInstallDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'npm install || true' } }, { safety: { readOnly: false } });
-  const bashSystemctlDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'systemctl restart demo' } }, { safety: { readOnly: false } });
+  const readonlyTool = createTool({ name: 'read', safety: { readOnly: true, sensitive: true, requiresWorkspace: false }, execute: async () => ({}) });
+  const writeTool = createTool({ name: 'write', safety: { readOnly: false, sensitive: true, requiresWorkspace: false }, execute: async () => ({}) });
+  const bashTool = createTool({ name: 'bash', safety: { readOnly: false, sensitive: true, requiresWorkspace: false }, execute: async () => ({}) });
+  const readDecision = classifyToolApproval(cfg, { tool: 'read', input: { path: 'README.md' } }, readonlyTool);
+  const writeDecision = classifyToolApproval(cfg, { tool: 'write', input: { path: 'generated.txt', content: 'x' } }, writeTool);
+  const externalWriteDecision = classifyToolApproval(cfg, { tool: 'write', input: { path: path.join(os.tmpdir(), 'outside.txt'), content: 'x' } }, writeTool);
+  const envDecision = classifyToolApproval(cfg, { tool: 'read', input: { path: '.env' } }, readonlyTool);
+  const bashReadOnlyDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'free -h' } }, bashTool);
+  const bashTcpPortsDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "Neither ss nor netstat available"' } }, bashTool);
+  const bashUdpPortsDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'ss -ulnp 2>/dev/null || netstat -ulnp 2>/dev/null || echo "No UDP info"' } }, bashTool);
+  const bashGeneralDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'node -e "console.log(1)"' } }, bashTool);
+  const bashNpmInstallDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'npm install || true' } }, bashTool);
+  const bashSystemctlDecision = classifyToolApproval(cfg, { tool: 'bash', input: { command: 'systemctl restart demo' } }, bashTool);
 
   assert(readDecision.status === 'allow', 'read should be allowed');
   assert(writeDecision.status === 'ask' && writeDecision.riskLevel === 'workspace_write', 'workspace write should ask');

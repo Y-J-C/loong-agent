@@ -6,29 +6,6 @@ const { evaluateCommand } = require('./command-policy');
 const SENSITIVE_PATH_PATTERN =
   /(^|[\\/])\.env($|[\\/])|api[_-]?key|token|secret|authorization|credential|(^|[\\/])id_rsa$|(^|[\\/])id_ed25519$|\.pem$|\.key$/i;
 
-const READONLY_TOOLS = {
-  board_profile: true,
-  command_reference: true,
-  find: true,
-  grep: true,
-  kb_search: true,
-  kb_topic: true,
-  list_directory: true,
-  loong_env_check: true,
-  loong_storage_check: true,
-  ls: true,
-  process_logs: true,
-  process_status: true,
-  process_wait: true,
-  project_map: true,
-  read: true,
-  read_file: true,
-  risk_lookup: true,
-  runtime_health: true,
-  search_files: true,
-  session_summary: true,
-};
-
 const ASK_TOOLS = {
   csv_html_report: true,
   edit: true,
@@ -159,6 +136,20 @@ function classifyToolApproval(config, action, tool) {
     return deny(action, 'sensitive_path', `Sensitive path is blocked: ${pathValue}`, 'sensitive_path');
   }
 
+  if (!tool) {
+    return deny(action, 'unknown_tool', `Tool is not registered: ${toolName || 'unknown'}`, 'unknown_tool');
+  }
+
+  if (!tool.safetyDeclaration || tool.safetyDeclaration.status !== 'complete') {
+    return ask(
+      action,
+      'tool_safety_unclassified',
+      `Tool safety declaration is missing or invalid: ${toolName || 'unknown'}`,
+      'unclassified_tool',
+      { warnings: ['Unclassified tools require explicit approval and are blocked in non-interactive mode.'] }
+    );
+  }
+
   if (toolName === 'bash') {
     const input = action && action.input && typeof action.input === 'object' ? action.input : {};
     const command = String(input.command || '').trim();
@@ -185,10 +176,6 @@ function classifyToolApproval(config, action, tool) {
     return ask(action, 'workspace_write', `Tool may modify workspace files: ${toolName}`, 'workspace_write');
   }
 
-  if (READONLY_TOOLS[toolName]) {
-    return allow(action, 'readonly_tool', `Read-only tool allowed: ${toolName}`, 'readonly');
-  }
-
   if (tool && tool.safety && tool.safety.readOnly === true) {
     return allow(action, 'readonly_tool', `Read-only tool allowed: ${toolName || 'unknown'}`, 'readonly');
   }
@@ -197,7 +184,12 @@ function classifyToolApproval(config, action, tool) {
     return ask(action, 'tool_requires_approval', `Tool is not read-only: ${toolName || 'unknown'}`, 'workspace_write');
   }
 
-  return allow(action, 'unknown_tool_default_allow', `Tool has no mutating safety marker: ${toolName || 'unknown'}`, 'readonly');
+  return ask(
+    action,
+    'tool_safety_unclassified',
+    `Tool safety declaration cannot be classified: ${toolName || 'unknown'}`,
+    'unclassified_tool'
+  );
 }
 
 module.exports = {

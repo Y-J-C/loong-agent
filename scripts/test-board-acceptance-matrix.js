@@ -23,6 +23,7 @@ const {
 } = require('./board-smoke');
 const {
   deriveSuiteStatus,
+  evaluateCoreContract,
   notRunSuite,
   processStep,
 } = require('./board-acceptance-matrix-suites');
@@ -121,6 +122,27 @@ test('model failure remains non-gating', () => {
   });
   assert.strictEqual(report.summary.gatingFailed, 0);
   assert.match(renderMarkdown(report), /Gating failed: 0/);
+});
+
+test('core contract child report is a full-suite hard gate', () => {
+  const base = {
+    schema: 'loong-agent.core-contract-eval.v1',
+    baseline: true,
+    generatedAt: '2026-07-13T00:00:00.000Z',
+    profile: 'mock',
+    environment: { node: process.version },
+    options: {},
+    cases: [{
+      caseId: 'CSAFE-001', title: 'fixture', group: 'safety', required: true,
+      status: 'failed', startedAt: '2026-07-13T00:00:00.000Z', durationMs: 1,
+      checks: [], evidence: [], warnings: [], error: 'fixture failure',
+    }],
+    warnings: [],
+  };
+  base.summary = require('./core-contract-eval-runtime').summarizeCases(base.cases);
+  const evaluated = evaluateCoreContract(base);
+  assert.strictEqual(evaluated.status, 'failed');
+  assert.strictEqual(evaluated.failureType, 'code');
 });
 
 test('matrix report writes matching redacted JSON and traceable Markdown', () => {

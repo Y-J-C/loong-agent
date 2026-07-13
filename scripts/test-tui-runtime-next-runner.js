@@ -29,6 +29,39 @@ function equal(actual, expected, msg) {
   console.error('FAIL: ' + msg + ' (want ' + expected + ', got ' + actual + ')');
 }
 
+function exitCodeForFailureCount(value) {
+  return Number(value) > 0 ? 1 : 0;
+}
+
+function waitFor(predicate, timeoutMs) {
+  var deadline = Date.now() + (timeoutMs || 2000);
+  return new Promise(function(resolve) {
+    function check() {
+      if (predicate() || Date.now() >= deadline) {
+        resolve();
+        return;
+      }
+      setTimeout(check, 25);
+    }
+    check();
+  });
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return new Promise(function(resolve, reject) {
+    var timer = setTimeout(function() {
+      reject(new Error(message || 'Timed out waiting for promise'));
+    }, timeoutMs || 5000);
+    promise.then(function(value) {
+      clearTimeout(timer);
+      resolve(value);
+    }, function(error) {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
 function FakeTerminal() {
   EventEmitter.call(this);
   this.columns = 60;
@@ -299,7 +332,9 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 80); });
   ok(capturedState.pendingToolApproval, 'manual bang command can request shell approval');
   terminal.inputHandler('y');
-  await new Promise(function(resolve) { setTimeout(resolve, 160); });
+  await waitFor(function() {
+    return capturedState.pendingToolApproval === null && capturedState.mode === 'idle';
+  }, 2000);
   equal(fakeSession.prompts.length, promptCountBeforeBang, 'manual bang command does not submit a model prompt');
   equal(capturedState.pendingToolApproval, null, 'manual bang command clears approval state');
   equal(capturedState.mode, 'idle', 'manual bang command returns runtime mode to idle');
@@ -485,35 +520,47 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   terminal.inputHandler('\x0f');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  equal(capturedState.activePanel, null, 'ctrl+o does not open tool detail panel');
-  ok(capturedState.messages.some(function(message) {
-    return message.type === 'tool' && message.expanded;
-  }), 'ctrl+o expands nearest tool message inline');
-  ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'ctrl+o renders tool detail inline');
-  terminal.inputHandler('\x0f');
-  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  equal(capturedState.activePanel && capturedState.activePanel.type, 'tool_detail', 'ctrl+o opens tool detail viewer');
+  ok((capturedState.activePanel && capturedState.activePanel.lines || []).join('\n').indexOf('tool hidden detail') >= 0, 'tool detail viewer keeps result detail');
   ok(!capturedState.messages.some(function(message) {
     return message.type === 'tool' && message.expanded;
-  }), 'ctrl+o collapses inline tool detail');
+  }), 'ctrl+o viewer does not also expand the message inline');
+  terminal.inputHandler('\x0f');
+  await waitFor(function() { return capturedState.activePanel === null; }, 2000);
+  equal(capturedState.activePanel, null, 'second ctrl+o closes tool detail viewer');
   terminal.inputHandler('\x1b[15;6u');
-  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  await waitFor(function() { return capturedState.expandedTools === true; }, 2000);
+  equal(capturedState.expandedTools, true, 'shift+ctrl+o enables global tool detail expansion');
   ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'shift+ctrl+o expands tool detail in message list');
   terminal.inputHandler('\x0c');
   await new Promise(function(resolve) { setTimeout(resolve, 10); });
   ok(terminal.output.length > 0, 'ctrl+l redraw keeps output available');
 
+  if (capturedState.activePanel) {
+    terminal.inputHandler('\x1b');
+    await waitFor(function() { return capturedState.activePanel === null; }, 1000);
+  }
   terminal.inputHandler('\x04');
-  var result = await resultPromise;
+  var result = await withTimeout(resultPromise, 5000, 'Runtime Next runner did not exit after Ctrl+D');
   ok(terminal.stopped, 'terminal stops');
   ok(capturedState.lastRender.diffResetCount > 0, 'ctrl+l redraw is recorded');
   equal(result.nonTty, false, 'runner resolves interactive result');
   fs.rmSync(workspace, { recursive: true, force: true });
 
   console.log(pass + '/' + (pass + fail) + ' passed');
-  process.exit(fail > 0 ? 1 : 0);
+  return exitCodeForFailureCount(fail);
 }
 
-main().catch(function(error) {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
+if (require.main === module) {
+  main().then(function(code) {
+    process.exitCode = code;
+  }).catch(function(error) {
+    console.error(error && error.stack ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  exitCodeForFailureCount: exitCodeForFailureCount,
+  main: main,
+};

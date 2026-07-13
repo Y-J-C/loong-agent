@@ -13,6 +13,33 @@ const DEFAULT_EVIDENCE_POLICY = {
   source: 'runtime',
 };
 
+const SAFETY_FIELDS = ['readOnly', 'sensitive', 'requiresWorkspace'];
+
+function inspectSafetyDeclaration(definition) {
+  const hasSafety = Boolean(
+    definition && Object.prototype.hasOwnProperty.call(definition, 'safety')
+  );
+  const source = hasSafety ? definition.safety : null;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return {
+      status: hasSafety ? 'invalid' : 'missing',
+      missingFields: hasSafety ? [] : SAFETY_FIELDS.slice(),
+      invalidFields: hasSafety ? ['safety'] : [],
+    };
+  }
+  const missingFields = SAFETY_FIELDS.filter((field) => (
+    !Object.prototype.hasOwnProperty.call(source, field)
+  ));
+  const invalidFields = SAFETY_FIELDS.filter((field) => (
+    Object.prototype.hasOwnProperty.call(source, field) && typeof source[field] !== 'boolean'
+  ));
+  return {
+    status: invalidFields.length ? 'invalid' : (missingFields.length ? 'missing' : 'complete'),
+    missingFields,
+    invalidFields,
+  };
+}
+
 function createTool(definition) {
   if (!definition || typeof definition.name !== 'string') {
     throw new Error('Tool definition requires a name');
@@ -20,6 +47,7 @@ function createTool(definition) {
   if (typeof definition.execute !== 'function') {
     throw new Error(`Tool ${definition.name} requires an execute function`);
   }
+  const safetyDeclaration = inspectSafetyDeclaration(definition);
   const safety = Object.assign({}, DEFAULT_SAFETY, definition.safety || {});
   return {
     name: definition.name,
@@ -30,6 +58,7 @@ function createTool(definition) {
     promptGuidelines: definition.promptGuidelines || '',
     category: definition.category || 'diagnostics',
     safety,
+    safetyDeclaration,
     evidencePolicy: Object.assign({}, DEFAULT_EVIDENCE_POLICY, definition.evidencePolicy || {}),
     resultSchema: definition.resultSchema || {},
     executionMode: definition.executionMode || 'sequential',
@@ -144,5 +173,6 @@ module.exports = {
   createTool,
   createToolRegistry,
   formatToolsForPrompt,
+  inspectSafetyDeclaration,
   normalizeToolResult,
 };

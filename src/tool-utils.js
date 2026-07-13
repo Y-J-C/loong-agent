@@ -54,8 +54,7 @@ function normalizeToolResult(tool, rawResult) {
     raw &&
     typeof raw === 'object' &&
     !Array.isArray(raw) &&
-    Object.prototype.hasOwnProperty.call(raw, 'ok') &&
-    Object.prototype.hasOwnProperty.call(raw, 'data');
+    Object.prototype.hasOwnProperty.call(raw, 'ok');
   const base = isEnvelope
     ? Object.assign({}, raw)
     : {
@@ -70,7 +69,9 @@ function normalizeToolResult(tool, rawResult) {
   const normalized = Object.assign({}, raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, base, {
     ok: base.ok !== false,
     data: base.data === undefined ? {} : base.data,
-    summary: typeof base.summary === 'string' ? base.summary : inferSummary(base.data),
+    summary: typeof base.summary === 'string'
+      ? base.summary
+      : (base.error ? String(base.error) : inferSummary(base.data)),
     evidence: normalizeEvidence(base.evidence),
     warnings: normalizeWarnings(base.warnings),
     error: base.error ? String(base.error) : '',

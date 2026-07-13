@@ -264,6 +264,8 @@ node src/index.js tui --legacy-tui
 node src/index.js rpc
 ```
 
+`Runtime Next` 是默认 TUI，也是唯一功能开发主线。`--legacy-tui` 仅用于严重启动或渲染故障时的显式应急回退；Legacy 不再新增功能，也不作为常规功能对等目标。
+
 日志诊断：
 
 ```bash
@@ -570,6 +572,18 @@ node scripts/board-acceptance-matrix.js --profile board --suite all
 
 矩阵报告写入 `runs/board-phase5/<profile>/`。`quick`、`full`、`failure` 和 `recovery` 是确定性门禁；`--with-model` 追加独立模型层，模型失败或外部服务阻塞不改变确定性退出码。未选择的层为 `not_run`，不适用项为 `skipped`，缺少执行前提为 `blocked`，三者都不计为 passed。
 
+Phase 6 核心行为契约：
+
+```bash
+node scripts/test-core-contract-eval.js
+node scripts/core-contract-eval.js --profile mock
+node scripts/core-contract-eval.js --profile local
+node scripts/core-contract-eval.js --profile local --group safety,event,envelope
+node scripts/core-contract-eval.js --profile local --case CSAFE-003,CPROVIDER-002
+```
+
+契约报告写入 `runs/board-phase6/<profile>/`。`safety`、`event`、`envelope`、`session`、`provider` 和 `tui` 的必需 case 出现 `failed` 或 `blocked` 时返回非零；`full` matrix 会自动运行并校验这份结构化报告。
+
 基础验收：
 
 ```bash
@@ -600,6 +614,14 @@ LOONG_AGENT_MODEL=deepseek-v4-pro LOONG_AGENT_THINKING_LEVEL=high node scripts/b
 `--with-model` 依赖可用 API key。矩阵入口缺 key 时将模型层标记为 blocked；旧 `board-smoke` 入口标记为 skipped。两者都不应污染确定性验收结果。
 
 运行 `node scripts/test-runtime.js` 或其它会验证配置默认值的测试时，应隔离本地 `.env` 影响，避免把本地配置覆盖导致的断言失败误判为代码问题。
+
+按修改范围选择最小门禁：
+
+- 工具安全、执行结果或事件修改：运行 `core-contract-eval --group safety,event,envelope`。
+- Session 或恢复修改：运行 `core-contract-eval --group session` 和 recovery suite。
+- Provider 或 streaming 修改：运行 `core-contract-eval --group provider`。
+- TUI 修改：运行 `core-contract-eval --group tui`，Linux 板端同时运行真实 PTY smoke。
+- 修改 `Agent Loop`、Provider 公共行为或跨模块契约：必须运行 `board-acceptance-matrix --suite full`。
 
 待确认：
 

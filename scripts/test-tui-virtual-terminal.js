@@ -455,7 +455,7 @@ test('virtual terminal viewer search scroll reset and close keep final screen st
   screens.forEach((screen) => assertStableFinalScreen(screen));
 });
 
-test('virtual terminal running ephemeral coexists with panel and hides after idle', () => {
+test('virtual terminal hidden internal prompt does not leak through a panel', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   state.activePanel = {
     type: 'command',
@@ -465,7 +465,7 @@ test('virtual terminal running ephemeral coexists with panel and hides after idl
   };
   handleAgentEvent(state, { type: 'agent_start', prompt: 'memory status', provider: 'mock', model: 'm' });
   let screen = finalScreen(state, { columns: 100, rows: 18 });
-  assertSurface(screen, ['Command Palette', 'memory status'], ['loong>']);
+  assertSurface(screen, ['Command Palette'], ['memory status', 'loong>']);
   assertStableFinalScreen(screen);
 
   handleAgentEvent(state, { type: 'agent_end', status: 'ok', summary: 'done' });
@@ -508,11 +508,11 @@ test('virtual terminal search state highlights one match and keeps one status ba
   assertSingleStatusBar(screen);
 });
 
-test('virtual terminal shows ephemeral system only while running', () => {
+test('virtual terminal keeps hidden internal prompt out of running and idle surfaces', () => {
   const state = createTuiState({ workspace: '/tmp/ws', provider: 'mock', model: 'm' });
   handleAgentEvent(state, { type: 'agent_start', prompt: 'memory status', provider: 'mock', model: 'm' });
   let screen = finalScreen(state, { columns: 100, rows: 18 });
-  assert(screen.indexOf('memory status') >= 0, 'running ephemeral system message should be visible');
+  assert(screen.indexOf('memory status') < 0, 'running internal prompt should remain hidden');
   handleAgentEvent(state, { type: 'agent_end', status: 'ok', summary: 'done' });
   screen = finalScreen(state, { columns: 100, rows: 18 });
   assert(screen.indexOf('memory status') < 0, 'idle ephemeral system message should be hidden');

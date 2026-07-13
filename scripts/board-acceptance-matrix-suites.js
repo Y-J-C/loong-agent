@@ -6,6 +6,7 @@ const path = require('path');
 const { loadConfig } = require('../src/config');
 const { validateReport: validateTaskReport } = require('./board-task-eval-runtime');
 const { validateReport: validateResourceReport } = require('./board-resource-baseline-runtime');
+const { validateReport: validateCoreContractReport } = require('./core-contract-eval-runtime');
 const { sanitize } = require('./board-acceptance-matrix-runtime');
 
 const FAILURE_CASES = ['BFAIL-001', 'BFAIL-002', 'BFAIL-003', 'BFAIL-004', 'BFAIL-005', 'BFAIL-006'];
@@ -139,6 +140,18 @@ function evaluateResource(report) {
   };
 }
 
+function evaluateCoreContract(report) {
+  validateCoreContractReport(report);
+  return {
+    status: report.summary.requiredFailed ? 'failed' : 'passed',
+    failureType: report.summary.requiredFailed ? 'code' : '',
+    summary: report.summary,
+    warnings: report.summary.statuses.skipped
+      ? [`Core contract evaluation skipped ${report.summary.statuses.skipped} case(s).`]
+      : [],
+  };
+}
+
 function reportedStep(context, spec) {
   const startedAt = nowIso();
   const startedMs = Date.now();
@@ -241,6 +254,17 @@ function resourceStep(context, options) {
   });
 }
 
+function coreContractStep(context, options) {
+  const json = childPath(options, 'full', 'core-contract-report.json');
+  const md = childPath(options, 'full', 'core-contract-report.md');
+  return reportedStep(context, {
+    name: 'core-contract-eval',
+    args: ['scripts/core-contract-eval.js', '--profile', options.profile, '--out-json', json, '--out-md', md],
+    reportPath: json,
+    evaluate: evaluateCoreContract,
+  });
+}
+
 function hasApiKey() {
   try {
     return Boolean(loadConfig().apiKey);
@@ -267,6 +291,7 @@ async function runSuite(name, options, dependencies) {
     steps.push(smokeStep(context, options, name, 'full'));
     steps.push(taskStep(context, options, name, 'board-task-eval', [], 'deterministic'));
     steps.push(resourceStep(context, options));
+    steps.push(coreContractStep(context, options));
     steps.push(plainStep(context, 'test-board-task-eval', ['scripts/test-board-task-eval.js']));
     steps.push(plainStep(context, 'test-board-resource-baseline', ['scripts/test-board-resource-baseline.js']));
   } else if (name === 'failure') {
@@ -314,6 +339,7 @@ module.exports = {
   MODEL_SUPPORT_CASES,
   RECOVERY_CASES,
   deriveSuiteStatus,
+  evaluateCoreContract,
   evaluateResource,
   evaluateSmoke,
   evaluateTask,

@@ -449,6 +449,16 @@ async function runRuntimeNextTui(config, options) {
   }
 
   async function handleModalKey(key) {
+    if (
+      key && key.type === 'ctrl_o' &&
+      state.activePanel &&
+      state.activePanel.type === 'tool_detail'
+    ) {
+      toolFocus.toggleSelectedToolDetail(state);
+      stateModule.updateAutocomplete(state);
+      requestRender(true);
+      return true;
+    }
     if (state.pendingToolApproval) {
       var hadApproval = Boolean(state.pendingToolApproval);
       interactions.handleApprovalKey(state, key);

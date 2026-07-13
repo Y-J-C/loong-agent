@@ -326,6 +326,11 @@ async function executeToolCall(context, action, repeatDecision) {
         const executedTool = registry.get(action.tool);
         resultSummary =
           executedTool && executedTool.renderResult ? executedTool.renderResult(result) : '';
+        if (result && typeof result === 'object' && result.ok === false) {
+          const data = result.data && typeof result.data === 'object' ? result.data : {};
+          isError = true;
+          errorType = result.errorType || data.errorType || 'tool_result_error';
+        }
       } catch (error) {
         isError = true;
         errorType = error && error.code ? error.code : 'tool_execution_error';
