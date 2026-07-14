@@ -87,7 +87,7 @@ var baseState = {
   provider: 'mock-provider-with-long-name',
   model: 'very-long-model-name-that-must-truncate',
   theme: 'plain',
-  cwd: 'C:/very/long/workspace/path/that/must/be/truncated',
+  cwd: 'C:/very/long/workspace/龙芯派-诊断项目/that/must/be/truncated',
   inputBuffer: 'hello ' + '\u4e2d\u6587' + '\nsecond line with a very long tail',
   cursor: 11,
   tokenInput: 1234,
@@ -103,14 +103,18 @@ var baseState = {
     { type: 'tool', toolName: 'grep', status: 'error', isError: true, summary: 'failed output' },
     { type: 'system', text: 'system note' },
     { type: 'error', text: 'error note' },
+    { type: 'thinking', text: '检查龙芯派当前证据', status: 'complete' },
+    { type: 'tool', toolName: 'loong_env_check', done: true, detail: { data: { boardModel: 'LS2K1000', arch: 'loongarch64', system: 'Linux' }, evidence: [{ source: 'uname -m' }] } },
   ],
+  queuedSteering: ['先核验当前环境'],
+  queuedFollowUps: ['然后给出下一步'],
+  thinkingVisible: true,
 };
 
 [
+  { columns: 40, rows: 16 },
   { columns: 80, rows: 24 },
-  { columns: 100, rows: 30 },
-  { columns: 50, rows: 12 },
-  { columns: 40, rows: 10 },
+  { columns: 120, rows: 32 },
 ].forEach(function(size) {
   var view = new ChatView(Object.assign({}, baseState));
   var chatLines = view.render(size.columns, { rows: size.rows, theme: plain });
@@ -118,6 +122,36 @@ var baseState = {
   assertFrameFits(chatLines, size.columns, size.rows, 'chat ' + size.columns + 'x' + size.rows);
   ok(chatPlain.indexOf('─'.repeat(size.columns)) >= 0, 'chat ' + size.columns + 'x' + size.rows + ' uses solid input border');
   ok(chatPlain.indexOf('-'.repeat(size.columns)) < 0, 'chat ' + size.columns + 'x' + size.rows + ' omits extra dashed divider');
+});
+
+function assertSurface(size, label, patch, marker) {
+  var state = Object.assign({}, baseState, patch || {});
+  var lines = new ChatView(state).render(size.columns, { rows: size.rows, theme: plain });
+  var text = utils.stripAnsi(lines.join('\n'));
+  assertFrameFits(lines, size.columns, size.rows, label + ' ' + size.columns + 'x' + size.rows);
+  ok(text.indexOf(marker) >= 0, label + ' marker remains visible at ' + size.columns + 'x' + size.rows);
+  ['Session Selector', 'Model Selector', 'Tool Approval', 'Tool Detail Viewer'].forEach(function(other) {
+    if (other !== marker) ok(text.indexOf(other) < 0, label + ' does not overlap ' + other);
+  });
+}
+
+[
+  { columns: 40, rows: 16 },
+  { columns: 80, rows: 24 },
+  { columns: 120, rows: 32 },
+].forEach(function(size) {
+  assertSurface(size, 'session', {
+    selector: { view: 'recent', query: '', selectedIndex: 0, items: [{ id: 'session-1', entryCount: 2 }] },
+  }, 'Session Selector');
+  assertSurface(size, 'model', {
+    activePanel: { title: 'Model Selector', models: [{ id: 'mock-a' }, { id: 'mock-b' }], items: [{ label: 'mock-a', value: 'mock-a' }], selectedIndex: 0 },
+  }, 'Model Selector');
+  assertSurface(size, 'approval', {
+    pendingToolApproval: { approval: { toolName: 'bash', reason: 'fixture approval', commandSummary: 'echo p0' } },
+  }, 'Tool Approval');
+  assertSurface(size, 'viewer', {
+    activePanel: { type: 'tool_detail', title: 'Tool Detail Viewer', lines: ['tool=loong_env_check', 'status=ok', 'arch=loongarch64'] },
+  }, 'Tool Detail Viewer');
 });
 
 var overlayState = Object.assign({}, baseState, {

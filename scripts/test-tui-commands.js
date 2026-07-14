@@ -618,6 +618,25 @@ test('terminal matrix records pass partial fail and pending states from structur
   assert(markdown.indexOf('Initial clear') >= 0 && markdown.indexOf('Input not top') >= 0, 'markdown should include screen check columns');
   assert(markdown.indexOf('Loong Pi local physical terminal') >= 0, 'markdown missing pending physical terminal row');
 
+  const closeoutPty = path.join(runs, 'p0-closeout.json');
+  const closeoutChecks = {
+    startup: true, model_selector: true, steering: true, follow_up: true, queue_restore: true,
+    abort: true, reasoning_aborted: true, tool_card: true, tool_collapse: true,
+    tool_viewer: true, approval: true, resize_40x16: true, resize_80x24: true,
+    resize_120x32: true, terminal_restored: true, no_residual_process: true,
+  };
+  fs.writeFileSync(closeoutPty, JSON.stringify({
+    schema: 'loong-agent.tui-p0-closeout.v1', passed: true, jsonPath: closeoutPty, checks: closeoutChecks,
+  }), 'utf8');
+  const closeoutMatrix = writeMatrixReport({
+    ptyJson: closeoutPty,
+    outJson: path.join(runs, 'matrix-closeout.json'),
+    outMd: path.join(runs, 'matrix-closeout.md'),
+  });
+  const closeoutRow = closeoutMatrix.rows.find((row) => row.id === 'ssh-loong-pi-pty');
+  assert(closeoutRow.status === 'pass', 'P0 closeout report should make board PTY pass');
+  assert(closeoutRow.capabilities.resize === 'pass', 'P0 closeout report should prove dynamic resize');
+
   const failPty = path.join(runs, 'pty-fail.json');
   fs.writeFileSync(failPty, JSON.stringify({
     passed: false,

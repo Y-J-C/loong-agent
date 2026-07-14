@@ -339,6 +339,7 @@ Shift+Ctrl+P       切换到上一个模型
 Shift+Tab          切换当前模型支持的 thinking level
 Ctrl+T             折叠或展开 reasoning
 Ctrl+O             全局展开或折叠工具详情
+/details           打开最近工具的 Tool Detail Viewer
 Ctrl+A / Home      跳到行首
 Ctrl+E / End       跳到行尾
 Ctrl+K             删除到行尾
@@ -612,6 +613,20 @@ node scripts/board-acceptance-matrix.js --profile board --suite all
 
 矩阵报告写入 `runs/board-phase5/<profile>/`。`quick`、`full`、`failure` 和 `recovery` 是确定性门禁；`--with-model` 追加独立模型层，模型失败或外部服务阻塞不改变确定性退出码。未选择的层为 `not_run`，不适用项为 `skipped`，缺少执行前提为 `blocked`，三者都不计为 passed。
 
+P0 Runtime Next 收尾验收（Linux 板端）：
+
+```bash
+node scripts/test-tui-pty-p0-closeout-harness.js
+node scripts/test-tui-pty-p0-closeout.js --local \
+  --out-json runs/board-p0/closeout/board/p0-pty-closeout.json
+node scripts/test-tui-pty-smoke.js --local --repeat 10 \
+  --json runs/board-p0/closeout/board/pty-stability-report.json
+```
+
+`test-tui-pty-p0-closeout.js` 使用本机临时 fixture Provider，不连接外部模型服务，也不读取项目 `.env`。它在真实 PTY 中检查模型面板、steering、follow-up、队列恢复、abort、reasoning 终态、工具卡片、Viewer、批准框、`40×16` / `80×24` / `120×32` 动态 resize、终端恢复和残留进程。Windows 本地只运行 harness 与确定性视觉矩阵，真实 PTY 必须在 Linux 板端执行。
+
+截至 2026-07-14，龙芯派 Node.js `v14.16.1` 的 P0 收尾结果为：专项 PTY closeout 通过、core contract `25/25`、full matrix `gatingFailed=0`、连续 PTY `10/10`、quick smoke `7/7`。Runtime Next 因此完成 P0 收口，Legacy 不再作为回退路径。
+
 Phase 6 核心行为契约：
 
 ```bash
@@ -673,7 +688,7 @@ LOONG_AGENT_MODEL=deepseek-v4-pro LOONG_AGENT_THINKING_LEVEL=high node scripts/b
 - Session 或恢复修改：运行 `core-contract-eval --group session` 和 recovery suite。
 - Provider 或 streaming 修改：运行 `core-contract-eval --group provider`。
 - Agent response parser 修改：运行 `test-native-tool-agent-loop.js`、`test-runtime.js` 和 `core-contract-eval --group event,provider`。
-- TUI 修改：运行 `core-contract-eval --group tui`，Linux 板端同时运行真实 PTY smoke。
+- TUI 修改：运行 `core-contract-eval --group tui`；涉及输入、覆盖层、resize 或终端生命周期时，Linux 板端同时运行 P0 closeout 和真实 PTY smoke。
 - 修改 `Agent Loop`、Provider 公共行为或跨模块契约：必须运行 `board-acceptance-matrix --suite full`。
 
 待确认：

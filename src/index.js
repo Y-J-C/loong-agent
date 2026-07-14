@@ -282,28 +282,7 @@ async function main() {
 
   if (command === 'tui') {
     if (args.includes('--help')) {
-      console.log(`Loong-Agent TUI
-
-Usage:
-  node src/index.js tui
-  node src/index.js tui --runtime-next
-
-Options:
-  --runtime-next  Compatibility alias; Runtime Next is the only TUI
-
-Keys:
-  Enter send
-  Ctrl+Enter newline if supported
-  Alt+Enter newline
-  \\ + Enter newline fallback
-  Esc abort/back, Ctrl+C/Ctrl+D exit, Ctrl+O tool detail
-
-Commands:
-  /help /hotkeys /health /project /sessions /tree /lineage /fork /resume /export
-  /session /audit /new /name /theme /settings /model /stats /branch /demo /clone
-  /more /debug /debug keys /exit
-  ! <readonly command>
-`);
+      console.log(require('./tui').tuiHelpText());
       return;
     }
     const allowedTuiArgs = new Set(['--runtime-next']);

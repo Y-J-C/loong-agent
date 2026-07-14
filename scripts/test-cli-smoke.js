@@ -4,6 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const childProcess = require('child_process');
 const { runAgent } = require('../src/agent');
 const { registerProvider } = require('../src/llm');
 const { createSessionManager } = require('../src/session-manager');
@@ -18,6 +19,24 @@ function tempWorkspace() {
 }
 
 async function main() {
+  const tuiHelp = childProcess.spawnSync(process.execPath, ['src/index.js', 'tui', '--help'], {
+    cwd: path.resolve(__dirname, '..'), encoding: 'utf8', shell: false,
+  });
+  assert(tuiHelp.status === 0, 'tui --help should exit zero');
+  assert(tuiHelp.stdout.indexOf('Alt+Enter newline') < 0, 'tui help contains stale Alt+Enter newline semantics');
+  [
+    'Enter: idle submit; running steering',
+    'Alt+Enter: idle submit; running follow-up',
+    'Shift+Enter / Ctrl+Enter: newline',
+    'Alt+Up: restore queued prompts',
+    'Ctrl+L: model selector',
+    'Ctrl+P / Shift+Ctrl+P: cycle models',
+    'Shift+Tab: thinking level',
+    'Ctrl+T: collapse thinking',
+    'Ctrl+O: collapse tools',
+    '/details', '/board', '/board refresh', '/redraw',
+  ].forEach((text) => assert(tuiHelp.stdout.indexOf(text) >= 0, `tui help missing: ${text}`));
+
   registerProvider({
     name: 'cli-smoke-provider',
     chatCompletion: async () => JSON.stringify({

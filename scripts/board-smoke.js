@@ -371,6 +371,7 @@ async function main(argv) {
       'test-tui-runtime-visual-baseline.js',
       'test-tui-runtime-width.js',
       'test-tui-pty-smoke-harness.js',
+      'test-tui-pty-p0-closeout-harness.js',
       'test-tui-stats.js',
       'test-tui-runtime-theme.js',
     ].forEach((script) => {

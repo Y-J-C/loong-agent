@@ -128,6 +128,42 @@ test('recovery check is preserved in markdown html and replay exports', () => {
   assert(auditSession(read).stats.recoveryChecks === 1, 'audit did not count recovery check');
 });
 
+test('reasoning status and redaction are consistent across exports', () => {
+  const workspace = tempWorkspace();
+  const file = writeSession(workspace, 'reasoning-exports', [
+    JSON.stringify({ type: 'session', version: 2, sessionId: 'reasoning-exports', rootSessionId: 'reasoning-exports', cwd: workspace }),
+    JSON.stringify({ type: 'agent_start', prompt: 'reasoning export' }),
+    JSON.stringify({ type: 'reasoning_start', loop: 1, sequence: 0, status: 'running' }),
+    JSON.stringify({ type: 'reasoning_update', loop: 1, sequence: 1, status: 'running', content: 'token=export-secret\ninspect evidence' }),
+    JSON.stringify({ type: 'reasoning_update', loop: 1, sequence: 2, status: 'running', delta: 'delta-only preview' }),
+    JSON.stringify({ type: 'reasoning_end', loop: 1, sequence: 1, status: 'complete', content: 'Bearer export-secret', truncated: false }),
+    JSON.stringify({ type: 'reasoning_end', loop: 2, sequence: 2, status: 'partial', content: 'partial evidence', truncated: true }),
+    JSON.stringify({ type: 'reasoning_end', loop: 3, sequence: 3, status: 'error', content: 'provider error', truncated: false }),
+    JSON.stringify({ type: 'reasoning_end', loop: 4, sequence: 4, status: 'aborted', content: 'user abort', truncated: false }),
+    JSON.stringify({ type: 'message_end', role: 'assistant', content: 'public answer' }),
+    JSON.stringify({ type: 'agent_end', status: 'ok', summary: 'done' }),
+  ]);
+  const session = readSessionFromPath(file);
+  const outputs = {
+    replay: renderSessionReplay(session),
+    markdown: renderSessionMarkdown(session),
+    html: renderSessionHtml(session),
+  };
+  Object.keys(outputs).forEach((name) => {
+    const output = outputs[name];
+    assert(output.indexOf('export-secret') < 0, `${name} leaked reasoning secret`);
+    assert(output.indexOf('[redacted]') >= 0, `${name} missing reasoning redaction`);
+    ['complete', 'partial', 'error', 'aborted'].forEach((status) => {
+      assert(output.indexOf(status) >= 0, `${name} missing reasoning status ${status}`);
+    });
+  });
+  assert(outputs.replay.indexOf('reasoning_start loop=1') >= 0, 'replay missing reasoning_start');
+  assert(outputs.replay.indexOf('reasoning_update loop=1 sequence=1 status=running') >= 0, 'replay missing reasoning_update metadata');
+  assert(outputs.replay.indexOf('reasoning_update loop=1 sequence=2 status=running content=delta-only preview') >= 0, 'replay missing reasoning delta fallback');
+  assert(outputs.replay.indexOf('reasoning_end loop=4 status=aborted truncated=false') >= 0, 'replay missing aborted reasoning end');
+  assert(outputs.markdown.indexOf('public answer') >= 0, 'markdown missing assistant answer');
+});
+
 test('missing agent_end is incomplete', () => {
   const workspace = tempWorkspace();
   const file = writeSession(workspace, 'incomplete', [

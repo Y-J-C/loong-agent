@@ -47,6 +47,25 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
   ok(typeof term.start === 'function', 'start method exists');
   ok(typeof term.stop === 'function', 'stop method exists');
 
+  var liveSize = [132, 41];
+  var sizedTerm = new runtime.ProcessTerminal({
+    input: { isTTY: false },
+    output: {
+      columns: 80,
+      rows: 24,
+      getWindowSize: function() { return [80, 24]; },
+      _handle: {
+        getWindowSize: function(result) {
+          result[0] = liveSize[0];
+          result[1] = liveSize[1];
+          return 0;
+        },
+      },
+    },
+  });
+  equal(sizedTerm.columns, 132, 'columns query the live PTY before cached dimensions');
+  equal(sizedTerm.rows, 41, 'rows query the live PTY before cached dimensions');
+
   var drainCalled = false;
   var writes = '';
   var inputDataHandler = null;

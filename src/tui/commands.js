@@ -569,6 +569,7 @@ function writeDebugFile(config, state) {
     theme: state.theme,
     boardStatus: state.boardStatus,
     lastExportPath: state.lastExportPath,
+    lastRender: state.lastRender,
   };
   fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), 'utf8');
   return filePath;

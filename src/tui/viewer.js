@@ -129,8 +129,8 @@ function createToolDetailPanel(message) {
   if (!lines.length) addLine(lines, '没有工具详情。');
   return {
     type: 'tool_detail',
-    title: `工具详情: ${tool.toolName || 'unknown'}`,
-    hint: '上/下滚动 - PageUp/PageDown 翻页 - /find 搜索 - Esc 关闭',
+    title: `Tool Detail Viewer: ${tool.toolName || 'unknown'}`,
+    hint: 'Up/Down scroll - PageUp/PageDown - /find search - Esc close',
     scrollOffset: 0,
     selectedIndex: 0,
     sourceMessageId: tool.id || '',

@@ -11,6 +11,28 @@ var DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4;0m';
 var DISABLE_SYNC_OUTPUT = '\x1b[?2026l';
 var RESET_SCROLL_REGION = '\x1b[r';
 
+function liveWindowSize(output) {
+  if (!output) return null;
+  if (output._handle && typeof output._handle.getWindowSize === 'function') {
+    try {
+      var direct = [0, 0];
+      output._handle.getWindowSize(direct);
+      if (Number(direct[0]) > 0 && Number(direct[1]) > 0) return direct;
+    } catch (error) {
+      // Continue through the public and cached fallbacks.
+    }
+  }
+  if (typeof output.getWindowSize === 'function') {
+    try {
+      var current = output.getWindowSize();
+      if (current && Number(current[0]) > 0 && Number(current[1]) > 0) return current;
+    } catch (error) {
+      // Continue through cached stream dimensions.
+    }
+  }
+  return null;
+}
+
 function ProcessTerminal(options) {
   options = options || {};
   this.input = options.input || process.stdin;
@@ -142,12 +164,16 @@ ProcessTerminal.prototype.write = function write(data) {
 
 Object.defineProperty(ProcessTerminal.prototype, 'columns', {
   get: function getColumns() {
+    var size = liveWindowSize(this.output);
+    if (size) return Number(size[0]);
     return this.output.columns || Number(process.env.COLUMNS) || 80;
   },
 });
 
 Object.defineProperty(ProcessTerminal.prototype, 'rows', {
   get: function getRows() {
+    var size = liveWindowSize(this.output);
+    if (size) return Number(size[1]);
     return this.output.rows || Number(process.env.LINES) || 24;
   },
 });

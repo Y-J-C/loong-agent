@@ -355,6 +355,7 @@ async function runRuntimeNextTui(config, options) {
   async function runCommand(value) {
     var rawCommand = String(value || '').trim();
     var commandName = rawCommand.split(/\s+/)[0];
+    if (commandName === '/debug') updateLastRender();
     if (commandName === '/redraw') {
       diffResetCount += 1;
       requestRender(true);
@@ -400,10 +401,13 @@ async function runRuntimeNextTui(config, options) {
       scroll.scrollToBottom(state);
       state.status = 'At latest output';
       requestRender(true);
-    } else if (runtimeAppendStream && commandName === '/top') {
-      state.historyMode = state.scrollOffset > 0;
-      state.viewingHistory = state.scrollOffset > 0;
-      if (state.historyMode) state.status = 'Viewing oldest retained history';
+    } else {
+      if (runtimeAppendStream && commandName === '/top') {
+        state.historyMode = state.scrollOffset > 0;
+        state.viewingHistory = state.scrollOffset > 0;
+        if (state.historyMode) state.status = 'Viewing oldest retained history';
+      }
+      requestRender(Boolean(interactions.activePanel(state) || state.pendingToolApproval));
     }
   }
 

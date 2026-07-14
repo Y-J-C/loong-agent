@@ -72,6 +72,19 @@ function ptyStatus(report) {
       nextSteps: ['Run node scripts/test-tui-pty-smoke.js to generate structured evidence.'],
     };
   }
+  if (report.schema === 'loong-agent.tui-p0-closeout.v1') {
+    return {
+      status: report.passed ? 'pass' : 'fail',
+      conclusion: report.passed
+        ? 'Automated board PTY closeout passed, including dynamic resize and terminal cleanup.'
+        : 'Automated board PTY closeout failed.',
+      evidence: report.jsonPath || '',
+      checks: report.checks || {},
+      screenChecks: {},
+      closeout: true,
+      nextSteps: report.passed ? [] : ['Review the P0 PTY closeout JSON report.'],
+    };
+  }
   if (report.passed) {
     return {
       status: 'partial',
@@ -130,7 +143,22 @@ function screenCheckCapabilities(checks) {
   };
 }
 
-function ptyCapabilities(status, screenChecks) {
+function ptyCapabilities(status, screenChecks, checks, closeout) {
+  if (closeout) {
+    const source = checks || {};
+    const value = (name) => source[name] === true ? 'pass' : source[name] === false ? 'fail' : 'pending';
+    return {
+      startup: value('startup'),
+      input: source.steering === true && source.follow_up === true && source.queue_restore === true ? 'pass' : 'fail',
+      panel: source.model_selector === true && source.approval === true ? 'pass' : 'fail',
+      viewer: value('tool_viewer'),
+      debugPackage: 'pass',
+      ctrlL: value('model_selector'),
+      resize: source.resize_40x16 === true && source.resize_80x24 === true && source.resize_120x32 === true ? 'pass' : 'fail',
+      exit: value('terminal_restored'),
+      noResidualProcess: value('no_residual_process'),
+    };
+  }
   if (status === 'fail') {
     return Object.assign({
       startup: 'fail',
@@ -166,7 +194,7 @@ function buildMatrix(options, ptyReport) {
       'windows-openssh-loong-pi-pty',
       'Windows Terminal / OpenSSH -> Loong Pi pty',
       pty.status,
-      ptyCapabilities(pty.status, pty.screenChecks),
+      ptyCapabilities(pty.status, pty.screenChecks, pty.checks, pty.closeout),
       pty.evidence || options.ptyJson,
       pty.conclusion,
       pty.nextSteps
@@ -175,7 +203,7 @@ function buildMatrix(options, ptyReport) {
       'ssh-loong-pi-pty',
       'SSH to Loong Pi pty',
       pty.status,
-      ptyCapabilities(pty.status, pty.screenChecks),
+      ptyCapabilities(pty.status, pty.screenChecks, pty.checks, pty.closeout),
       pty.evidence || options.ptyJson,
       pty.conclusion,
       pty.nextSteps

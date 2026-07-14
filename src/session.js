@@ -11,6 +11,7 @@ const {
 } = require('./session-audit');
 const { createDefaultExtensionRuntime } = require('./extensions');
 const { buildSessionLedger, findEvidenceChain } = require('./session-ledger');
+const { redactValue } = require('./hooks/tool-result-redaction');
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -269,7 +270,7 @@ function collectTimeline(session) {
         title: 'Model reasoning',
         timestamp: event.timestamp,
         status: event.status || 'running',
-        detail: truncateText(event.content || '', 1000),
+        detail: truncateText(redactValue(String(event.content || '')), 1000),
       });
     } else if (event.type === 'reasoning_end') {
       timeline.push({
@@ -277,7 +278,7 @@ function collectTimeline(session) {
         title: 'Model reasoning ended',
         timestamp: event.timestamp,
         status: event.status || 'complete',
-        detail: truncateText(event.content || '', 1000),
+        detail: truncateText(redactValue(String(event.content || '')), 1000),
       });
     } else if (event.type === 'message_start') {
       timeline.push({

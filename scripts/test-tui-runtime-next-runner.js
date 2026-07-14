@@ -582,6 +582,10 @@ async function main() {
   terminal.inputHandler('/details\r');
   await waitFor(function() { return capturedState.activePanel && capturedState.activePanel.type === 'tool_detail'; }, 2000);
   equal(capturedState.activePanel && capturedState.activePanel.type, 'tool_detail', '/details opens tool detail viewer');
+  await waitFor(function() { return capturedState.lastRender && capturedState.lastRender.overlaySurface === 'viewer'; }, 2000);
+  equal(capturedState.lastRender && capturedState.lastRender.overlaySurface, 'viewer', '/details activates the viewer render surface');
+  await waitFor(function() { return terminal.output.indexOf('Tool Detail Viewer') >= 0; }, 2000);
+  ok(terminal.output.indexOf('Tool Detail Viewer') >= 0, '/details renders the tool detail viewer overlay');
   ok((capturedState.activePanel && capturedState.activePanel.lines || []).join('\n').indexOf('tool hidden detail') >= 0, 'tool detail viewer keeps result detail');
   terminal.inputHandler('\x1b');
   await waitFor(function() { return capturedState.activePanel === null; }, 2000);

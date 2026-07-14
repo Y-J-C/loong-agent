@@ -1,6 +1,12 @@
 'use strict';
 
 const { buildSessionLedger, findEvidenceChain, renderLedgerReplay } = require('./session-ledger');
+const { redactValue } = require('./hooks/tool-result-redaction');
+
+function reasoningPreview(value) {
+  const text = String(redactValue(String(value || '')) || '').replace(/\s+/g, ' ').trim();
+  return text.length > 240 ? text.slice(0, 237) + '...' : text;
+}
 
 function issue(level, code, message, event) {
   return {
@@ -248,6 +254,12 @@ function replayLines(session) {
       const estimate = event.tokenEstimate || {};
       const chars = event.charStats || {};
       lines.push(`model_request ${event.provider || ''}/${event.model || ''} ${event.mode || 'summary'} chars=${chars.totalChars || 0} approxPrompt=${estimate.approxPromptTokens || 0}`);
+    } else if (event.type === 'reasoning_start') {
+      lines.push(`reasoning_start loop=${event.loop || ''}`);
+    } else if (event.type === 'reasoning_update') {
+      lines.push(`reasoning_update loop=${event.loop || ''} sequence=${event.sequence || 0} status=${event.status || 'running'} content=${reasoningPreview(event.content || event.delta)}`);
+    } else if (event.type === 'reasoning_end') {
+      lines.push(`reasoning_end loop=${event.loop || ''} status=${event.status || 'complete'} truncated=${Boolean(event.truncated)} content=${reasoningPreview(event.content)}`);
     } else if (event.type === 'recovery_check') {
       lines.push(`recovery_check ${event.sourceSessionId || ''} status=${event.status || event.recovery && event.recovery.status || 'unknown'}`);
     } else if (event.type === 'agent_end') {

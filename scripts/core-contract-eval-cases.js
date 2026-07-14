@@ -262,11 +262,16 @@ function scriptForCase(caseId) {
 }
 
 async function runPtyCase(context) {
-  if (context.profile === 'mock') {
-    return { status: 'skipped', checks: [], evidence: [], warnings: ['Real PTY is not applicable to mock profile.'] };
+  if (context.profile !== 'board') {
+    return { status: 'skipped', checks: [], evidence: [], warnings: ['P0 real PTY closeout is a board-only gate.'] };
   }
   if (process.platform !== 'linux') {
-    return { status: 'skipped', checks: [], evidence: [], warnings: ['Real PTY requires Linux script(1).'] };
+    return {
+      status: 'blocked',
+      checks: [],
+      evidence: [],
+      warnings: ['Board P0 real PTY gate requires Linux script(1).'],
+    };
   }
   const probe = childProcess.spawnSync('sh', ['-lc', 'command -v script'], { encoding: 'utf8' });
   if (probe.status !== 0) {
@@ -275,22 +280,24 @@ async function runPtyCase(context) {
       warnings: ['Linux script(1) is unavailable.'],
     };
   }
-  const base = path.join('runs', 'board-phase6', context.profile, 'pty');
-  const jsonPath = path.join(base, 'report.json');
-  const logPath = path.join(base, 'pty.log');
+  const closeout = require('./test-tui-pty-p0-closeout');
+  const base = path.join('runs', 'board-p0', 'closeout', context.profile);
+  const jsonPath = path.join(base, 'p0-pty-closeout.json');
   const result = childProcess.spawnSync(process.execPath, [
-    'scripts/test-tui-pty-smoke.js', '--local', '--json', jsonPath, '--log', logPath,
+    'scripts/test-tui-pty-p0-closeout.js', '--local', '--out-json', jsonPath,
   ], {
     cwd: context.root, encoding: 'utf8', shell: false, env: cleanChildEnv(context.root),
-    timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+    timeout: 240000, maxBuffer: 4 * 1024 * 1024,
   });
   if (result.error) {
     return { status: 'blocked', checks: [], evidence: [], warnings: [result.error.message] };
   }
-  assertContract(result.status === 0 && fs.existsSync(path.join(context.root, jsonPath)), 'PTY smoke failed or did not write a report.');
+  assertContract(result.status === 0 && fs.existsSync(path.join(context.root, jsonPath)), 'P0 PTY closeout failed or did not write a report.');
   const report = JSON.parse(fs.readFileSync(path.join(context.root, jsonPath), 'utf8'));
-  assertContract(report.passed === true, 'PTY report did not pass.');
-  return pass([{ id: 'real_pty', status: 'passed' }], [{ source: 'pty_report', path: jsonPath }]);
+  assertContract(report.schema === closeout.SCHEMA, 'P0 PTY report schema mismatch.');
+  assertContract(report.passed === true, 'P0 PTY report did not pass.');
+  closeout.REQUIRED_CHECKS.forEach((name) => assertContract(report.checks && report.checks[name] === true, `P0 PTY check failed: ${name}`));
+  return pass(closeout.REQUIRED_CHECKS.map((id) => ({ id, status: 'passed' })), [{ source: 'p0_pty_closeout_report', path: jsonPath }]);
 }
 
 function createCaseCatalog() {
