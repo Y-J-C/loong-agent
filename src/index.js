@@ -287,11 +287,9 @@ async function main() {
 Usage:
   node src/index.js tui
   node src/index.js tui --runtime-next
-  node src/index.js tui --legacy-tui
 
 Options:
-  --runtime-next  Use the runtime-backed TUI (default; kept for compatibility)
-  --legacy-tui    Use the legacy TUI fallback
+  --runtime-next  Compatibility alias; Runtime Next is the only TUI
 
 Keys:
   Enter send
@@ -308,9 +306,14 @@ Commands:
 `);
       return;
     }
+    const allowedTuiArgs = new Set(['--runtime-next']);
+    const invalidTuiArg = args.find((arg) => !allowedTuiArgs.has(arg));
+    if (invalidTuiArg === '--legacy-tui') {
+      throw require('./tui').legacyTuiRemovedError();
+    }
+    if (invalidTuiArg) throw new Error(`Unknown TUI argument: ${invalidTuiArg}`);
     await require('./tui').runTui(config, {
-      runtimeNext: !args.includes('--legacy-tui'),
-      legacyTui: args.includes('--legacy-tui'),
+      runtimeNext: args.includes('--runtime-next'),
     });
     return;
   }

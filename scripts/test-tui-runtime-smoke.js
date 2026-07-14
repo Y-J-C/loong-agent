@@ -2,8 +2,7 @@
 'use strict';
 
 var EventEmitter = require('events').EventEmitter;
-var fs = require('fs');
-var os = require('os');
+var childProcess = require('child_process');
 var path = require('path');
 var runTui = require('../src/tui').runTui;
 var pass = 0;
@@ -152,24 +151,70 @@ async function main() {
   ok(terminal.stopped, 'default runtime-next stops terminal');
   equal(result.nonTty, false, 'default runTui resolves interactive result');
 
-  var legacyWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loong-legacy-tui-'));
-  var legacyInput = new FakeLegacyInput();
-  var legacyOutput = new FakeLegacyOutput();
-  var legacyPromise = runTui({
-    workspace: legacyWorkspace,
+  var aliasTerminal = new FakeTerminal();
+  var aliasSession = createFakeSession();
+  var aliasPromise = runTui({
+    workspace: '/tmp/ws',
     provider: 'mock',
     model: 'm',
   }, {
+    runtimeNext: true,
+    terminal: aliasTerminal,
+    createAgentSession: function() { return aliasSession; },
+    skipBoardStatus: true,
+  });
+  ok(aliasTerminal.started, 'runtimeNext compatibility option starts runtime-next terminal');
+  send(aliasTerminal, '/exit');
+  aliasTerminal.inputHandler('\r');
+  var aliasResult = await aliasPromise;
+  equal(aliasResult.nonTty, false, 'runtimeNext compatibility option resolves interactive result');
+  ok(aliasTerminal.stopped, 'runtimeNext compatibility option stops runtime-next terminal');
+
+  var legacyInput = new FakeLegacyInput();
+  var legacyOutput = new FakeLegacyOutput();
+  legacyInput.isTTY = false;
+  legacyOutput.isTTY = false;
+  var legacyTerminal = new FakeTerminal();
+  var legacySessionCreated = false;
+  var legacyError = null;
+  try {
+    await runTui({
+      workspace: '/tmp/ws',
+      provider: 'mock',
+      model: 'm',
+    }, {
     legacyTui: true,
     input: legacyInput,
     output: legacyOutput,
+      terminal: legacyTerminal,
+      createAgentSession: function() {
+        legacySessionCreated = true;
+        return createFakeSession();
+      },
+    });
+  } catch (error) {
+    legacyError = error;
+  }
+  equal(legacyError && legacyError.code, 'ERR_LEGACY_TUI_REMOVED', 'legacyTui option is rejected with a stable error code');
+  ok(legacyError && legacyError.message.indexOf('Runtime Next is the only TUI') >= 0, 'legacyTui rejection explains the supported path');
+  equal(legacyInput.rawMode, false, 'legacyTui rejection does not enable raw mode');
+  equal(legacyTerminal.started, false, 'legacyTui rejection does not initialize runtime terminal');
+  equal(legacySessionCreated, false, 'legacyTui rejection does not create an agent session');
+
+  var cliLegacy = childProcess.spawnSync(process.execPath, ['src/index.js', 'tui', '--legacy-tui'], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+    env: Object.assign({}, process.env, { LOONG_AGENT_API_KEY: '', DEEPSEEK_API_KEY: '' }),
   });
-  ok(legacyInput.rawMode, 'legacyTui true starts legacy raw input path');
-  legacyInput.emit('data', Buffer.from('\x04'));
-  var legacyResult = await legacyPromise;
-  equal(legacyResult.nonTty, false, 'legacyTui true resolves interactive result');
-  ok(legacyInput.paused, 'legacyTui true stops legacy input path');
-  fs.rmSync(legacyWorkspace, { recursive: true, force: true });
+  equal(cliLegacy.status, 1, 'CLI legacy flag exits with status 1');
+  ok((cliLegacy.stderr || '').indexOf('Runtime Next is the only TUI') >= 0, 'CLI legacy flag prints the removal message');
+
+  var cliHelp = childProcess.spawnSync(process.execPath, ['src/index.js', 'tui', '--help'], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+  });
+  equal(cliHelp.status, 0, 'TUI help exits successfully');
+  ok((cliHelp.stdout || '').indexOf('--legacy-tui') < 0, 'TUI help no longer advertises the legacy path');
 
   console.log(pass + '/' + (pass + fail) + ' passed');
   process.exit(fail > 0 ? 1 : 0);

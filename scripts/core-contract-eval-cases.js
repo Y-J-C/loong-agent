@@ -255,8 +255,8 @@ function scriptForCase(caseId) {
   if (['CPROVIDER-006', 'CPROVIDER-007'].indexOf(caseId) >= 0) return 'scripts/test-native-tool-streaming.js';
   if (caseId === 'CPROVIDER-008') return 'scripts/test-native-tool-provider.js';
   if (caseId.indexOf('CPROVIDER-') === 0) return 'scripts/test-streaming.js';
-  if (caseId === 'CTUI-001') return 'scripts/test-cli-smoke.js';
-  if (caseId === 'CTUI-005') return 'scripts/test-tui-virtual-terminal.js';
+  if (caseId === 'CTUI-001') return 'scripts/test-tui-runtime-smoke.js';
+  if (caseId === 'CTUI-005') return 'scripts/test-tui-runtime-visual-baseline.js';
   if (caseId.indexOf('CTUI-') === 0) return 'scripts/test-tui-runtime-next-runner.js';
   return '';
 }

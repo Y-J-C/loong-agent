@@ -117,7 +117,7 @@ Phase 7 后的内部职责边界：
 ```text
 loong-agent/
   src/                  runtime、agent loop、tools、TUI、provider、session
-  src/tui/              legacy TUI 与 runtime-backed TUI
+  src/tui/              Runtime Next TUI 与共享交互模块
   src/tools/            内置工具实现
   src/extensions/       Loong 扩展、prompt guideline、observation deriver
   src/provider/         streaming policy、OpenAI SSE、DSML、native message 内部模块
@@ -271,11 +271,10 @@ node src/index.js chat
 node src/index.js tui
 node src/index.js tui --help
 node src/index.js tui --runtime-next
-node src/index.js tui --legacy-tui
 node src/index.js rpc
 ```
 
-`Runtime Next` 是默认 TUI，也是唯一功能开发主线。`--legacy-tui` 仅用于严重启动或渲染故障时的显式应急回退；Legacy 不再新增功能，也不作为常规功能对等目标。
+`Runtime Next` 是唯一 TUI。`--runtime-next` 暂时作为静默兼容别名保留；已移除的 `--legacy-tui` 会返回非零退出码，不再启动旧实现。
 
 日志诊断：
 
@@ -685,7 +684,9 @@ node scripts/test-cli-smoke.js
 node scripts/test-knowledge-layer.js
 node scripts/test-streaming.js
 node scripts/test-rpc.js
-node scripts/test-tui-renderer.js
+node scripts/test-tui-runtime-next-runner.js
+node scripts/test-tui-runtime-visual-baseline.js
+node scripts/test-tui-runtime-terminal.js
 node scripts/test-tui-input.js
 node scripts/test-tui-commands.js
 node scripts/test-tui-session-selector.js

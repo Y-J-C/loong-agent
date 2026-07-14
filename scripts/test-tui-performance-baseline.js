@@ -4,11 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const { createDiffRenderer } = require('../src/tui/diff');
-const { renderTui } = require('../src/tui/renderer');
 const { createTuiState } = require('../src/tui/state');
 const { createToolDetailPanel, createTranscriptPanel } = require('../src/tui/viewer');
-const { clearTuiRenderCaches, renderCacheStats } = require('../src/tui/components');
+const { ChatView } = require('../src/tui/runtime/app/chat-view');
+const { createRuntimeDiffRenderer } = require('../src/tui/runtime/diff');
 
 const DEFAULTS = {
   iterations: 50,
@@ -267,20 +266,21 @@ function viewerLineCount(state) {
 }
 
 function measureScenario(scenario, options) {
-  clearTuiRenderCaches();
   const state = scenario.createState();
-  const renderer = createDiffRenderer();
+  const renderer = createRuntimeDiffRenderer();
+  const chatView = new ChatView(state, {
+    messageListMode: options.disableCache ? 'default' : 'component-cache',
+  });
   const times = [];
   let totalBytes = 0;
   let frameLines = 0;
-  const renderOptions = { disableRenderCache: Boolean(options.disableCache), showHardwareCursor: true };
+  const renderOptions = { rows: DEFAULTS.size.rows, showHardwareCursor: true };
 
   for (let iteration = 0; iteration < options.iterations; iteration += 1) {
     if (scenario.mutate) scenario.mutate(state, renderer, iteration);
     const start = nowMs();
-    const frame = renderTui(state, DEFAULTS.size, renderOptions);
+    const lines = chatView.render(DEFAULTS.size.columns, renderOptions);
     const duration = nowMs() - start;
-    const lines = frame.split('\n');
     if (lines.length !== DEFAULTS.size.rows) {
       throw new Error(`${scenario.id} rendered ${lines.length} lines, expected ${DEFAULTS.size.rows}`);
     }
@@ -310,7 +310,9 @@ function measureScenario(scenario, options) {
     p95RenderMs: round(percentile(sorted, 95)),
     maxRenderMs: round(sorted[sorted.length - 1]),
     diffOutputBytes: totalBytes,
-    cacheStats: renderCacheStats(),
+    cacheStats: {
+      runtimeMessageList: chatView.messageComponentList.stats(),
+    },
   };
 }
 

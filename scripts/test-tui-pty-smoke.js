@@ -36,7 +36,6 @@ function usage() {
   '  --timeout <seconds>    Remote timeout seconds',
   '  --log <path>           Local pty log path',
   '  --json <path>          Local JSON report path',
-  '  --legacy-tui           Smoke the legacy TUI fallback',
   '  --local                Run TUI locally through script(1) instead of SSH',
   '  --ssh                  Force SSH mode',
   '  --dry-run              Print plan without connecting',
@@ -54,7 +53,6 @@ function parseArgs(argv) {
     timeoutSeconds: DEFAULTS.timeoutSeconds,
     logPath: null,
     jsonPath: null,
-    legacyTui: false,
     mode: DEFAULTS.mode,
     dryRun: false,
     help: false,
@@ -67,8 +65,6 @@ function parseArgs(argv) {
       options.mode = 'local';
     } else if (arg === '--ssh') {
       options.mode = 'ssh';
-    } else if (arg === '--legacy-tui') {
-      options.legacyTui = true;
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
     } else if (arg === '--host') {
@@ -185,8 +181,7 @@ function shellQuote(value) {
 }
 
 function remoteTuiCommand(options) {
-  const suffix = options.legacyTui ? ' --legacy-tui' : '';
-  return `cd ${shellQuote(options.workspace)} && timeout ${options.timeoutSeconds}s node src/index.js tui${suffix}`;
+  return `cd ${shellQuote(options.workspace)} && timeout ${options.timeoutSeconds}s node src/index.js tui`;
 }
 
 function sshTarget(options) {
@@ -558,7 +553,6 @@ function dryRunPlan(options) {
     latestLogPath: artifacts.latestLogPath,
     latestJsonPath: artifacts.latestJsonPath,
     timeoutSeconds: options.timeoutSeconds,
-    legacyTui: options.legacyTui,
   };
 }
 

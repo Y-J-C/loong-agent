@@ -47,6 +47,15 @@ ok(Array.isArray(dryRun.payload) && dryRun.payload.indexOf('/help') >= 0, 'dry r
 var localDryRun = smoke.dryRunPlan(smoke.parseArgs(['--local']));
 equal(localDryRun.mode, 'local', 'local mode can be forced');
 ok(localDryRun.sshCommand.indexOf('script') === 0, 'local mode uses script pty wrapper');
+ok(!Object.prototype.hasOwnProperty.call(localDryRun, 'legacyTui'), 'dry run report has no legacy TUI field');
+
+var legacyArgumentRejected = false;
+try {
+  smoke.parseArgs(['--legacy-tui']);
+} catch (error) {
+  legacyArgumentRejected = /Unknown argument/.test(error && error.message ? error.message : String(error));
+}
+ok(legacyArgumentRejected, 'removed legacy TUI argument is rejected');
 
 ok(smoke.hasSmokeMarker('Command Palette\nHotkeys\nSession selector'), 'smoke markers detect interactive surfaces');
 ok(smoke.hasSmokeMarker('Transcript Viewer\nmatch 1/2'), 'smoke markers detect transcript/find output');

@@ -1524,7 +1524,7 @@ async function runBangCommand(context, text) {
         'node src/index.js compat',
         'node src/index.js session latest',
         'node scripts/test-runtime.js',
-        'node scripts/test-tui-theme.js',
+        'node scripts/test-tui-runtime-theme.js',
         'node scripts/test-tui-stats.js',
         'node scripts/test-tui-export-demo.js',
       ].join('\n'),

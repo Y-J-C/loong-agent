@@ -200,7 +200,7 @@ function buildMatrix(options, ptyReport) {
         noApprovalResidue: 'pass',
         inputNotAtTop: 'pass',
       },
-      'scripts/test-tui-virtual-terminal.js',
+      'scripts/test-tui-runtime-visual-baseline.js',
       'Final screen, surface exclusivity, redraw, resize, and cursor marker tests passed.',
       []
     ),
