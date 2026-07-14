@@ -1,0 +1,5 @@
+# Keep the attributes file stable under core.autocrlf=true.
+.gitattributes text eol=lf
+
+# POSIX launcher must remain executable by Linux shells after Windows checkouts.
+loong text eol=lf
