@@ -681,15 +681,25 @@ LOONG_AGENT_MODEL=deepseek-v4-pro LOONG_AGENT_THINKING_LEVEL=high node scripts/b
 
 运行 `node scripts/test-runtime.js` 或其它会验证配置默认值的测试时，应隔离本地 `.env` 影响，避免把本地配置覆盖导致的断言失败误判为代码问题。
 
-按修改范围选择最小门禁：
+按修改范围选择门禁时，优先使用 P0 持续门禁入口。它只编排现有专项测试、core contract 和 acceptance matrix，不复制 case：
 
-- 工具安全、执行结果或事件修改：运行 `core-contract-eval --group safety,event,envelope`。
-- Git、diff 或 edit 并发检查修改：运行 `test-git-tools.js`、`test-diff-edit-tools.js` 和六个 Phase 8 case。
-- Session 或恢复修改：运行 `core-contract-eval --group session` 和 recovery suite。
-- Provider 或 streaming 修改：运行 `core-contract-eval --group provider`。
-- Agent response parser 修改：运行 `test-native-tool-agent-loop.js`、`test-runtime.js` 和 `core-contract-eval --group event,provider`。
-- TUI 修改：运行 `core-contract-eval --group tui`；涉及输入、覆盖层、resize 或终端生命周期时，Linux 板端同时运行 P0 closeout 和真实 PTY smoke。
-- 修改 `Agent Loop`、Provider 公共行为或跨模块契约：必须运行 `board-acceptance-matrix --suite full`。
+```bash
+# 默认合并 staged、unstaged、untracked、rename、delete 与显式文件
+node scripts/maintenance-gate.js --profile mock --dry-run
+
+# 只验证明确列出的本次改动；适合脏工作区和板端源码 overlay
+node scripts/maintenance-gate.js --profile local --no-git \
+  --changed-file src/agent-loop.js \
+  --changed-file src/agent/response-parser.js
+
+# 板端没有 .git 时必须显式传入文件
+node scripts/maintenance-gate.js --profile board --no-git \
+  --changed-file src/tui/runtime/app/runner.js
+```
+
+统一入口将文档、knowledge、工具/runtime、Session/TaskState、TUI、Provider/Agent Loop 和门禁基础设施映射到最小门禁；未识别的 `src/**`、`scripts/**` 或核心配置保守升级到 `full + failure + recovery`。多个范围的门禁取并集，`matrix-all` 会消除被其覆盖的重复 suite。
+
+状态语义保持 `passed | failed | skipped | blocked | not_run`。required 步骤出现 `failed` 或 `blocked` 时退出码为 `1`；参数、路径、Git 或 runner 配置错误为 `2`；`--with-model` 只增加非门禁模型观察层。JSON 和 Markdown 报告默认写入 `runs/maintenance-gate/<profile>/`，不记录 diff 正文、`.env` 内容或密钥。
 
 待确认：
 
@@ -728,6 +738,8 @@ node scripts/test-tui-export-demo.js
 ```bash
 node scripts/test-git-tools.js
 node scripts/test-diff-edit-tools.js
+node scripts/test-maintenance-gate.js
+node scripts/test-board-acceptance-matrix.js
 node scripts/test-board-task-eval.js
 node scripts/test-native-tool-agent-loop.js
 node scripts/test-native-tool-provider.js
@@ -765,6 +777,8 @@ node --check src/sdk.js
 node --check src/session.js
 node --check src/agent-session.js
 node --check scripts/board-smoke.js
+node --check scripts/maintenance-gate-runtime.js
+node --check scripts/maintenance-gate.js
 node --check scripts/test-rpc.js
 node --check scripts/create-offline-demo.js
 ```
