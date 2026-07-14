@@ -103,9 +103,9 @@ function streamJson(urlString, apiKey, payload, handlers) {
       });
     }
 
-    function pushDelta(delta) {
-      if (!delta || !handlers.onDelta) return;
-      deltaChain = deltaChain.then(() => handlers.onDelta(delta));
+    function pushHandler(handler, delta) {
+      if (!delta || !handler) return;
+      deltaChain = deltaChain.then(() => handler(delta));
     }
 
     function processEventData(data) {
@@ -133,10 +133,12 @@ function streamJson(urlString, apiKey, payload, handlers) {
       if (extractOpenAiToolCallDeltas(parsed).length) receivedDelta = true;
       const parsedUsage = extractOpenAiUsage(parsed);
       if (parsedUsage) usage = parsedUsage;
-      reasoningContent += extractOpenAiReasoningDelta(parsed);
+      const reasoningDelta = extractOpenAiReasoningDelta(parsed);
+      reasoningContent += reasoningDelta;
+      pushHandler(handlers.onReasoningDelta, reasoningDelta);
       const delta = extractOpenAiDelta(parsed);
       if (delta) receivedDelta = true;
-      pushDelta(delta);
+      pushHandler(handlers.onDelta, delta);
     }
 
     req = transport.request(

@@ -3,6 +3,7 @@
 var createAgentSession = require('../../../agent').createAgentSession;
 var loadConfig = require('../../../config').loadConfig;
 var createBoardStatusSnapshot = require('../../board-status').createBoardStatusSnapshot;
+var formatBoardStatus = require('../../board-status').formatBoardStatus;
 var handleCommand = require('../../commands').handleCommand;
 var handleAgentEvent = require('../../event-adapter').handleAgentEvent;
 var interactions = require('../../interactions');
@@ -10,6 +11,8 @@ var input = require('../../input');
 var scroll = require('../../scroll');
 var stateModule = require('../../state');
 var toolFocus = require('../../tool-focus');
+var getKnownModels = require('../../slash-commands').getKnownModels;
+var resolveProviderCapabilities = require('../../../provider-registry').resolveProviderCapabilities;
 var openJsonlSession = require('../../../session').openJsonlSession;
 var createSessionManager = require('../../../session-manager').createSessionManager;
 var ProcessTerminal = require('../terminal').ProcessTerminal;
@@ -87,6 +90,9 @@ async function runRuntimeNextTui(config, options) {
   var resolveDone = null;
   var diffResetCount = 0;
   var overlayController = null;
+  var lastCtrlCAt = 0;
+  var lastEscapeAt = 0;
+  var signalHandlers = [];
 
   function requestToolApproval(approval) {
     return new Promise(function(resolve) {
@@ -129,6 +135,30 @@ async function runRuntimeNextTui(config, options) {
     });
     var info = session.getSessionInfo && session.getSessionInfo();
     if (info) state.currentSession = { id: info.id, path: info.path };
+    syncQueueState();
+  }
+
+  function syncQueueState() {
+    var info = agentSession && typeof agentSession.getQueueInfo === 'function'
+      ? agentSession.getQueueInfo() || {}
+      : {};
+    state.queuedSteering = (info.steering || info.steeringMessages || []).slice();
+    state.queuedFollowUps = (info.followUp || info.followUps || info.followUpMessages || []).slice();
+  }
+
+  function restoreQueues() {
+    if (!agentSession || typeof agentSession.clearQueues !== 'function') return [];
+    var cleared = agentSession.clearQueues() || {};
+    var restored = [];
+    restored = restored.concat(cleared.steering || cleared.steeringMessages || []);
+    restored = restored.concat(cleared.followUp || cleared.followUps || cleared.followUpMessages || []);
+    if (restored.length) {
+      var existing = String(state.inputBuffer || '').trim();
+      input.setInput(state, restored.concat(existing ? [existing] : []).join('\n\n'));
+      stateModule.updateAutocomplete(state);
+    }
+    syncQueueState();
+    return restored;
   }
 
   function replaceAgentSession(session) {
@@ -139,10 +169,23 @@ async function runRuntimeNextTui(config, options) {
   function stop() {
     if (stopped) return;
     stopped = true;
+    signalHandlers.forEach(function(entry) { process.removeListener(entry.signal, entry.handler); });
+    signalHandlers = [];
     if (unsubscribe) unsubscribe();
     if (chatView && typeof chatView.stop === 'function') chatView.stop();
     tui.stop();
     if (resolveDone) resolveDone({ nonTty: false });
+  }
+
+  function installSignalHandlers() {
+    if (options.disableSignalHandlers) return;
+    ['SIGTERM', 'SIGHUP'].forEach(function(signal) {
+      var handler = function() {
+        stop();
+      };
+      process.on(signal, handler);
+      signalHandlers.push({ signal: signal, handler: handler });
+    });
   }
 
   function updateLastRender(renderContext) {
@@ -247,7 +290,7 @@ async function runRuntimeNextTui(config, options) {
   }
 
   async function refreshBoardStatus(nextConfig) {
-    if (options.skipBoardStatus) return;
+    if (options.skipBoardStatus) return state.boardStatus;
     try {
       state.boardStatus = await createBoardStatusSnapshot(nextConfig || activeConfig);
     } catch (error) {
@@ -259,6 +302,31 @@ async function runRuntimeNextTui(config, options) {
       };
     }
     requestRender();
+    return state.boardStatus;
+  }
+
+  function openBoardPanel() {
+    var board = state.boardStatus || {};
+    var lines = [
+      formatBoardStatus(board, activeConfig),
+      'board=' + (board.model || board.boardModel || 'unknown'),
+      'arch=' + (board.arch || process.arch || 'unknown'),
+      'system=' + (board.system || process.platform || 'unknown'),
+      'node=' + (board.node || process.version || 'unknown'),
+      'npm=' + (board.npmStatus || 'unknown') + ' gcc=' + (board.gccStatus || 'unknown') + ' g++=' + (board.gppStatus || 'unknown'),
+      'provider=' + (state.provider || 'unknown') + ' model=' + (state.model || 'unknown') + ' thinking=' + (state.thinkingLevel || 'off'),
+      'updatedAt=' + (board.updatedAt || 'unknown'),
+    ];
+    (board.limitations || []).forEach(function(item) { lines.push('warning: ' + item); });
+    if (board.error) lines.push('warning: ' + board.error);
+    state.mode = 'panel';
+    state.activePanel = {
+      type: 'board_status',
+      title: 'Loong Board Status',
+      hint: '/board refresh updates the startup environment snapshot; no device probes are run.',
+      lines: lines,
+      scrollOffset: 0,
+    };
   }
 
   async function startPrompt(text) {
@@ -280,12 +348,24 @@ async function runRuntimeNextTui(config, options) {
       state.status = 'idle';
       state.agentStatus = 'error';
     }
+    syncQueueState();
     requestRender();
   }
 
   async function runCommand(value) {
     var rawCommand = String(value || '').trim();
     var commandName = rawCommand.split(/\s+/)[0];
+    if (commandName === '/redraw') {
+      diffResetCount += 1;
+      requestRender(true);
+      return;
+    }
+    if (commandName === '/board') {
+      if (rawCommand.split(/\s+/)[1] === 'refresh') await refreshBoardStatus(activeConfig);
+      openBoardPanel();
+      requestRender(true);
+      return;
+    }
     if (rawCommand.indexOf('/theme') === 0) {
       var parts = rawCommand.split(/\s+/);
       var nextTheme = parts[1];
@@ -327,7 +407,7 @@ async function runRuntimeNextTui(config, options) {
     }
   }
 
-  async function submit(text) {
+  async function submit(text, queueMode) {
     var raw = String(text || '');
     var value = raw.trim();
     if (!value) return;
@@ -347,9 +427,17 @@ async function runRuntimeNextTui(config, options) {
       return;
     }
 
+    if (state.mode === 'running' && queueMode === 'follow_up' && agentSession && typeof agentSession.followUp === 'function') {
+      agentSession.followUp(value);
+      syncQueueState();
+      state.status = 'Follow-up queued';
+      requestRender();
+      return;
+    }
     if (state.mode === 'running' && agentSession && typeof agentSession.steer === 'function') {
       agentSession.steer(value);
-      stateModule.addMessage(state, { type: 'system', text: 'steer current run: ' + value });
+      syncQueueState();
+      state.status = 'Steering queued';
       requestRender();
       return;
     }
@@ -437,6 +525,39 @@ async function runRuntimeNextTui(config, options) {
     refreshBoardStatus(activeConfig);
   }
 
+  function cycleModel(direction) {
+    var models = getKnownModels(activeConfig, state).models.filter(function(model) { return !model.fromEnv; });
+    if (!models.length) {
+      state.status = 'No configured models';
+      return;
+    }
+    var current = models.findIndex(function(model) {
+      return model.id === state.model && (!model.provider || model.provider === state.provider);
+    });
+    if (current < 0) current = 0;
+    var next = (current + (direction < 0 ? -1 : 1) + models.length) % models.length;
+    applyModelSelection(models[next]);
+    state.status = 'Model: ' + models[next].id;
+  }
+
+  function cycleThinkingLevel() {
+    var capabilities = {};
+    try {
+      capabilities = resolveProviderCapabilities(activeConfig.provider || 'openai-compatible', activeConfig || {});
+    } catch (error) {
+      capabilities = {};
+    }
+    if (!capabilities.thinking) {
+      state.status = 'Thinking is not supported by the current model';
+      return;
+    }
+    var levels = ['off', 'high', 'max'];
+    var current = levels.indexOf(state.thinkingLevel || 'off');
+    state.thinkingLevel = levels[(current + 1) % levels.length];
+    applySettingsSelection();
+    state.status = 'Thinking: ' + state.thinkingLevel;
+  }
+
   function modalActions() {
     return {
       executeSessionAction: executeSessionAction,
@@ -449,16 +570,6 @@ async function runRuntimeNextTui(config, options) {
   }
 
   async function handleModalKey(key) {
-    if (
-      key && key.type === 'ctrl_o' &&
-      state.activePanel &&
-      state.activePanel.type === 'tool_detail'
-    ) {
-      toolFocus.toggleSelectedToolDetail(state);
-      stateModule.updateAutocomplete(state);
-      requestRender(true);
-      return true;
-    }
     if (state.pendingToolApproval) {
       var hadApproval = Boolean(state.pendingToolApproval);
       interactions.handleApprovalKey(state, key);
@@ -484,12 +595,6 @@ async function runRuntimeNextTui(config, options) {
   async function handleKey(key) {
     if (stopped || !key) return;
 
-    if (key.type === 'ctrl_l') {
-      diffResetCount += 1;
-      requestRender(true);
-      return;
-    }
-
     if (await handleModalKey(key)) {
       return;
     }
@@ -506,8 +611,21 @@ async function runRuntimeNextTui(config, options) {
       return;
     }
 
+    if (key.type === 'alt_enter') {
+      await submit(state.inputBuffer, state.mode === 'running' ? 'follow_up' : 'prompt');
+      requestRender();
+      return;
+    }
+
+    if (key.type === 'alt_up') {
+      restoreQueues();
+      state.status = 'Queued messages restored';
+      requestRender();
+      return;
+    }
+
     if (key.type === 'ctrl_o') {
-      toolFocus.toggleSelectedToolDetail(state);
+      toolFocus.toggleGlobalToolDetails(state);
       requestRender();
       return;
     }
@@ -518,25 +636,67 @@ async function runRuntimeNextTui(config, options) {
       return;
     }
 
+    if (key.type === 'ctrl_l') {
+      await runCommand('/model');
+      requestRender();
+      return;
+    }
+
+    if (key.type === 'ctrl_p' || key.type === 'shift_ctrl_p') {
+      cycleModel(key.type === 'shift_ctrl_p' ? -1 : 1);
+      requestRender();
+      return;
+    }
+
+    if (key.type === 'shift_tab') {
+      cycleThinkingLevel();
+      requestRender();
+      return;
+    }
+
+    if (key.type === 'ctrl_t') {
+      state.thinkingVisible = !state.thinkingVisible;
+      state.status = state.thinkingVisible ? 'Thinking visible' : 'Thinking collapsed';
+      requestRender();
+      return;
+    }
+
     if (key.type === 'ctrl_d') {
       if (!state.inputBuffer) stop();
       return;
     }
 
-    if (key.type === 'ctrl_c' || key.type === 'escape') {
+    if (key.type === 'ctrl_c') {
+      var ctrlCNow = Date.now();
+      if (ctrlCNow - lastCtrlCAt <= 500) {
+        stop();
+        return;
+      }
+      lastCtrlCAt = ctrlCNow;
+      input.setInput(state, '');
+      state.autoItems = [];
+      state.autoIndex = -1;
+      state.status = 'Press Ctrl+C again to exit';
+      requestRender();
+      return;
+    }
+
+    if (key.type === 'escape') {
       if (state.historyMode) {
         exitHistoryMode('At latest output');
       } else if (state.mode === 'running' && agentSession && typeof agentSession.abort === 'function') {
+        restoreQueues();
         agentSession.abort();
-        state.mode = 'idle';
-        state.status = 'idle';
-        state.agentStatus = 'idle';
-        stateModule.addMessage(state, { type: 'system', text: 'abort requested' });
-      } else if (state.inputBuffer) {
-        input.setInput(state, '');
-        stateModule.updateAutocomplete(state);
-      } else {
-        stop();
+        state.status = 'Abort requested; queue restored';
+      } else if (!state.inputBuffer) {
+        var escapeNow = Date.now();
+        if (escapeNow - lastEscapeAt <= 500) {
+          lastEscapeAt = 0;
+          await runCommand('/tree');
+        } else {
+          lastEscapeAt = escapeNow;
+          state.status = 'Press Esc again for Session Tree';
+        }
       }
       requestRender();
       return;
@@ -609,7 +769,13 @@ async function runRuntimeNextTui(config, options) {
   });
   tui.addInputListener(inputDispatcher.dispatch);
   updateLastRender();
-  tui.start();
+  installSignalHandlers();
+  try {
+    tui.start();
+  } catch (error) {
+    stop();
+    throw error;
+  }
   refreshBoardStatus(activeConfig);
 
   return new Promise(function(resolve) {

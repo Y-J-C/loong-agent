@@ -352,13 +352,13 @@ class HeaderComponent {
     const tiny = height < 14;
     const lines = tiny ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch'),
-      paint(theme, 'dim', `/help - ${hint('global', 'forceRedraw')} redraw - ${hint('editor', 'clearOrBack')} abort - ${hint('tool', 'toggleCurrentDetail')} tool`),
+      paint(theme, 'dim', `/help - ${hint('global', 'modelSelector')} model - ${hint('editor', 'clearOrBack')} abort - ${hint('tool', 'toggleGlobalDetails')} tools`),
     ] : compact ? [
       paint(theme, 'header', 'loong-agent v0.x | LoongArch coding terminal'),
-      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} abort/back - / commands - ${hint('global', 'forceRedraw')} redraw - ${hint('tool', 'toggleCurrentDetail')} tool`),
+      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} abort/back - / commands - ${hint('global', 'modelSelector')} model - ${hint('tool', 'toggleGlobalDetails')} tools`),
     ] : [
       paint(theme, 'accent', `loong-agent v0.x | ${brandTitle()}`),
-      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} back - ${hint('global', 'abortOrExit')}/${hint('global', 'exitIfEmpty')} exit - / commands - ${hint('global', 'forceRedraw')} redraw - /model model - ${hint('tool', 'toggleCurrentDetail')} tool`),
+      paint(theme, 'dim', `${hint('editor', 'clearOrBack')} back - ${hint('global', 'clearOrExit')}/${hint('global', 'exitIfEmpty')} exit - / commands - ${hint('global', 'modelSelector')} model - ${hint('tool', 'toggleGlobalDetails')} tools`),
     ];
     if (state && state.headerHidden) return [];
     return lines.map((line) => padRight(fitLine(line, width), width));
@@ -508,7 +508,7 @@ class ToolMessageComponent {
     const lines = [];
 
     const marker = selected ? '> ' : '';
-    const toolHint = selected ? `  ${hint('tool', 'toggleCurrentDetail')} details / /more all` : '';
+    const toolHint = selected ? '  /details viewer / Ctrl+O all' : '';
     const title = isBashTool ? 'bash' : `tool ${toolName}`;
     lines.push(fullLine(`${marker}${GLYPHS.toolTop} ${title} / ${displayStatus}${suffix}${toolHint}`, width, theme, blockToken));
     if (isError) {

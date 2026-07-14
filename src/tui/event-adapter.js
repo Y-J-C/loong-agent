@@ -173,6 +173,35 @@ function handleAgentEvent(state, event) {
     return;
   } else if (classification.kind === 'user_message') {
     addMessage(state, { type: 'user', text: event.content || '' });
+  } else if (classification.kind === 'reasoning_start') {
+    const reasoning = addMessage(state, {
+      type: 'thinking',
+      text: '',
+      status: event.status || 'running',
+      truncated: Boolean(event.truncated),
+    });
+    state.currentReasoningEventId = reasoning.id;
+  } else if (classification.kind === 'reasoning_update') {
+    if (!state.currentReasoningEventId) {
+      const reasoning = addMessage(state, { type: 'thinking', text: '' });
+      state.currentReasoningEventId = reasoning.id;
+    }
+    updateMessage(state, state.currentReasoningEventId, {
+      text: event.content || '',
+      status: event.status || 'running',
+      sequence: event.sequence || 0,
+      truncated: Boolean(event.truncated),
+    });
+  } else if (classification.kind === 'reasoning_end') {
+    if (state.currentReasoningEventId) {
+      updateMessage(state, state.currentReasoningEventId, {
+        text: event.content || '',
+        status: event.status || 'complete',
+        sequence: event.sequence || 0,
+        truncated: Boolean(event.truncated),
+      });
+    }
+    state.currentReasoningEventId = '';
   } else if (classification.kind === 'assistant_stream_start') {
     const msg = addMessage(state, { type: 'assistant', text: '' });
     state.currentAssistantEventId = msg.id;

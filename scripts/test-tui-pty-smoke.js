@@ -12,6 +12,7 @@ const DEFAULTS = {
   workspace: '/home/loongson/loong-agent',
   sshBin: process.env.LOONG_AGENT_SSH_BIN || (process.platform === 'win32' ? 'C:\\Windows\\System32\\OpenSSH\\ssh.exe' : 'ssh'),
   timeoutSeconds: 30,
+  repeat: 1,
   runRoot: 'runs',
   latestLogPath: path.join('runs', 'tui-pty-smoke-latest.log'),
   latestJsonPath: path.join('runs', 'tui-pty-smoke-latest.json'),
@@ -34,6 +35,7 @@ function usage() {
     '  --workspace <path>     Remote project directory',
     '  --ssh-bin <path>       SSH executable path',
   '  --timeout <seconds>    Remote timeout seconds',
+  '  --repeat <count>       Run 1-10 consecutive PTY sessions',
   '  --log <path>           Local pty log path',
   '  --json <path>          Local JSON report path',
   '  --local                Run TUI locally through script(1) instead of SSH',
@@ -51,6 +53,7 @@ function parseArgs(argv) {
     workspace: DEFAULTS.workspace,
     sshBin: DEFAULTS.sshBin,
     timeoutSeconds: DEFAULTS.timeoutSeconds,
+    repeat: DEFAULTS.repeat,
     logPath: null,
     jsonPath: null,
     mode: DEFAULTS.mode,
@@ -79,6 +82,8 @@ function parseArgs(argv) {
       options.sshBin = requireValue(argv, index += 1, arg);
     } else if (arg === '--timeout') {
       options.timeoutSeconds = normalizeTimeout(requireValue(argv, index += 1, arg));
+    } else if (arg === '--repeat') {
+      options.repeat = normalizeRepeat(requireValue(argv, index += 1, arg));
     } else if (arg === '--log') {
       options.logPath = requireValue(argv, index += 1, arg);
     } else if (arg === '--json') {
@@ -100,6 +105,14 @@ function normalizeTimeout(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) throw new Error(`Invalid timeout: ${value}`);
   return Math.max(5, Math.min(300, Math.floor(number)));
+}
+
+function normalizeRepeat(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1 || number > 10 || Math.floor(number) !== number) {
+    throw new Error(`Invalid repeat count: ${value}`);
+  }
+  return number;
 }
 
 function pad2(value) {
@@ -536,6 +549,61 @@ async function runSmoke(options) {
   return report;
 }
 
+function seriesRunOptions(options, seriesDir, index) {
+  const runDir = path.join(seriesDir, `run-${String(index + 1).padStart(2, '0')}`);
+  return Object.assign({}, options, {
+    repeat: 1,
+    logPath: path.join(runDir, 'pty.log'),
+    jsonPath: path.join(runDir, 'report.json'),
+  });
+}
+
+async function runSmokeSeries(options) {
+  if (!options || options.repeat <= 1) return runSmoke(options);
+
+  const startedAt = new Date();
+  const seriesDir = path.join(DEFAULTS.runRoot, `tui-pty-stability-${timestampSlug(startedAt)}-${process.pid}`);
+  const reports = [];
+  for (let index = 0; index < options.repeat; index += 1) {
+    const report = await runSmoke(seriesRunOptions(options, seriesDir, index));
+    reports.push(report);
+    if (!report.passed) break;
+  }
+
+  const endedAt = new Date();
+  const passed = reports.length === options.repeat && reports.every((report) => report.passed);
+  const aggregate = {
+    startedAt: startedAt.toISOString(),
+    endedAt: endedAt.toISOString(),
+    durationMs: endedAt.getTime() - startedAt.getTime(),
+    mode: reports.length ? reports[0].mode : options.mode,
+    repeat: options.repeat,
+    completedRuns: reports.length,
+    passed,
+    checks: {
+      allRunsCompleted: reports.length === options.repeat,
+      allRunsPassed: reports.every((report) => report.passed),
+      noResidualTuiProcess: reports.every((report) => report.checks && report.checks.noResidualTuiProcess),
+      terminalRestored: reports.every((report) => report.checks && report.checks.terminalRestored),
+    },
+    runs: reports.map((report, index) => ({
+      index: index + 1,
+      passed: report.passed,
+      durationMs: report.durationMs,
+      failureCategory: report.failureCategory,
+      logPath: report.logPath,
+      jsonPath: report.jsonPath,
+      lastScreenPath: report.lastScreenPath,
+    })),
+    jsonPath: options.jsonPath || path.join(seriesDir, 'report.json'),
+    runDir: seriesDir,
+    nextSteps: passed ? [] : ['Review the first failed run in the aggregate report.'],
+  };
+  ensureParent(aggregate.jsonPath);
+  fs.writeFileSync(aggregate.jsonPath, `${JSON.stringify(aggregate, null, 2)}\n`, 'utf8');
+  return aggregate;
+}
+
 function dryRunPlan(options) {
   const artifacts = resolveArtifactPaths(options, new Date(), process.pid);
   const runSpec = commandSpec(options, remoteTuiCommand(options), true);
@@ -553,6 +621,7 @@ function dryRunPlan(options) {
     latestLogPath: artifacts.latestLogPath,
     latestJsonPath: artifacts.latestJsonPath,
     timeoutSeconds: options.timeoutSeconds,
+    repeat: options.repeat,
   };
 }
 
@@ -574,11 +643,15 @@ async function main() {
     console.log(JSON.stringify(dryRunPlan(options), null, 2));
     return;
   }
-  const report = await runSmoke(options);
-  console.log(`TUI pty smoke ${report.passed ? 'PASS' : 'FAIL'}: exit=${report.sshExitCode} timedOut=${report.timedOut} residual=${report.residualProcessOutput ? 'yes' : 'no'} category=${report.failureCategory || ''}`);
-  console.log(`log: ${report.logPath}`);
+  const report = await runSmokeSeries(options);
+  if (report.repeat > 1) {
+    console.log(`TUI pty stability ${report.passed ? 'PASS' : 'FAIL'}: runs=${report.completedRuns}/${report.repeat}`);
+  } else {
+    console.log(`TUI pty smoke ${report.passed ? 'PASS' : 'FAIL'}: exit=${report.sshExitCode} timedOut=${report.timedOut} residual=${report.residualProcessOutput ? 'yes' : 'no'} category=${report.failureCategory || ''}`);
+    console.log(`log: ${report.logPath}`);
+    console.log(`lastScreen: ${report.lastScreenPath}`);
+  }
   console.log(`json: ${report.jsonPath}`);
-  console.log(`lastScreen: ${report.lastScreenPath}`);
   if (!report.passed) {
     report.nextSteps.forEach((step) => console.log(`next: ${step}`));
     process.exit(1);
@@ -603,6 +676,7 @@ module.exports = {
   parseArgs,
   payloadSummary,
   resolveArtifactPaths,
+  runSmokeSeries,
   remoteTuiCommand,
   displayCommand,
   sshArgs,

@@ -80,10 +80,22 @@ test('history navigation works', () => {
   assert(state.inputBuffer === 'one', 'second up should load previous');
   applyKey(state, { type: 'down' });
   assert(state.inputBuffer === 'two', 'down should move forward');
-  applyKey(state, { type: 'ctrl_p' });
-  assert(state.inputBuffer === 'one', 'ctrl-p should move backward');
-  applyKey(state, { type: 'ctrl_n' });
-  assert(state.inputBuffer === 'two', 'ctrl-n should move forward');
+  applyKey(state, { type: 'down' });
+  assert(state.inputBuffer === '', 'history navigation should restore the empty draft');
+});
+
+test('multiline arrows preserve the preferred column without opening history', () => {
+  const state = createTuiState({});
+  pushHistory(state, 'history item');
+  setInput(state, 'abcde\nxy\n12345');
+  state.cursor = 4;
+  applyKey(state, { type: 'down' });
+  assert(state.cursor === 8, `down should clamp to the second line: ${state.cursor}`);
+  applyKey(state, { type: 'down' });
+  assert(state.cursor === 13, `second down should restore preferred column: ${state.cursor}`);
+  applyKey(state, { type: 'up' });
+  assert(state.cursor === 8, `up should return to the short middle line: ${state.cursor}`);
+  assert(state.inputBuffer === 'abcde\nxy\n12345', 'multiline navigation must not replace input with history');
 });
 
 test('parseKey recognizes controls', () => {
@@ -96,6 +108,9 @@ test('parseKey recognizes controls', () => {
   assert(parseKey(Buffer.from('\x1b[13;5u')).type === 'ctrl_enter', 'ctrl-enter parse failed');
   assert(parseKey(Buffer.from('\x1b[10;5u')).type === 'ctrl_enter', 'ctrl-enter lf parse failed');
   assert(parseKey(Buffer.from('\x1b\r')).type === 'alt_enter', 'alt-enter parse failed');
+  assert(parseKey(Buffer.from('\x1b[13;2u')).type === 'shift_enter', 'shift-enter parse failed');
+  assert(parseKey(Buffer.from('\x1b[1;3A')).type === 'alt_up', 'alt-up parse failed');
+  assert(parseKey(Buffer.from('\x1b[80;6u')).type === 'shift_ctrl_p', 'shift-ctrl-p parse failed');
   assert(parseKey(Buffer.from('\x1b[Z')).type === 'shift_tab', 'shift-tab parse failed');
   assert(parseKey(Buffer.from('\x1b[79;6u')).type === 'shift_ctrl_o', 'shift-ctrl-o parse failed');
   assert(parseKey(Buffer.from('\x14')).type === 'ctrl_t', 'ctrl-t parse failed');
@@ -149,7 +164,7 @@ test('setInput clears paste indicator state', () => {
   assert(state.pasteCount === 0, 'setInput should clear paste count');
 });
 
-test('word navigation and ctrl-enter newline work', () => {
+test('word navigation and explicit newline keys work', () => {
   const state = createTuiState({});
   setInput(state, 'hello world again');
   applyKey(state, { type: 'ctrl_left' });
@@ -159,9 +174,9 @@ test('word navigation and ctrl-enter newline work', () => {
   applyKey(state, { type: 'ctrl_right' });
   applyKey(state, { type: 'ctrl_enter' });
   applyKey(state, { type: 'text', text: 'next' });
-  applyKey(state, { type: 'alt_enter' });
+  applyKey(state, { type: 'shift_enter' });
   applyKey(state, { type: 'text', text: 'fallback' });
-  assert(state.inputBuffer === 'hello again\nnext\nfallback', `ctrl/alt-enter failed: ${state.inputBuffer}`);
+  assert(state.inputBuffer === 'hello again\nnext\nfallback', `ctrl/shift-enter failed: ${state.inputBuffer}`);
 });
 
 test('slash autocomplete fuzzy matches commands', () => {

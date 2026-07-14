@@ -49,6 +49,17 @@ equal(localDryRun.mode, 'local', 'local mode can be forced');
 ok(localDryRun.sshCommand.indexOf('script') === 0, 'local mode uses script pty wrapper');
 ok(!Object.prototype.hasOwnProperty.call(localDryRun, 'legacyTui'), 'dry run report has no legacy TUI field');
 
+var repeatedDryRun = smoke.dryRunPlan(smoke.parseArgs(['--local', '--repeat', '10']));
+equal(repeatedDryRun.repeat, 10, 'dry run exposes consecutive PTY count');
+
+var invalidRepeatRejected = false;
+try {
+  smoke.parseArgs(['--repeat', '11']);
+} catch (error) {
+  invalidRepeatRejected = /Invalid repeat count/.test(error && error.message ? error.message : String(error));
+}
+ok(invalidRepeatRejected, 'repeat count is bounded to ten sessions');
+
 var legacyArgumentRejected = false;
 try {
   smoke.parseArgs(['--legacy-tui']);

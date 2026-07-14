@@ -73,7 +73,7 @@ function createAgentSession(config, options) {
     const maxSnapshotChars = 4096;
 
     function persistedEvent(event) {
-      if (!event || event.type !== 'message_update' || !event.streaming || event.isFinal) return event;
+      if (!event || (event.type !== 'message_update' && event.type !== 'reasoning_update') || !event.streaming || event.isFinal) return event;
       const content = String(event.content || '');
       if (content.length <= maxSnapshotChars) return Object.assign({}, event, { contentLength: content.length });
       return Object.assign({}, event, {
@@ -85,7 +85,7 @@ function createAgentSession(config, options) {
 
     function appendNow(event) {
       if (targetSession) targetSession.append(persistedEvent(event));
-      if (event && event.type === 'message_update' && event.streaming) {
+      if (event && (event.type === 'message_update' || event.type === 'reasoning_update') && event.streaming) {
         lastWrittenAt = Date.now();
         lastWrittenLength = String(event.content || '').length;
       }
@@ -109,7 +109,7 @@ function createAgentSession(config, options) {
       if (event && event.type === 'message_start' && event.role === 'assistant' && event.streaming) {
         assistantStreamingOpen = true;
       }
-      if (event && event.type === 'message_update' && event.role === 'assistant' && event.streaming) {
+      if (event && ((event.type === 'message_update' && event.role === 'assistant') || event.type === 'reasoning_update') && event.streaming) {
         const now = Date.now();
         const length = String(event.content || '').length;
         const shouldWrite =
@@ -125,7 +125,7 @@ function createAgentSession(config, options) {
         }
         return;
       }
-      if (event && event.type === 'message_end' && event.role === 'assistant') {
+      if ((event && event.type === 'message_end' && event.role === 'assistant') || event && event.type === 'reasoning_end') {
         assistantStreamingOpen = false;
         if (
           pendingUpdate &&
@@ -136,7 +136,7 @@ function createAgentSession(config, options) {
           pendingUpdate = null;
         }
         flushPendingBashExecutions();
-      } else if (pendingUpdate && event && event.type !== 'message_update') {
+      } else if (pendingUpdate && event && event.type !== 'message_update' && event.type !== 'reasoning_update') {
         flushPending();
       }
       if (event && event.type === 'bash_execution' && assistantStreamingOpen) {

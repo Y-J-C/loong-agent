@@ -486,6 +486,37 @@ test('TUI updates one assistant item during streaming partial JSON', async () =>
   assert(assistants[0].text === 'assistant -> tool: finish', 'final tool parse missing');
 });
 
+test('reasoning streams into ordered redacted Session events without entering answer content', async () => {
+  registerProvider({
+    name: 'test-reasoning-events',
+    capabilities: { streaming: true, thinking: true, usage: false, toolCalling: false },
+    chatCompletion: async () => 'should not fallback',
+    streamChatCompletion: async (cfg, messages, options) => {
+      await options.onReasoningDelta('check token=private-value');
+      await options.onReasoningDelta(' then evidence');
+      const content = JSON.stringify({ tool: 'finish', input: { summary: 'reasoning done' }, reason: 'done' });
+      await options.onDelta(content);
+      return { content, reasoningContent: 'check token=private-value then evidence', reasoningContentAvailable: true };
+    },
+  });
+  const workspace = tempWorkspace();
+  const session = createAgentSession(config('test-reasoning-events', workspace));
+  const result = await session.prompt('reasoning');
+  const events = fs.readFileSync(result.session.path, 'utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  const reasoning = events.filter((event) => /^reasoning_/.test(event.type));
+  assert(reasoning[0] && reasoning[0].type === 'reasoning_start', 'reasoning_start missing');
+  assert(reasoning[reasoning.length - 1].type === 'reasoning_end', 'reasoning_end missing');
+  const updatesByLoop = reasoning.filter((event) => event.type === 'reasoning_update').reduce((counts, event) => {
+    counts[event.loop] = (counts[event.loop] || 0) + 1;
+    return counts;
+  }, {});
+  assert(Object.keys(updatesByLoop).every((loop) => updatesByLoop[loop] === 1), 'small reasoning chunks should coalesce per model turn');
+  assert(reasoning.filter((event) => event.type === 'reasoning_update').every((event, index, items) => index === 0 || event.sequence > items[index - 1].sequence), 'reasoning sequence is not ordered');
+  assert(JSON.stringify(reasoning).indexOf('private-value') < 0, 'reasoning was not redacted');
+  const answer = events.find((event) => event.type === 'message_end' && event.role === 'assistant');
+  assert(answer && answer.content.indexOf('check token') < 0, 'reasoning leaked into assistant answer');
+});
+
 test('OpenAI-compatible HTTP SSE provider streams real chunks', async () => {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -501,15 +532,18 @@ test('OpenAI-compatible HTTP SSE provider streams real chunks', async () => {
   cfg.baseUrl = `http://127.0.0.1:${address.port}`;
   cfg.apiKey = 'test-key';
   const deltas = [];
+  const reasoningDeltas = [];
   let metadata = null;
   const content = await chatCompletionWithEvents(cfg, [{ role: 'user', content: 'x' }], {
     onDelta: (delta) => deltas.push(delta),
+    onReasoningDelta: (delta) => reasoningDeltas.push(delta),
     onMetadata: (item) => {
       metadata = item;
     },
   });
   server.close();
   assert(deltas.length === 2, `unexpected delta count: ${deltas.length}`);
+  assert(reasoningDeltas.join('') === 'internal reasoning', 'reasoning callback did not receive SSE reasoning');
   assert(/sse ok/.test(content), 'missing streamed SSE content');
   assert(metadata && metadata.usage.status === 'reported', 'missing reported usage metadata');
   assert(metadata.usage.totalTokens === 9, 'stream usage total mismatch');

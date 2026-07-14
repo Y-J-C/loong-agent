@@ -30,6 +30,13 @@ function detailObject(message) {
   return {};
 }
 
+function dataObject(message) {
+  var detail = detailObject(message);
+  return detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)
+    ? detail.data
+    : detail;
+}
+
 function detailText(message) {
   if (!message || message.detail === undefined || message.detail === null) return '';
   if (typeof message.detail === 'string') return message.detail;
@@ -215,24 +222,78 @@ function renderFileTool(message, options) {
 }
 
 function renderProcessTool(message, options) {
-  var d = detailObject(message);
+  var d = dataObject(message);
   return renderStructured(message, options, [
     ['pid', d.pid],
+    ['process', d.processState],
+    ['identity', d.identityStatus],
     ['pidFile', d.pidFile],
     ['logFile', d.logFile],
+    ['statusFile', d.statusFile],
+    ['logStatus', d.logStatus],
     ['status', d.status],
     ['exitCode', d.exitCode],
+    ['recovery', firstValue([d.recoveryRecommendation, d.nextStep])],
   ]);
 }
 
 function renderKnowledgeTool(message, options) {
-  var d = detailObject(message);
+  var d = dataObject(message);
   return renderStructured(message, options, [
     ['query', d.query],
     ['topic', d.topic],
+    ['source', firstValue([d.source, d.sourceId])],
+    ['scope', firstValue([d.scope, d.applicability])],
+    ['basis', firstValue([d.basis, d.evidenceKind])],
+    ['conflicts', count(d.conflicts)],
+    ['unknown', compactBooleanMeta(d.unknown)],
     ['commands', count(d.commands)],
     ['evidence', count(d.evidence)],
     ['warnings', count(d.warnings)],
+  ]);
+}
+
+function renderEnvironmentTool(message, options) {
+  var d = dataObject(message);
+  return renderStructured(message, options, [
+    ['board', firstValue([d.boardModel, d.board, d.model])],
+    ['arch', firstValue([d.arch, d.architecture])],
+    ['system', firstValue([d.system, d.os, d.platform])],
+    ['node', firstValue([d.node, d.nodeVersion])],
+    ['npm', firstValue([d.npmStatus, d.npm])],
+    ['gcc', firstValue([d.gccStatus, d.gcc])],
+    ['g++', firstValue([d.gppStatus, d.gpp])],
+    ['checkedAt', firstValue([d.checkedAt, d.updatedAt])],
+    ['unknown', firstValue([d.unknownReason, d.reason])],
+  ]);
+}
+
+function renderDeviceTool(message, options) {
+  var d = dataObject(message);
+  return renderStructured(message, options, [
+    ['status', firstValue([d.deviceStatus, d.status, d.outcome])],
+    ['nodes', count(firstValue([d.deviceNodes, d.devices, d.nodes]))],
+    ['enumeration', firstValue([d.enumerationStatus, d.enumeration])],
+    ['permission', firstValue([d.permissionStatus, d.permission])],
+    ['driver', firstValue([d.driverStatus, d.driver])],
+    ['userland', firstValue([d.userlandStatus, d.userland])],
+    ['reason', firstValue([d.unknownReason, d.reason, d.error])],
+    ['evidence', count(d.evidence)],
+  ]);
+}
+
+function renderProviderTool(message, options) {
+  var d = dataObject(message);
+  var capabilities = d.capabilities && typeof d.capabilities === 'object' ? d.capabilities : {};
+  return renderStructured(message, options, [
+    ['profile', firstValue([d.providerProfile, d.profile])],
+    ['provider', d.provider],
+    ['model', d.model],
+    ['streaming', compactBooleanMeta(firstValue([capabilities.streaming, d.streaming]))],
+    ['tools', compactBooleanMeta(firstValue([capabilities.toolCalling, d.toolCalling]))],
+    ['thinking', compactBooleanMeta(firstValue([capabilities.thinking, d.thinking]))],
+    ['config', firstValue([d.configStatus, d.status])],
+    ['connection', firstValue([d.connectionStatus, d.networkStatus])],
   ]);
 }
 
@@ -409,7 +470,10 @@ function renderGeneric(message, options) {
 function rendererKind(toolName) {
   var name = String(toolName || '');
   if (name === 'bash') return 'bash';
+  if (name === 'loong_env_check') return 'environment';
   if (name === 'loong_storage_check') return 'storage';
+  if (/^(loong_camera_check|camera_check|usb_check|loong_usb_check)$/.test(name)) return 'device';
+  if (/^(runtime_health|provider_status|network_check)$/.test(name)) return 'provider';
   if (/^(read|read_file|write|edit|grep|find|ls|search_files|list_directory)$/.test(name)) return 'file';
   if (/^process_(status|logs|wait|stop)$/.test(name)) return 'process';
   if (/^(kb_|knowledge|memory|command_reference)/.test(name)) return 'knowledge';
@@ -423,6 +487,9 @@ function renderToolMessage(message, options) {
     if (opts.forceRendererError) throw new Error('forced renderer failure');
     if (kind === 'bash') return renderBash(message, opts);
     if (kind === 'storage') return renderStorageTool(message, opts);
+    if (kind === 'environment') return renderEnvironmentTool(message, opts);
+    if (kind === 'device') return renderDeviceTool(message, opts);
+    if (kind === 'provider') return renderProviderTool(message, opts);
     if (kind === 'file') return renderFileTool(message, opts);
     if (kind === 'process') return renderProcessTool(message, opts);
     if (kind === 'knowledge') return renderKnowledgeTool(message, opts);

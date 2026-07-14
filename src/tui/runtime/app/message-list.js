@@ -74,6 +74,7 @@ function asciiMessageLabel(message) {
   if (!message) return 'msg';
   if (message.type === 'assistant_final') return '[final] Assistant';
   if (message.type === 'assistant') return '[assistant] Assistant';
+  if (message.type === 'thinking') return '[thinking]';
   if (message.type === 'user') return '[user] User';
   if (message.type === 'tool') return asciiToolStatus(message) + ' ' + (message.toolName || 'tool');
   if (message.type === 'error') return '[err] Error';
@@ -227,6 +228,18 @@ function renderRuntimeMessageListAscii(state, width, height, context, options) {
         for (var detailLineIndex = 0; detailLineIndex < renderedTool.detailLines.length; detailLineIndex += 1) {
           lines.push(renderedTool.detailLines[detailLineIndex]);
         }
+      }
+    } else if (message.type === 'thinking') {
+      if (state && state.thinkingVisible === false) {
+        lines.push(themeMod.paint(theme, 'dim', '[thinking] collapsed'));
+      } else {
+        var thinkingText = String(text || '').trim();
+        var thinkingLines = wrapTextBlocks(thinkingText || '(thinking)', maxWidth);
+        lines.push(themeMod.paint(theme, 'dim', '[thinking] ' + (message.status || 'running')));
+        for (var thinkingIndex = 0; thinkingIndex < thinkingLines.length; thinkingIndex += 1) {
+          lines.push(themeMod.paint(theme, 'dim', fit(thinkingLines[thinkingIndex], maxWidth)));
+        }
+        if (message.truncated) lines.push(themeMod.paint(theme, 'warning', '[thinking truncated]'));
       }
     } else if (message.type === 'assistant' || message.type === 'assistant_final') {
       var awrapped = renderMarkdownMessage(message, maxWidth, renderContext);

@@ -6,6 +6,10 @@ var ENABLE_BRACKETED_PASTE = '\x1b[?2004h';
 var DISABLE_BRACKETED_PASTE = '\x1b[?2004l';
 var SHOW_CURSOR = '\x1b[?25h';
 var RESET = '\x1b[0m';
+var DISABLE_KITTY_KEYBOARD = '\x1b[<u';
+var DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4;0m';
+var DISABLE_SYNC_OUTPUT = '\x1b[?2026l';
+var RESET_SCROLL_REGION = '\x1b[r';
 
 function ProcessTerminal(options) {
   options = options || {};
@@ -18,6 +22,9 @@ function ProcessTerminal(options) {
   this.stdinDataHandler = null;
   this.kittyProtocolTimer = null;
   this.started = false;
+  this._bracketedPasteActive = false;
+  this._kittyProtocolActive = false;
+  this._modifyOtherKeysActive = false;
 }
 
 ProcessTerminal.prototype.start = function start(onInput, onResize) {
@@ -30,7 +37,10 @@ ProcessTerminal.prototype.start = function start(onInput, onResize) {
   if (this.input.setRawMode) this.input.setRawMode(true);
   if (this.input.setEncoding) this.input.setEncoding('utf8');
   if (this.input.resume) this.input.resume();
-  if (this.output.write) this.output.write(ENABLE_BRACKETED_PASTE);
+  if (this.output.write) {
+    this.output.write(ENABLE_BRACKETED_PASTE);
+    this._bracketedPasteActive = true;
+  }
 
   var self = this;
   this.stdinBuffer = new StdinBuffer({ timeout: 10 });
@@ -85,7 +95,17 @@ ProcessTerminal.prototype.stop = function stop() {
     }
   }
   if (this.input.pause) this.input.pause();
-  if (this.output.write) this.output.write(DISABLE_BRACKETED_PASTE + SHOW_CURSOR + RESET);
+  var restore = DISABLE_SYNC_OUTPUT + RESET_SCROLL_REGION;
+  if (this._kittyProtocolActive) restore += DISABLE_KITTY_KEYBOARD;
+  if (this._modifyOtherKeysActive) restore += DISABLE_MODIFY_OTHER_KEYS;
+  if (this._bracketedPasteActive) restore += DISABLE_BRACKETED_PASTE;
+  restore += SHOW_CURSOR + RESET;
+  if (this.output.write) this.output.write(restore);
+  this._bracketedPasteActive = false;
+  this._kittyProtocolActive = false;
+  this._modifyOtherKeysActive = false;
+  var keys = require('./keys');
+  if (typeof keys.setKittyProtocolActive === 'function') keys.setKittyProtocolActive(false);
 };
 
 ProcessTerminal.prototype.queryAndEnableKittyProtocol = function queryAndEnableKittyProtocol() {
@@ -97,6 +117,7 @@ ProcessTerminal.prototype.queryAndEnableKittyProtocol = function queryAndEnableK
 
   this.kittyProtocolTimer = setTimeout(function() {
     // Fallback: enable xterm modifyOtherKeys mode 2 (for tmux, etc.)
+    self._modifyOtherKeysActive = true;
     self.write('\x1b[>4;2m');
   }, 200);
 };

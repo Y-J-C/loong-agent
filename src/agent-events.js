@@ -154,6 +154,17 @@ function normalizeTaskStateUpdate(event) {
   });
 }
 
+function normalizeReasoning(event) {
+  return baseEvent(event.type, 'reasoning', event, {
+    content: event.content || '',
+    delta: event.delta || '',
+    sequence: Number(event.sequence || 0) || 0,
+    streaming: Boolean(event.streaming),
+    status: event.status || (event.type === 'reasoning_end' ? 'complete' : 'running'),
+    truncated: Boolean(event.truncated),
+  });
+}
+
 function normalizeRecoveryCheck(event) {
   return baseEvent('recovery_check', 'session', event, {
     sourceSessionId: event.sourceSessionId || '',
@@ -212,6 +223,9 @@ function normalizeAgentEvent(event) {
   if (event.type === 'turn_end') return normalizeTurnEnd(event);
   if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end') {
     return normalizeMessage(event);
+  }
+  if (event.type === 'reasoning_start' || event.type === 'reasoning_update' || event.type === 'reasoning_end') {
+    return normalizeReasoning(event);
   }
   if (event.type === 'tool_execution_start') return normalizeToolStart(event);
   if (event.type === 'tool_execution_update') return normalizeToolUpdate(event);

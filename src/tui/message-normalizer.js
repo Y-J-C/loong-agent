@@ -132,6 +132,9 @@ function normalizeToolDisplayStatus(message) {
 function classifyAgentEvent(event) {
   if (!event || !event.type) return { kind: 'ignored' };
   if (event.type === 'agent_start') return { kind: 'system_ephemeral' };
+  if (event.type === 'reasoning_start') return { kind: 'reasoning_start' };
+  if (event.type === 'reasoning_update') return { kind: 'reasoning_update' };
+  if (event.type === 'reasoning_end') return { kind: 'reasoning_end' };
   if (event.type === 'turn_start' || event.type === 'turn_end') return { kind: 'state_only' };
   if (event.type === 'message_start' && event.role === 'user') {
     return { kind: event.internal ? 'internal_user_message' : 'user_message' };

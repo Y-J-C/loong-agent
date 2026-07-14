@@ -316,13 +316,18 @@ registerProvider({
     );
 
     const content = extractOpenAiContent(response);
+    const reasoningContent = extractOpenAiReasoning(response);
 
     if (!content) throw new Error('Model response did not contain message content');
+    if (reasoningContent && options && typeof options.onReasoningComplete === 'function') {
+      await options.onReasoningComplete(reasoningContent);
+    }
     return {
       content,
+      reasoningContent,
       usage: extractOpenAiUsage(response),
       nativeThinking: supportsNativeThinking(config),
-      reasoningContentAvailable: supportsNativeThinking(config) && Boolean(extractOpenAiReasoning(response)),
+      reasoningContentAvailable: supportsNativeThinking(config) && Boolean(reasoningContent),
     };
   },
   chatCompletionWithTools: async (config, messages, options) => {
@@ -343,7 +348,13 @@ registerProvider({
       }
     );
 
-    return extractOpenAiMessage(response);
+    const message = extractOpenAiMessage(response);
+    const reasoningContent = extractOpenAiReasoning(response);
+    if (reasoningContent && options && typeof options.onReasoningComplete === 'function') {
+      await options.onReasoningComplete(reasoningContent);
+    }
+    message.reasoningContent = reasoningContent;
+    return message;
   },
   streamChatCompletion: async (config, messages, options) => {
     if (!config.apiKey) {
@@ -354,13 +365,16 @@ registerProvider({
       isAborted: options && options.isAborted,
       onDelta: (delta) => {
         content += delta;
-        if (options && typeof options.onDelta === 'function') options.onDelta(delta);
+        if (options && typeof options.onDelta === 'function') return options.onDelta(delta);
+        return null;
       },
+      onReasoningDelta: options && options.onReasoningDelta,
       onRequest: options && options.onRequest,
     });
     if (!content) throw new Error('Model response did not contain message content');
     return {
       content,
+      reasoningContent: metadata && metadata.reasoningContent ? metadata.reasoningContent : '',
       usage: metadata && metadata.usage ? metadata.usage : null,
       nativeThinking: supportsNativeThinking(config),
       reasoningContentAvailable: supportsNativeThinking(config) && Boolean(metadata && metadata.reasoningContent),
@@ -386,8 +400,10 @@ registerProvider({
         isAborted: options && options.isAborted,
         onDelta: (delta) => {
           const visibleDelta = filterDelta(delta);
-          if (visibleDelta && options && typeof options.onDelta === 'function') options.onDelta(visibleDelta);
+          if (visibleDelta && options && typeof options.onDelta === 'function') return options.onDelta(visibleDelta);
+          return null;
         },
+        onReasoningDelta: options && options.onReasoningDelta,
         onEvent: (event) => {
           accumulator.appendEvent(event);
         },

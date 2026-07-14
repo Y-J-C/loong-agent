@@ -80,6 +80,11 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
   ok(drainCalled, 'stop drains pending input');
   ok(writes.indexOf('\x1b[?2004l') >= 0, 'stop disables bracketed paste');
   ok(writes.indexOf('\x1b[?25h') >= 0, 'stop shows cursor');
+  ok(writes.indexOf('\x1b[?2026l') >= 0, 'stop disables synchronized output');
+  ok(writes.indexOf('\x1b[r') >= 0, 'stop resets scroll region');
+  var stoppedWrites = writes;
+  drainTerm.stop();
+  equal(writes, stoppedWrites, 'stop is idempotent');
 
   writes = '';
   inputDataHandler = null;
@@ -91,12 +96,16 @@ if (process.argv.indexOf('--tty-smoke') >= 0) {
   equal(seenInput.length, 0, 'Kitty response is not forwarded as user input');
   ok(kittyTerm.kittyProtocolTimer === null, 'Kitty response clears fallback timer');
   kittyTerm.stop();
+  ok(writes.indexOf('\x1b[<u') >= 0, 'stop disables active Kitty keyboard protocol');
 
   writes = '';
   var fallbackTerm = new runtime.ProcessTerminal({ input: fakeInput, output: fakeOutput });
   fallbackTerm.queryAndEnableKittyProtocol();
   setTimeout(function() {
     ok(writes.indexOf('\x1b[>4;2m') >= 0, 'Kitty fallback timer writes modifyOtherKeys');
+    fallbackTerm.started = true;
+    fallbackTerm.stop();
+    ok(writes.indexOf('\x1b[>4;0m') >= 0, 'stop disables active modifyOtherKeys mode');
     if (fallbackTerm.kittyProtocolTimer) {
       clearTimeout(fallbackTerm.kittyProtocolTimer);
       fallbackTerm.kittyProtocolTimer = null;

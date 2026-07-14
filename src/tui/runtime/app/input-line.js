@@ -70,7 +70,26 @@ function renderRuntimeInputBlock(state, width, options) {
     });
   }
   var border = renderInputBorder(columns, options, state);
-  return autocomplete.concat([border]).concat(inputLines).concat([border]);
+  return renderQueuedMessages(state, columns, options).concat(autocomplete).concat([border]).concat(inputLines).concat([border]);
+}
+
+function renderQueuedMessages(state, width, options) {
+  var theme = options && options.theme ? options.theme : themeMod.getTheme(state && state.theme);
+  var columns = Math.max(1, Number(width) || 80);
+  var lines = [];
+  function append(label, values, token) {
+    (values || []).slice(0, 2).forEach(function(value) {
+      var prefix = label + ': ';
+      var text = String(value || '').replace(/\s+/g, ' ').trim();
+      var limit = Math.max(1, columns - prefix.length);
+      if (Array.from(text).length > limit) text = Array.from(text).slice(0, Math.max(1, limit - 1)).join('') + '...';
+      lines.push(themeMod.paint(theme, token, prefix + text));
+    });
+    if ((values || []).length > 2) lines.push(themeMod.paint(theme, token, label + ': +' + ((values || []).length - 2) + ' more'));
+  }
+  append('Steering', state && state.queuedSteering, 'warning');
+  append('Follow-up', state && state.queuedFollowUps, 'muted');
+  return lines;
 }
 
 function renderRuntimeAutocompleteBlock(state, width, options) {
@@ -90,4 +109,5 @@ module.exports = {
   renderRuntimeAutocompleteBlock: renderRuntimeAutocompleteBlock,
   renderRuntimeInputBlock: renderRuntimeInputBlock,
   renderRuntimeInputLine: renderRuntimeInputLine,
+  renderQueuedMessages: renderQueuedMessages,
 };

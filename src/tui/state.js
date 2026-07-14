@@ -43,13 +43,16 @@ function createTuiState(config) {
     selectedMessageId: '',
     selectedSessionId: '',
     currentAssistantEventId: '',
+    currentReasoningEventId: '',
     currentToolEventIdByKey: {},
     currentSession: null,
     expandedTools: false,
     historyMode: false,
     scrollOffset: 0,
     search: createSearchState(),
+    queuedSteering: [],
     queuedFollowUps: [],
+    thinkingVisible: true,
     selector: null,
     status: 'idle',
     theme: 'loong-dark',
@@ -133,8 +136,10 @@ function clearMessages(state) {
   state.messageCount = 0;
   state.trimmedMessageCount = 0;
   state.currentAssistantEventId = '';
+  state.currentReasoningEventId = '';
   state.currentToolEventIdByKey = {};
   state.pendingMessages = [];
+  state.queuedSteering = [];
   state.queuedFollowUps = [];
   state.search = createSearchState();
   state.toolCount = 0;

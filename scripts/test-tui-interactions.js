@@ -222,8 +222,8 @@ test('hotkeys panel filters and enter only closes', async () => {
     query: '',
     selectedIndex: 0,
     items: [
-      { label: 'Ctrl+L  Force redraw', value: 'global.forceRedraw', description: 'Force redraw', group: 'global' },
-      { label: 'Ctrl+O  Toggle tool detail', value: 'tool.toggleCurrentDetail', description: 'Tool detail', group: 'tool' },
+      { label: 'Ctrl+L  Model selector', value: 'global.modelSelector', description: 'Model selector', group: 'global' },
+      { label: 'Ctrl+O  Toggle tool details', value: 'tool.toggleGlobalDetails', description: 'Tool details', group: 'tool' },
     ],
   };
   assert(getFocusedSurface(state).id === 'panel', 'hotkeys panel should take focus over autocomplete');

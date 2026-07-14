@@ -154,6 +154,21 @@ test('task_state_update is normalized and does not break TUI handling', () => {
   assert.strictEqual(state.messages.length, 0);
 });
 
+test('reasoning events remain separate from assistant answers in normalization and TUI', () => {
+  const state = createTuiState({});
+  const events = [
+    { type: 'reasoning_start', loop: 1, content: '', sequence: 0, streaming: true, status: 'running' },
+    { type: 'reasoning_update', loop: 1, content: 'inspect evidence', delta: 'inspect evidence', sequence: 1, streaming: true, status: 'running' },
+    { type: 'reasoning_end', loop: 1, content: 'inspect evidence', sequence: 1, streaming: true, status: 'complete' },
+  ];
+  events.forEach((event) => handleAgentEvent(state, event));
+  const normalized = events.map((event) => normalizeAgentEvent(event));
+  assert(normalized.every((event) => event.category === 'reasoning'));
+  assert.strictEqual(state.messages.filter((message) => message.type === 'thinking').length, 1);
+  assert.strictEqual(state.messages.filter((message) => message.type === 'assistant').length, 0);
+  assert.strictEqual(state.messages.find((message) => message.type === 'thinking').text, 'inspect evidence');
+});
+
 test('recovery_check keeps stable recovery status and warnings', () => {
   const normalized = normalizeAgentEvent({
     type: 'recovery_check',

@@ -32,17 +32,17 @@ test('keybinding namespaces are present', () => {
 });
 
 test('core global and tool actions resolve', () => {
-  assert(resolveKeyAction('global', { type: 'ctrl_c' }) === 'abortOrExit', 'ctrl-c should abort or exit');
+  assert(resolveKeyAction('global', { type: 'ctrl_c' }) === 'clearOrExit', 'ctrl-c should clear or exit on repeat');
   assert(resolveKeyAction('global', { type: 'ctrl_d' }) === 'exitIfEmpty', 'ctrl-d should exit if empty');
-  assert(resolveKeyAction('global', { type: 'ctrl_l' }) === 'forceRedraw', 'ctrl-l should force redraw');
-  assert(resolveKeyAction('tool', { type: 'ctrl_o' }) === 'toggleCurrentDetail', 'ctrl-o should toggle current tool detail');
+  assert(resolveKeyAction('global', { type: 'ctrl_l' }) === 'modelSelector', 'ctrl-l should open model selector');
+  assert(resolveKeyAction('tool', { type: 'ctrl_o' }) === 'toggleGlobalDetails', 'ctrl-o should toggle global tool detail');
   assert(resolveKeyAction('tool', { type: 'shift_ctrl_o' }) === 'toggleGlobalDetails', 'shift-ctrl-o should toggle global tool details');
 });
 
 test('editor and running editor actions stay distinct', () => {
   assert(matchesAction('editor', 'submit', { type: 'enter' }), 'editor enter should submit');
   assert(matchesAction('editor', 'newline', { type: 'ctrl_enter' }), 'editor ctrl-enter should newline');
-  assert(matchesAction('editor', 'newline', { type: 'alt_enter' }), 'editor alt-enter should newline');
+  assert(matchesAction('editor', 'newline', { type: 'shift_enter' }), 'editor shift-enter should newline');
   assert(matchesAction('runningEditor', 'steer', { type: 'enter' }), 'running enter should steer');
   assert(matchesAction('runningEditor', 'queueFollowUp', { type: 'alt_enter' }), 'running alt-enter should queue');
 });
@@ -64,9 +64,8 @@ test('autocomplete selector tree and panel actions resolve', () => {
 });
 
 test('shortcut hints are stable human readable labels', () => {
-  assert(shortcutHint('global', 'forceRedraw') === 'Ctrl+L', 'redraw shortcut hint mismatch');
-  assert(shortcutHint('global', 'openModel') === '', 'model should not have a global shortcut');
-  assert(shortcutHint('tool', 'toggleCurrentDetail') === 'Ctrl+O', 'tool shortcut hint mismatch');
+  assert(shortcutHint('global', 'modelSelector') === 'Ctrl+L', 'model selector shortcut hint mismatch');
+  assert(shortcutHint('tool', 'toggleGlobalDetails') === 'Ctrl+O', 'tool shortcut hint mismatch');
   assert(shortcutHint('tree', 'toggleFold') === 'Enter/Space', 'tree fold hint mismatch');
   assert(shortcutHint('runningEditor', 'queueFollowUp') === 'Alt+Enter', 'running queue hint mismatch');
 });
@@ -78,12 +77,12 @@ test('keybinding validation reports no namespace conflicts', () => {
 
 test('global recovery keys are not shadowed by focused namespaces', () => {
   for (const namespace of ['editor', 'runningEditor', 'autocomplete', 'selector', 'tree', 'panel']) {
-    assert(resolveKeyAction(namespace, { type: 'ctrl_l' }) === '', `${namespace} should not shadow ctrl-l redraw`);
+    assert(resolveKeyAction(namespace, { type: 'ctrl_l' }) === '', `${namespace} should not shadow ctrl-l model selector`);
     assert(resolveKeyAction(namespace, { type: 'ctrl_c' }) === '', `${namespace} should not shadow ctrl-c global recovery`);
     assert(resolveKeyAction(namespace, { type: 'ctrl_d' }) === '', `${namespace} should not shadow ctrl-d exit`);
   }
   for (const namespace of ['editor', 'runningEditor', 'autocomplete', 'selector', 'tree', 'panel', 'global']) {
     assert(resolveKeyAction(namespace, { type: 'ctrl_o' }) === '', `${namespace} should not shadow ctrl-o tool detail`);
   }
-  assert(resolveKeyAction('tool', { type: 'ctrl_o' }) === 'toggleCurrentDetail', 'tool namespace should own ctrl-o');
+  assert(resolveKeyAction('tool', { type: 'ctrl_o' }) === 'toggleGlobalDetails', 'tool namespace should own ctrl-o');
 });

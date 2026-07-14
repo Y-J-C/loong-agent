@@ -394,16 +394,16 @@ test('help hotkeys and command panel use keybinding shortcut hints', async () =>
   const text = context.state.messages.map((message) => message.text).join('\n');
   assert(text.indexOf(`Input: ${shortcutHint('editor', 'submit')} send, ${shortcutHint('autocomplete', 'accept')} complete`) >= 0, 'help input shortcuts should come from keybindings');
   assert(text.indexOf(`Running: ${shortcutHint('runningEditor', 'steer')} steer current run`) >= 0, 'help running shortcuts should come from keybindings');
-  assert(text.indexOf(`Recovery: ${shortcutHint('global', 'forceRedraw')} force redraw`) >= 0, 'help redraw shortcut should come from keybindings');
+  assert(text.indexOf('Recovery: /redraw force redraw') >= 0, 'help should advertise redraw command');
   assert(text.indexOf(`${shortcutHint('tool', 'toggleGlobalDetails')} or /more`) >= 0, 'tool shortcut should come from keybindings');
   assert(text.indexOf('/hotkeys') >= 0, 'help should advertise hotkeys panel');
-  assert(text.indexOf('Ctrl+L model') < 0, 'help should not advertise ctrl-l as model selector');
+  assert(shortcutHint('global', 'modelSelector') === 'Ctrl+L', 'model selector shortcut should come from keybindings');
 
   const beforeHotkeysMessages = context.state.messages.length;
   await handleCommand(context, '/hotkeys');
   assert(context.state.messages.length === beforeHotkeysMessages, 'hotkeys panel should not append a message');
   assert(context.state.activePanel && context.state.activePanel.type === 'hotkeys', 'hotkeys command should open hotkeys panel');
-  assert(context.state.activePanel.items.some((item) => item.value === 'global.forceRedraw'), 'hotkeys panel missing redraw shortcut');
+  assert(context.state.activePanel.items.some((item) => item.value === 'global.modelSelector'), 'hotkeys panel missing model selector shortcut');
   assert(context.state.activePanel.items.some((item) => item.label.indexOf(shortcutHint('autocomplete', 'accept')) >= 0), 'hotkeys panel should use keybinding shortcut hints');
 
   await handleCommand(context, '/commands');

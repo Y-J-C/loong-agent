@@ -82,6 +82,12 @@ var processTool = renderToolMessage({
 ok(plain(processTool.lines).indexOf('pid=123') >= 0, 'process renderer extracts pid');
 ok(plain(processTool.lines).indexOf('status=running') >= 0, 'process renderer extracts status');
 
+var managedProcess = renderToolMessage({
+  type: 'tool', toolName: 'process_status', done: true,
+  detail: { processState: 'running', identityStatus: 'match', pid: 321, statusFile: '/tmp/status', logStatus: 'available' },
+}, baseOptions);
+ok(plain(managedProcess.lines).indexOf('process=running') >= 0 && plain(managedProcess.lines).indexOf('identity=match') >= 0, 'managed process renderer keeps state and identity');
+
 var knowledgeTool = renderToolMessage({
   type: 'tool',
   toolName: 'kb_search',
@@ -92,6 +98,27 @@ ok(plain(knowledgeTool.lines).indexOf('query=ssh') >= 0, 'knowledge renderer ext
 ok(plain(knowledgeTool.lines).indexOf('topic=network') >= 0, 'knowledge renderer extracts topic');
 ok(plain(knowledgeTool.lines).indexOf('evidence=1') >= 0, 'knowledge renderer counts evidence');
 ok(plain(knowledgeTool.lines).indexOf('warnings=1') >= 0, 'knowledge renderer counts warnings');
+
+var environmentTool = renderToolMessage({
+  type: 'tool', toolName: 'loong_env_check', done: true,
+  detail: { data: { boardModel: 'LS2K1000', arch: 'loongarch64', system: 'Linux', node: 'v14.16.1', npmStatus: 'available', gccStatus: 'available', checkedAt: 'now' } },
+}, baseOptions);
+var environmentPlain = plain(environmentTool.lines);
+ok(environmentPlain.indexOf('board=LS2K1000') >= 0 && environmentPlain.indexOf('arch=loongarch64') >= 0, 'environment renderer keeps board and architecture evidence');
+
+var cameraTool = renderToolMessage({
+  type: 'tool', toolName: 'loong_camera_check', done: true,
+  detail: { data: { deviceStatus: 'unknown', permissionStatus: 'permission_denied', driverStatus: 'unknown', evidence: [{ source: 'command' }] } },
+}, baseOptions);
+var cameraPlain = plain(cameraTool.lines);
+ok(cameraPlain.indexOf('status=unknown') >= 0 && cameraPlain.indexOf('permission=permission_denied') >= 0, 'device renderer does not turn permission denied into absent');
+
+var providerTool = renderToolMessage({
+  type: 'tool', toolName: 'runtime_health', done: true,
+  detail: { data: { providerProfile: 'deepseek', model: 'deepseek-v4-pro', capabilities: { streaming: true, toolCalling: true, thinking: true }, connectionStatus: 'unknown' } },
+}, baseOptions);
+var providerPlain = plain(providerTool.lines);
+ok(providerPlain.indexOf('profile=deepseek') >= 0 && providerPlain.indexOf('thinking=true') >= 0, 'provider renderer keeps capability status without credentials');
 
 var storageDetail = {
   ok: true,
@@ -186,6 +213,17 @@ ok(chatPlain.indexOf('path=src/index.js') >= 0, 'message list uses file renderer
 ok(chatPlain.indexOf('logFile=/tmp/a.log') >= 0, 'message list uses process renderer');
 ok(chatPlain.indexOf('topic=runtime') >= 0, 'message list uses knowledge renderer');
 ok(chatLines.every(function(line) { return utils.visibleWidth(line) <= 60; }), 'message list tool renderer lines fit width');
+
+var thinkingExpanded = renderRuntimeMessageList({
+  messages: [{ type: 'thinking', text: 'inspect current evidence', status: 'complete' }],
+  thinkingVisible: true,
+}, 60, 8, { theme: dark });
+ok(plain(thinkingExpanded).indexOf('inspect current evidence') >= 0, 'thinking message renders separately when visible');
+var thinkingCollapsed = renderRuntimeMessageList({
+  messages: [{ type: 'thinking', text: 'inspect current evidence', status: 'complete' }],
+  thinkingVisible: false,
+}, 60, 8, { theme: dark });
+ok(plain(thinkingCollapsed).indexOf('collapsed') >= 0 && plain(thinkingCollapsed).indexOf('inspect current evidence') < 0, 'thinking collapse hides content without deleting message');
 
 console.log(pass + '/' + (pass + fail) + ' passed');
 process.exit(fail > 0 ? 1 : 0);

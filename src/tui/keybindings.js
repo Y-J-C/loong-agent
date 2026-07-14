@@ -2,19 +2,22 @@
 
 const KEYBINDINGS = {
   global: [
-    { action: 'abortOrExit', keys: [{ type: 'ctrl_c' }], hint: 'Ctrl+C' },
+    { action: 'clearOrExit', keys: [{ type: 'ctrl_c' }], hint: 'Ctrl+C twice' },
     { action: 'exitIfEmpty', keys: [{ type: 'ctrl_d' }], hint: 'Ctrl+D' },
-    { action: 'forceRedraw', keys: [{ type: 'ctrl_l' }], hint: 'Ctrl+L' },
+    { action: 'modelSelector', keys: [{ type: 'ctrl_l' }], hint: 'Ctrl+L' },
+    { action: 'nextModel', keys: [{ type: 'ctrl_p' }], hint: 'Ctrl+P' },
+    { action: 'previousModel', keys: [{ type: 'shift_ctrl_p' }], hint: 'Shift+Ctrl+P' },
+    { action: 'thinkingLevel', keys: [{ type: 'shift_tab' }], hint: 'Shift+Tab' },
+    { action: 'toggleThinking', keys: [{ type: 'ctrl_t' }], hint: 'Ctrl+T' },
   ],
   tool: [
-    { action: 'toggleCurrentDetail', keys: [{ type: 'ctrl_o' }], hint: 'Ctrl+O' },
-    { action: 'toggleGlobalDetails', keys: [{ type: 'shift_ctrl_o' }], hint: 'Shift+Ctrl+O' },
+    { action: 'toggleGlobalDetails', keys: [{ type: 'ctrl_o' }, { type: 'shift_ctrl_o' }], hint: 'Ctrl+O' },
   ],
   editor: [
     { action: 'submit', keys: [{ type: 'enter' }], hint: 'Enter' },
-    { action: 'newline', keys: [{ type: 'ctrl_enter' }, { type: 'alt_enter' }], hint: 'Ctrl+Enter/Alt+Enter' },
+    { action: 'newline', keys: [{ type: 'ctrl_enter' }, { type: 'shift_enter' }], hint: 'Shift+Enter/Ctrl+Enter' },
     { action: 'clearOrBack', keys: [{ type: 'escape' }], hint: 'Esc' },
-    { action: 'historyPrev', keys: [{ type: 'up' }, { type: 'ctrl_p' }], hint: 'Up/Ctrl+P' },
+    { action: 'historyPrev', keys: [{ type: 'up' }], hint: 'Up' },
     { action: 'historyNext', keys: [{ type: 'down' }, { type: 'ctrl_n' }], hint: 'Down/Ctrl+N' },
     { action: 'pageUp', keys: [{ type: 'page_up' }], hint: 'PageUp' },
     { action: 'pageDown', keys: [{ type: 'page_down' }], hint: 'PageDown' },

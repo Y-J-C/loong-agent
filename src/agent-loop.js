@@ -20,6 +20,7 @@ const { classifyRequestContext } = require('./context-selector');
 const { validateEvidenceResolutionClaims, validateFinalAnswerBinding } = require('./evidence-binding');
 const { executeToolCall } = require('./tool-execution-runtime');
 const { createModelRequestEvent } = require('./model-request-audit');
+const { redactValue } = require('./hooks/tool-result-redaction');
 const {
   balanceTrailingObjectBraces,
   createLoopError,
@@ -41,6 +42,91 @@ function elapsedMs(startedAt) {
 
 function errorMessage(error) {
   return error && error.message ? error.message : String(error);
+}
+
+function createReasoningEmitter(context) {
+  const maxChars = 64 * 1024;
+  let content = '';
+  let sequence = 0;
+  let started = false;
+  let ended = false;
+  let pendingDelta = '';
+  let lastFlushAt = Date.now();
+  const flushChars = 64;
+  const flushIntervalMs = 50;
+
+  function safeText(value) {
+    const redacted = redactValue(String(value || ''));
+    return String(redacted || '');
+  }
+
+  async function start() {
+    if (started) return;
+    started = true;
+    await context.emit({
+      type: 'reasoning_start',
+      loop: context.turn,
+      content: '',
+      delta: '',
+      sequence: 0,
+      streaming: true,
+      status: 'running',
+      truncated: false,
+    });
+  }
+
+  async function flush() {
+    if (!pendingDelta) return;
+    await start();
+    sequence += 1;
+    await context.emit({
+      type: 'reasoning_update',
+      loop: context.turn,
+      content,
+      delta: pendingDelta,
+      sequence,
+      streaming: true,
+      status: 'running',
+      truncated: content.length >= maxChars,
+    });
+    pendingDelta = '';
+    lastFlushAt = Date.now();
+  }
+
+  async function update(delta) {
+    if (ended) return;
+    const value = safeText(delta);
+    if (!value) return;
+    const remaining = Math.max(0, maxChars - content.length);
+    const accepted = value.slice(0, remaining);
+    if (!accepted) return;
+    content += accepted;
+    pendingDelta += accepted;
+    const now = Date.now();
+    if (pendingDelta.length >= flushChars || now - lastFlushAt >= flushIntervalMs || /\r|\n/.test(accepted)) {
+      await flush();
+    }
+  }
+
+  async function complete(fullContent, status) {
+    if (ended) return;
+    if (!content && fullContent) await update(fullContent);
+    await flush();
+    if (!started) return;
+    ended = true;
+    await context.emit({
+      type: 'reasoning_end',
+      loop: context.turn,
+      content,
+      delta: '',
+      sequence,
+      streaming: true,
+      status: status || 'complete',
+      truncated: content.length >= maxChars,
+    });
+  }
+
+  return { update, complete };
 }
 
 function resolveContextWindow(config) {
@@ -1575,10 +1661,13 @@ async function runAgentLoop(options) {
     let nativeAssistantToolCalls = [];
     let assistantAlreadyEmitted = false;
     let modelMetadata = null;
+    const reasoningEmitter = createReasoningEmitter(turnContext);
     const modelCallbacks = {
       onMetadata: (metadata) => {
         modelMetadata = metadata;
       },
+      onReasoningDelta: (delta) => reasoningEmitter.update(delta),
+      onReasoningComplete: (reasoningContent) => reasoningEmitter.complete(reasoningContent, 'complete'),
     };
     try {
       const compactResult = await compactStateBeforeModelRequest(state, config, chatCompletion);
@@ -1644,8 +1733,13 @@ async function runAgentLoop(options) {
         assistantAlreadyEmitted = streamed.emitted;
       }
     } catch (error) {
+      await reasoningEmitter.complete('', isAborted() ? 'aborted' : 'error');
       return failRun(turnContext, error, { code: 'model_request_error' });
     }
+    await reasoningEmitter.complete(
+      modelMetadata && modelMetadata.reasoningContent || '',
+      modelMetadata && modelMetadata.partialContentAccepted ? 'partial' : 'complete'
+    );
     if (isAborted()) {
       return failRun(turnContext, createLoopError('Agent run aborted', 'aborted'));
     }

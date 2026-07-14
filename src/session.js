@@ -256,6 +256,29 @@ function collectTimeline(session) {
         timestamp: event.timestamp,
         detail: '',
       });
+    } else if (event.type === 'reasoning_start') {
+      timeline.push({
+        type: 'reasoning_start',
+        title: 'Model reasoning started',
+        timestamp: event.timestamp,
+        detail: '',
+      });
+    } else if (event.type === 'reasoning_update') {
+      timeline.push({
+        type: 'reasoning_update',
+        title: 'Model reasoning',
+        timestamp: event.timestamp,
+        status: event.status || 'running',
+        detail: truncateText(event.content || '', 1000),
+      });
+    } else if (event.type === 'reasoning_end') {
+      timeline.push({
+        type: 'reasoning_end',
+        title: 'Model reasoning ended',
+        timestamp: event.timestamp,
+        status: event.status || 'complete',
+        detail: truncateText(event.content || '', 1000),
+      });
     } else if (event.type === 'message_start') {
       timeline.push({
         type: 'message_start',

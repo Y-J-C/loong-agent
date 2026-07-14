@@ -166,6 +166,7 @@ function createNativeToolCallAccumulator() {
       return {
         role: 'assistant',
         content: normalizeNativeContentBlocks(this.text, parsedToolCalls),
+        reasoningContent: metadata.reasoningContent || '',
         usage: metadata.usage || null,
         model: metadata.model || '',
         stopReason: metadata.stopReason || '',

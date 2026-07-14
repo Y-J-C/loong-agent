@@ -81,7 +81,10 @@ Phase 7 后的内部职责边界：
 
 - TUI 是当前推荐的人机交互入口。
 - 支持中文、小终端、宽字符、长输出、Markdown、表格、工具卡片、工具详情展开。
-- 支持运行中 steer、排队 follow-up、session selector、session tree、model panel、状态栏和板端状态贡献。
+- 支持运行中 steering、排队 follow-up、队列恢复、多行编辑、模型切换和 thinking level。
+- Provider reasoning 使用独立事件和 thinking 消息展示，可折叠且不会混入普通 assistant answer。
+- 环境、存储、摄像头/USB、Provider、受管进程和知识证据使用字段驱动的板端专用卡片；`/board` 展示启动快照，`/board refresh` 手动刷新。
+- 支持 session selector、session tree、model panel、状态栏和板端状态贡献。
 - 支持 `/session`、`/audit`、`/resume`、`/export`、`/sessions`、`/tree` 等 session 工作流。
 - 默认不绕过安全策略；敏感信息不得渲染到 TUI、session 或导出页。
 
@@ -322,20 +325,25 @@ node src/index.js tui
 
 ```text
 Enter              发送；运行中 steer 当前任务
+Shift+Enter        插入换行
 Ctrl+Enter         插入换行，如果终端支持
-Alt+Enter          非运行中插入换行；运行中排队 follow-up
+Alt+Enter          空闲时发送；运行中排队 follow-up
+Alt+Up             清空 Agent 队列并按顺序恢复到编辑器
 \ + Enter          插入换行 fallback
-Esc                中断、返回或清空输入
-Ctrl+C             运行中中断；空闲且输入为空时退出
+Esc                运行中恢复队列并中断；空闲空输入双击打开 Session Tree
+Ctrl+C             第一次清空输入；500ms 内再次按下退出
 Ctrl+D             输入为空时退出
 Ctrl+L             打开模型选择面板
-Ctrl+O             展开或折叠工具详情
+Ctrl+P             切换到下一个模型
+Shift+Ctrl+P       切换到上一个模型
+Shift+Tab          切换当前模型支持的 thinking level
+Ctrl+T             折叠或展开 reasoning
+Ctrl+O             全局展开或折叠工具详情
 Ctrl+A / Home      跳到行首
 Ctrl+E / End       跳到行尾
 Ctrl+K             删除到行尾
 Ctrl+W             删除前一个词
-Up / Down          浏览历史输入
-Ctrl+P / Ctrl+N    浏览历史输入
+Up / Down          多行内移动；空编辑器时浏览历史输入
 PageUp / PageDown  滚动 transcript
 Tree Ctrl+T        切换 session tree 过滤模式
 ```
@@ -360,6 +368,9 @@ Tree Ctrl+T        切换 session tree 过滤模式
 /name
 /settings
 /model
+/board [refresh]
+/details
+/redraw
 /stats
 /branch
 /demo

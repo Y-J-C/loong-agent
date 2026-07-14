@@ -82,11 +82,11 @@ function exitShortcutSummary() {
 }
 
 function recoveryShortcutSummary() {
-  return `Recovery: ${keyHint('global', 'forceRedraw')} force redraw.`;
+  return 'Recovery: /redraw force redraw; Alt+Up restores queued prompts.';
 }
 
 function toolShortcutSummary() {
-  return `Tools: ${keyHint('tool', 'toggleCurrentDetail')} current tool detail viewer, ${keyHint('tool', 'toggleGlobalDetails')} or /more inline all tool details.`;
+  return `Tools: ${keyHint('tool', 'toggleGlobalDetails')} or /more toggles inline details; /details opens the Viewer.`;
 }
 
 function scrollShortcutSummary() {
@@ -125,17 +125,17 @@ function hotkeysText() {
   return [
     '快捷键:',
     'Enter 发送命令',
-    'Ctrl+Enter 换行（终端支持时）/ Alt+Enter 换行（推荐 fallback）/ \\ + Enter 换行（通用 fallback）',
-    'Esc 中断/返回 / Ctrl+C 中断/退出 / Ctrl+D 空输入退出',
-    'Ctrl+L 强制重绘 / /model 模型选择 / Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
+    'Shift+Enter / Ctrl+Enter 换行 / Alt+Enter 运行中排队 follow-up / Alt+Up 恢复队列',
+    'Esc 运行中恢复队列并中断 / Ctrl+C 清空，双击退出 / Ctrl+D 空输入退出',
+    'Ctrl+L 模型选择 / Ctrl+P 前向模型 / Shift+Ctrl+P 反向模型 / Ctrl+O 全局工具详情',
     'Ctrl+A / Home 行首 / Ctrl+E / End 行尾',
     'Ctrl+K 删除到行尾 / Ctrl+W / Ctrl+Backspace 删除前一词',
-    'Up/Down 或 Ctrl+P/Ctrl+N 历史输入',
+    'Up/Down 多行移动；空输入时浏览历史',
     'PageUp/PageDown 滚动记录',
     '',
     '换行说明:',
     '- Ctrl+Enter: 如终端支持 CSI u 或 SS3 编码',
-    '- Alt+Enter: 大多数终端支持，推荐 fallback',
+    '- Alt+Enter: 运行中排队 follow-up，空闲时发送',
     '- \\ + Enter: 通用方案，所有环境可用',
   ].join('\n');
 }
@@ -144,13 +144,13 @@ function hotkeysTextV2() {
   return [
     '快捷键:',
     'Enter: 发送；运行中 steer 当前任务',
-    'Alt+Enter: 非运行中换行；运行中排队 follow-up',
-    'Ctrl+Enter 或 \\ + Enter: 换行',
-    'Esc 中断/返回 / Ctrl+C 中断或退出 / Ctrl+D 空输入退出',
-    'Ctrl+L 强制重绘 / /model 模型选择 / Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
+    'Alt+Enter: 空闲时发送；运行中排队 follow-up / Alt+Up 恢复队列',
+    'Shift+Enter / Ctrl+Enter 或 \\ + Enter: 换行',
+    'Esc 运行中恢复队列并中断 / Ctrl+C 清空，双击退出 / Ctrl+D 空输入退出',
+    'Ctrl+L 模型选择 / Ctrl+P 前向模型 / Shift+Ctrl+P 反向模型 / Ctrl+O 全局工具详情',
     'Ctrl+A/Home 行首 / Ctrl+E/End 行尾',
     'Ctrl+K 删除到行尾 / Ctrl+W 或 Ctrl+Backspace 删除前一词',
-    'Up/Down 或 Ctrl+P/Ctrl+N 历史输入',
+    'Up/Down 多行移动；空输入时浏览历史',
     'PageUp/PageDown 滚动记录',
     'Tree: Ctrl+T 切换过滤模式',
   ].join('\n');
@@ -161,14 +161,17 @@ function hotkeysTextClean() {
     'Hotkeys:',
     `${keyHint('editor', 'submit')}: send; while running, steer current task`,
     `${keyHint('autocomplete', 'accept')}: accept autocomplete`,
-    `${keyHint('runningEditor', 'queueFollowUp')}: newline; while running, queue follow-up`,
+    `${keyHint('runningEditor', 'queueFollowUp')}: send while idle; while running, queue follow-up`,
     `${keyHint('editor', 'newline')} or \\ + Enter: newline fallback`,
     `${keyHint('editor', 'clearOrBack')}: abort/back`,
-    `${keyHint('global', 'abortOrExit')}: abort or exit`,
+    `${keyHint('global', 'clearOrExit')}: clear input; press twice to exit`,
     `${keyHint('global', 'exitIfEmpty')}: exit on empty input`,
-    `${keyHint('global', 'forceRedraw')}: force redraw`,
-    '/model: model selector',
-    `${keyHint('tool', 'toggleCurrentDetail')}: current tool detail viewer`,
+    `${keyHint('global', 'modelSelector')}: model selector`,
+    `${keyHint('global', 'nextModel')}/${keyHint('global', 'previousModel')}: cycle model`,
+    `${keyHint('global', 'thinkingLevel')}: cycle thinking level`,
+    `${keyHint('global', 'toggleThinking')}: collapse thinking`,
+    '/redraw: force redraw',
+    '/details: current tool detail viewer',
     `${keyHint('tool', 'toggleGlobalDetails')} or /more: inline all tool details`,
     `${keyHint('editor', 'historyPrev')}/${keyHint('editor', 'historyNext')}: history or list navigation`,
     `${keyHint('editor', 'pageUp')}/${keyHint('editor', 'pageDown')}: scroll and tool focus`,
@@ -360,12 +363,15 @@ function openCommandPanel(state) {
 function hotkeyDescription(namespace, action) {
   const descriptions = {
     global: {
-      abortOrExit: 'Abort current run or exit',
+      clearOrExit: 'Clear input or exit on repeat',
       exitIfEmpty: 'Exit when input is empty',
-      forceRedraw: 'Force full redraw without changing state',
+      modelSelector: 'Open model selector',
+      nextModel: 'Switch to next model',
+      previousModel: 'Switch to previous model',
+      thinkingLevel: 'Cycle thinking level',
+      toggleThinking: 'Collapse or expand thinking',
     },
     tool: {
-      toggleCurrentDetail: 'Open or close current tool detail viewer',
       toggleGlobalDetails: 'Toggle all tool details',
     },
     editor: {
@@ -582,10 +588,10 @@ function helpText() {
     commands,
     '! <shell command>',
     '',
-    '换行: Ctrl+Enter(终端支持时)/Alt+Enter(推荐)/\\+Enter(通用)',
-    '退出: Ctrl+C / Ctrl+D(空输入) / /exit',
-    '恢复: Ctrl+L 强制重绘',
-    '工具: Ctrl+O 当前工具详情 / Shift+Ctrl+O 或 /more 全局工具详情',
+    '换行: Shift+Enter / Ctrl+Enter / \\+Enter',
+    '退出: Ctrl+C 双击 / Ctrl+D(空输入) / /exit',
+    '恢复: Alt+Up 恢复队列 / /redraw 强制重绘',
+    '工具: Ctrl+O 或 /more 全局工具详情 / /details Viewer',
     '滚动: PageUp / PageDown',
     '',
     brandMotto(),

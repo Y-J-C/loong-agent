@@ -9,6 +9,7 @@ function chars(text) {
 function setInput(state, text) {
   state.inputBuffer = String(text || '');
   state.cursor = chars(state.inputBuffer).length;
+  state.preferredColumn = null;
   state.pasteCount = 0;
   state.pasteActive = false;
   state.pasteBuffer = '';
@@ -22,6 +23,7 @@ function insertText(state, text) {
   list.splice(state.cursor, 0, ...chars(text));
   state.inputBuffer = list.join('');
   state.cursor += chars(text).length;
+  state.preferredColumn = null;
 }
 
 function backspace(state) {
@@ -30,11 +32,13 @@ function backspace(state) {
   list.splice(state.cursor - 1, 1);
   state.inputBuffer = list.join('');
   state.cursor -= 1;
+  state.preferredColumn = null;
 }
 
 function deleteToEnd(state) {
   const list = chars(state.inputBuffer);
   state.inputBuffer = list.slice(0, state.cursor).join('');
+  state.preferredColumn = null;
 }
 
 function deleteWordBackward(state) {
@@ -46,14 +50,17 @@ function deleteWordBackward(state) {
   list.splice(index, state.cursor - index);
   state.inputBuffer = list.join('');
   state.cursor = index;
+  state.preferredColumn = null;
 }
 
 function moveLeft(state) {
   state.cursor = Math.max(0, state.cursor - 1);
+  state.preferredColumn = null;
 }
 
 function moveRight(state) {
   state.cursor = Math.min(chars(state.inputBuffer).length, state.cursor + 1);
+  state.preferredColumn = null;
 }
 
 function moveWordLeft(state) {
@@ -62,6 +69,7 @@ function moveWordLeft(state) {
   while (index > 0 && /\s/.test(list[index - 1])) index -= 1;
   while (index > 0 && !/\s/.test(list[index - 1])) index -= 1;
   state.cursor = index;
+  state.preferredColumn = null;
 }
 
 function moveWordRight(state) {
@@ -70,11 +78,49 @@ function moveWordRight(state) {
   while (index < list.length && /\s/.test(list[index])) index += 1;
   while (index < list.length && !/\s/.test(list[index])) index += 1;
   state.cursor = index;
+  state.preferredColumn = null;
+}
+
+function lineCursorPosition(state) {
+  const list = chars(state.inputBuffer);
+  const cursor = Math.max(0, Math.min(list.length, Number(state.cursor) || 0));
+  let line = 0;
+  let lineStart = 0;
+  const starts = [0];
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index] === '\n') starts.push(index + 1);
+  }
+  for (let si = 0; si < starts.length; si += 1) {
+    if (starts[si] > cursor) break;
+    line = si;
+    lineStart = starts[si];
+  }
+  let lineEnd = list.indexOf('\n', lineStart);
+  if (lineEnd < 0) lineEnd = list.length;
+  return { list, starts, line, lineStart, lineEnd, column: cursor - lineStart };
+}
+
+function moveVertical(state, direction) {
+  const position = lineCursorPosition(state);
+  const targetLine = position.line + direction;
+  if (targetLine < 0 || targetLine >= position.starts.length) return false;
+  const preferred = state.preferredColumn === null || state.preferredColumn === undefined
+    ? position.column
+    : state.preferredColumn;
+  const targetStart = position.starts[targetLine];
+  let targetEnd = position.list.indexOf('\n', targetStart);
+  if (targetEnd < 0) targetEnd = position.list.length;
+  state.preferredColumn = preferred;
+  state.cursor = targetStart + Math.min(preferred, targetEnd - targetStart);
+  return true;
 }
 
 function historyUp(state) {
   if (!state.history.length) return;
-  if (state.historyIndex < 0) state.historyIndex = state.history.length - 1;
+  if (state.historyIndex < 0) {
+    state.historyDraft = state.inputBuffer || '';
+    state.historyIndex = state.history.length - 1;
+  }
   else state.historyIndex = Math.max(0, state.historyIndex - 1);
   setInput(state, state.history[state.historyIndex]);
 }
@@ -84,7 +130,8 @@ function historyDown(state) {
   state.historyIndex += 1;
   if (state.historyIndex >= state.history.length) {
     state.historyIndex = -1;
-    setInput(state, '');
+    setInput(state, state.historyDraft || '');
+    state.historyDraft = '';
     return;
   }
   setInput(state, state.history[state.historyIndex]);
@@ -127,6 +174,9 @@ function parseKey(buffer) {
     text === '\x1b[27;5;10~'
   ) return { type: 'ctrl_enter' };
   if (text === '\x1b\r' || text === '\x1b\n') return { type: 'alt_enter' };
+  if (text === '\x1b[13;2u' || text === '\x1b[10;2u' || text === '\x1b[27;2;13~') return { type: 'shift_enter' };
+  if (text === '\x1b[1;3A' || text === '\x1b[3A') return { type: 'alt_up' };
+  if (text === '\x1b[80;6u' || text === '\x1b[112;6u' || text === '\x1b[27;6;80~') return { type: 'shift_ctrl_p' };
   if (text === '\x1b[Z') return { type: 'shift_tab' };
   if (text === '\x1b') return { type: 'escape' };
   if (text === '\x1b[1;5D' || text === '\x1b[5D') return { type: 'ctrl_left' };
@@ -155,6 +205,14 @@ const KNOWN_KEY_SEQUENCES = [
   '\x1b[13;5u',
   '\x1b[10;5u',
   '\x1b[15;6u',
+  '\x1b[27;6;80~',
+  '\x1b[27;2;13~',
+  '\x1b[80;6u',
+  '\x1b[112;6u',
+  '\x1b[13;2u',
+  '\x1b[10;2u',
+  '\x1b[1;3A',
+  '\x1b[3A',
   '\x1b[1;5D',
   '\x1b[1;5C',
   '\x1b[3;5~',
@@ -336,7 +394,7 @@ function applyKey(state, key) {
     else backspace(state);
     return;
   }
-  if (key.type === 'ctrl_enter' || key.type === 'alt_enter') {
+  if (key.type === 'ctrl_enter' || key.type === 'shift_enter') {
     pushUndo(state);
     insertText(state, '\n');
     return;
@@ -354,8 +412,13 @@ function applyKey(state, key) {
   else if (key.type === 'right') moveRight(state);
   else if (key.type === 'ctrl_left') moveWordLeft(state);
   else if (key.type === 'ctrl_right') moveWordRight(state);
-  else if (key.type === 'up' || key.type === 'ctrl_p') historyUp(state);
-  else if (key.type === 'down' || key.type === 'ctrl_n') historyDown(state);
+  else if (key.type === 'up') {
+    if (!moveVertical(state, -1) && (!state.inputBuffer || state.historyIndex >= 0)) historyUp(state);
+  }
+  else if (key.type === 'down') {
+    if (!moveVertical(state, 1) && state.historyIndex >= 0) historyDown(state);
+  }
+  else if (key.type === 'ctrl_n' && state.historyIndex >= 0) historyDown(state);
   else if (key.type === 'ctrl_a' || key.type === 'home') state.cursor = 0;
   else if (key.type === 'ctrl_e' || key.type === 'end') state.cursor = chars(state.inputBuffer).length;
   else if (key.type === 'page_up') scrollByPages(state, -1);

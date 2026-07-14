@@ -96,6 +96,8 @@ function createFakeSession(sessionInfo) {
   var session = {
     prompts: [],
     aborts: 0,
+    steering: [],
+    followUps: [],
     subscribe: function(fn) {
       subscribers.push(fn);
       return function() {
@@ -104,6 +106,9 @@ function createFakeSession(sessionInfo) {
     },
     prompt: function(text) {
       session.prompts.push(text);
+      if (text === 'hold') {
+        return new Promise(function(resolve) { session.resolveHold = resolve; });
+      }
       if (text === 'tool') {
         subscribers.forEach(function(fn) {
           fn({ type: 'tool_execution_start', toolName: 'bash', toolCallId: 'call-1', callSummary: 'run bash' });
@@ -166,9 +171,20 @@ function createFakeSession(sessionInfo) {
     },
     steer: function(text) {
       session.steerText = text;
+      session.steering.push(text);
     },
     followUp: function(text) {
       session.followText = text;
+      session.followUps.push(text);
+    },
+    getQueueInfo: function() {
+      return { steering: session.steering.slice(), followUps: session.followUps.slice() };
+    },
+    clearQueues: function() {
+      var result = { steering: session.steering.slice(), followUps: session.followUps.slice() };
+      session.steering = [];
+      session.followUps = [];
+      return result;
     },
     abort: function() {
       session.aborts += 1;
@@ -236,9 +252,9 @@ async function main() {
   terminal.inputHandler('x');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.inputBuffer, 'hix', 'text input reaches runner through TUI dispatcher');
-  terminal.inputHandler('\x1b');
+  terminal.inputHandler('\x03');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  equal(capturedState.inputBuffer, '', 'escape clears non-empty input through TUI dispatcher');
+  equal(capturedState.inputBuffer, '', 'first ctrl+c clears non-empty input through TUI dispatcher');
 
   terminal.inputHandler('/');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
@@ -296,6 +312,47 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(fakeSession.prompts[0], 'hi', 'enter submits prompt');
   ok(terminal.output.indexOf('reply: hi') >= 0, 'agent event renders reply');
+
+  'hold'.split('').forEach(function(char) { terminal.inputHandler(char); });
+  terminal.inputHandler('\r');
+  await waitFor(function() { return capturedState.mode === 'running'; }, 1000);
+  'steer now'.split('').forEach(function(char) { terminal.inputHandler(char); });
+  terminal.inputHandler('\r');
+  await waitFor(function() { return fakeSession.steering.length === 1; }, 1000);
+  'follow later'.split('').forEach(function(char) { terminal.inputHandler(char); });
+  terminal.inputHandler('\x1b\r');
+  await waitFor(function() { return fakeSession.followUps.length === 1; }, 1000);
+  equal(capturedState.queuedSteering[0], 'steer now', 'running Enter queues steering through Agent Session');
+  equal(capturedState.queuedFollowUps[0], 'follow later', 'running Alt+Enter queues follow-up through Agent Session');
+  ok(terminal.output.indexOf('Steering: steer now') >= 0, 'steering queue renders above editor');
+  ok(terminal.output.indexOf('Follow-up: follow later') >= 0, 'follow-up queue renders above editor');
+  terminal.inputHandler('\x1b[1;3A');
+  await waitFor(function() { return capturedState.inputBuffer.indexOf('follow later') >= 0; }, 1000);
+  equal(capturedState.inputBuffer, 'steer now\n\nfollow later', 'Alt+Up restores queues in delivery order');
+  equal(fakeSession.steering.length + fakeSession.followUps.length, 0, 'Alt+Up clears Agent Session queues');
+  ok(!capturedState.messages.some(function(message) {
+    return String(message.text || '').indexOf('steer current run') >= 0;
+  }), 'queue actions do not add internal workflow messages to transcript');
+  terminal.inputHandler('\x15');
+  fakeSession.resolveHold({ summary: 'held prompt done' });
+  await waitFor(function() { return capturedState.mode === 'idle'; }, 1000);
+
+  'hold'.split('').forEach(function(char) { terminal.inputHandler(char); });
+  terminal.inputHandler('\r');
+  await waitFor(function() { return capturedState.mode === 'running'; }, 1000);
+  'abort steer'.split('').forEach(function(char) { terminal.inputHandler(char); });
+  terminal.inputHandler('\r');
+  'abort follow'.split('').forEach(function(char) { terminal.inputHandler(char); });
+  terminal.inputHandler('\x1b\r');
+  await waitFor(function() { return fakeSession.steering.length === 1 && fakeSession.followUps.length === 1; }, 1000);
+  terminal.inputHandler('\x1b');
+  await waitFor(function() { return fakeSession.aborts === 1; }, 1000);
+  equal(capturedState.inputBuffer, 'abort steer\n\nabort follow', 'Esc restores queued messages before abort');
+  equal(fakeSession.steering.length + fakeSession.followUps.length, 0, 'Esc clears restored Agent Session queues');
+  equal(fakeSession.aborts, 1, 'Esc requests abort exactly once');
+  terminal.inputHandler('\x15');
+  fakeSession.resolveHold({ summary: 'aborted hold done' });
+  await waitFor(function() { return capturedState.mode === 'idle'; }, 1000);
 
   terminal.inputHandler('a');
   terminal.inputHandler('p');
@@ -359,7 +416,7 @@ async function main() {
   for (var msgIndex = 0; msgIndex < 20; msgIndex += 1) {
     capturedState.messages.push({ type: 'system', text: 'scroll line ' + msgIndex });
   }
-  terminal.inputHandler('\x0c');
+  terminal.inputHandler('/redraw\r');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   equal(capturedState.lastRender.runtimeAppendStream, true, 'runner records default append-stream mode');
   equal(capturedState.lastRender.messageLimit, 300, 'runner records TUI message limit');
@@ -504,7 +561,7 @@ async function main() {
   for (var legacyMsgIndex = 0; legacyMsgIndex < 20; legacyMsgIndex += 1) {
     legacyScrollState.messages.push({ type: 'system', text: 'legacy scroll line ' + legacyMsgIndex });
   }
-  legacyScrollTerminal.inputHandler('\x0c');
+  legacyScrollTerminal.inputHandler('/redraw\r');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   legacyScrollTerminal.inputHandler('\x1b[5~');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
@@ -520,21 +577,47 @@ async function main() {
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
   terminal.inputHandler('\x0f');
   await new Promise(function(resolve) { setTimeout(resolve, 60); });
-  equal(capturedState.activePanel && capturedState.activePanel.type, 'tool_detail', 'ctrl+o opens tool detail viewer');
+  equal(capturedState.expandedTools, true, 'ctrl+o enables global tool detail expansion');
+  ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'ctrl+o expands tool detail in message list');
+  terminal.inputHandler('/details\r');
+  await waitFor(function() { return capturedState.activePanel && capturedState.activePanel.type === 'tool_detail'; }, 2000);
+  equal(capturedState.activePanel && capturedState.activePanel.type, 'tool_detail', '/details opens tool detail viewer');
   ok((capturedState.activePanel && capturedState.activePanel.lines || []).join('\n').indexOf('tool hidden detail') >= 0, 'tool detail viewer keeps result detail');
-  ok(!capturedState.messages.some(function(message) {
-    return message.type === 'tool' && message.expanded;
-  }), 'ctrl+o viewer does not also expand the message inline');
-  terminal.inputHandler('\x0f');
+  terminal.inputHandler('\x1b');
   await waitFor(function() { return capturedState.activePanel === null; }, 2000);
-  equal(capturedState.activePanel, null, 'second ctrl+o closes tool detail viewer');
-  terminal.inputHandler('\x1b[15;6u');
-  await waitFor(function() { return capturedState.expandedTools === true; }, 2000);
-  equal(capturedState.expandedTools, true, 'shift+ctrl+o enables global tool detail expansion');
-  ok(terminal.output.indexOf('detail:') >= 0 && terminal.output.indexOf('tool hidden detail') >= 0, 'shift+ctrl+o expands tool detail in message list');
-  terminal.inputHandler('\x0c');
+  terminal.inputHandler('/redraw\r');
   await new Promise(function(resolve) { setTimeout(resolve, 10); });
-  ok(terminal.output.length > 0, 'ctrl+l redraw keeps output available');
+  ok(terminal.output.length > 0, '/redraw keeps output available');
+
+  terminal.inputHandler('\x0c');
+  await waitFor(function() { return capturedState.activePanel && capturedState.activePanel.type === 'model'; }, 1000);
+  equal(capturedState.activePanel && capturedState.activePanel.type, 'model', 'ctrl+l opens model selector');
+  terminal.inputHandler('\x1b');
+  await waitFor(function() { return capturedState.activePanel === null && capturedState.lastRender.overlayVisible === false; }, 1000);
+  await new Promise(function(resolve) { setTimeout(resolve, 60); });
+  var thinkingVisibleBefore = capturedState.thinkingVisible;
+  terminal.inputHandler('\x14');
+  await new Promise(function(resolve) { setTimeout(resolve, 30); });
+  equal(capturedState.thinkingVisible, !thinkingVisibleBefore, 'ctrl+t toggles thinking visibility');
+  var thinkingLevelBefore = capturedState.thinkingLevel;
+  terminal.inputHandler('\x1b[Z');
+  await waitFor(function() { return /not supported/.test(capturedState.status); }, 1000);
+  equal(capturedState.thinkingLevel, thinkingLevelBefore, 'shift+tab does not change thinking for unsupported model');
+  ok(/not supported/.test(capturedState.status), 'unsupported thinking shortcut records a short status');
+  var modelBeforeCycle = capturedState.model;
+  terminal.inputHandler('\x10');
+  await waitFor(function() { return capturedState.model !== modelBeforeCycle; }, 1000);
+  var modelAfterForward = capturedState.model;
+  terminal.inputHandler('\x1b[80;6u');
+  await waitFor(function() { return capturedState.model !== modelAfterForward; }, 1000);
+  ok(capturedState.model !== modelAfterForward, 'shift+ctrl+p cycles model backward');
+
+  terminal.inputHandler('/board\r');
+  await waitFor(function() { return capturedState.activePanel && capturedState.activePanel.type === 'board_status'; }, 1000);
+  equal(capturedState.activePanel && capturedState.activePanel.type, 'board_status', '/board opens compact snapshot panel');
+  ok((capturedState.activePanel.lines || []).join('\n').indexOf('arch=') >= 0, '/board panel keeps architecture status');
+  terminal.inputHandler('\x1b');
+  await waitFor(function() { return capturedState.activePanel === null; }, 1000);
 
   if (capturedState.activePanel) {
     terminal.inputHandler('\x1b');
@@ -543,8 +626,22 @@ async function main() {
   terminal.inputHandler('\x04');
   var result = await withTimeout(resultPromise, 5000, 'Runtime Next runner did not exit after Ctrl+D');
   ok(terminal.stopped, 'terminal stops');
-  ok(capturedState.lastRender.diffResetCount > 0, 'ctrl+l redraw is recorded');
+  ok(capturedState.lastRender.diffResetCount > 0, '/redraw is recorded');
   equal(result.nonTty, false, 'runner resolves interactive result');
+
+  var exitTerminal = new FakeTerminal();
+  var exitPromise = runRuntimeNextTui({ workspace: workspace, provider: 'mock', model: 'm' }, {
+    terminal: exitTerminal,
+    createAgentSession: function() { return createFakeSession(); },
+    skipBoardStatus: true,
+  });
+  exitTerminal.inputHandler('x');
+  exitTerminal.inputHandler('\x03');
+  await waitFor(function() { return exitTerminal.stopped === false; }, 100);
+  equal(exitTerminal.stopped, false, 'first ctrl+c clears editor without exiting');
+  exitTerminal.inputHandler('\x03');
+  await withTimeout(exitPromise, 1000, 'double Ctrl+C did not exit');
+  equal(exitTerminal.stopped, true, 'second ctrl+c within 500ms exits');
   fs.rmSync(workspace, { recursive: true, force: true });
 
   console.log(pass + '/' + (pass + fail) + ' passed');

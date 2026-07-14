@@ -59,6 +59,7 @@ function normalizeCompletionResult(result, config, options) {
     thinkingLevel: config.thinkingLevel || 'off',
     nativeThinking: Boolean(result && typeof result === 'object' && result.nativeThinking),
     reasoningContentAvailable: Boolean(result && typeof result === 'object' && result.reasoningContentAvailable),
+    reasoningContent: result && typeof result === 'object' ? String(result.reasoningContent || '') : '',
     streaming: Boolean(options && options.streaming),
     fallbackUsed: Boolean(options && options.fallbackUsed),
     streamStatus:
@@ -114,6 +115,8 @@ async function chatCompletionWithEvents(config, messages, callbacks) {
     temperature: 0.2,
     isAborted: callbacks && callbacks.isAborted,
     onDelta: callbacks && callbacks.onDelta,
+    onReasoningDelta: callbacks && callbacks.onReasoningDelta,
+    onReasoningComplete: callbacks && callbacks.onReasoningComplete,
   };
   if (!streamingEnabled(config) || typeof provider.streamChatCompletion !== 'function') {
     const result = await provider.chatCompletion(config, messages, options);
